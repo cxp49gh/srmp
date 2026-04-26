@@ -129,37 +129,222 @@ curl http://localhost:8080/api/health
 
 ---
 
+## 实施阶段
+
+| 阶段 | 内容 | 状态 |
+|------|------|------|
+| 阶段一 | 基础骨架搭建 | ✅ 已完成 |
+| 阶段二 | 道路资产 CRUD + GIS 图层接口 | ✅ 已完成（路线/路段/评定单元 CRUD、GIS 路线/路段/评定单元图层、桩号定位） |
+| 阶段二（续） | 病害 GIS 图层 + 评定结果 GIS 图层 | 📋 待开始 |
+| 阶段三 | 数据导入模块 | 📋 待开始 |
+| 阶段四 | GIS 一张图完善 | 📋 待开始 |
+| 阶段五 | AI 大模型接入 | 📋 待开始 |
+
+---
+
+## 多租户
+
+所有请求需携带 `X-Tenant-Id` 请求头：
+
+```http
+X-Tenant-Id: default
+```
+
+所有业务表均含 `tenant_id` 字段，查询时自动按租户隔离。核心表唯一约束包含 `tenant_id`：
+
+```sql
+UNIQUE(tenant_id, route_code)
+UNIQUE(tenant_id, section_code)
+UNIQUE(tenant_id, unit_code)
+```
+
+---
+
+## 道路资产 API
+
+### 路线管理
+
+```http
+POST   /api/road-routes/page        # 分页查询
+GET    /api/road-routes/{id}         # 详情
+POST   /api/road-routes              # 新增
+PUT    /api/road-routes/{id}         # 更新
+DELETE /api/road-routes/{id}         # 删除
+```
+
+**新增路线示例：**
+
+```http
+POST /api/road-routes
+Content-Type: application/json
+X-Tenant-Id: default
+```
+
+```json
+{
+  "routeCode": "G210",
+  "routeName": "G210示例路线",
+  "routeType": "NATIONAL_HIGHWAY",
+  "technicalGrade": "FIRST_CLASS",
+  "startStake": 0,
+  "endStake": 10,
+  "lengthKm": 10,
+  "geomWkt": "LINESTRING(106.630 26.650,106.720 26.710)"
+}
+```
+
+### 路段管理
+
+```http
+POST   /api/road-sections/page
+GET    /api/road-sections/{id}
+POST   /api/road-sections
+PUT    /api/road-sections/{id}
+DELETE /api/road-sections/{id}
+```
+
+### 评定单元管理
+
+```http
+POST   /api/evaluation-units/page
+GET    /api/evaluation-units/{id}
+POST   /api/evaluation-units
+PUT    /api/evaluation-units/{id}
+DELETE /api/evaluation-units/{id}
+```
+
+### 桩号定位
+
+```http
+GET /api/road-assets/stake-location?routeCode=G210&direction=BOTH&stake=0.5
+X-Tenant-Id: default
+```
+
+---
+
+## GIS 图层 API
+
+### 可用图层
+
+```http
+GET /api/gis/layers
+```
+
+返回：`["ROAD_ROUTE", "ROAD_SECTION", "EVALUATION_UNIT", "DISEASE", "ASSESSMENT", "INSPECTION_TRACK"]`
+
+### 路线图层
+
+```http
+GET /api/gis/road-routes?routeCode=G210
+X-Tenant-Id: default
+```
+
+返回 GeoJSON：
+
+```json
+{
+  "type": "FeatureCollection",
+  "features": [{
+    "id": "xxx",
+    "geometry": {
+      "type": "LineString",
+      "coordinates": [[106.630, 26.650], [106.720, 26.710]]
+    },
+    "properties": {
+      "objectType": "ROAD_ROUTE",
+      "routeCode": "G210",
+      "routeName": "G210示例路线",
+      "startStake": 0,
+      "endStake": 10,
+      "lengthKm": 10
+    }
+  }]
+}
+```
+
+### 路段图层
+
+```http
+GET /api/gis/road-sections?routeCode=G210
+```
+
+### 评定单元图层
+
+```http
+GET /api/gis/evaluation-units?routeCode=G210
+```
+
+---
+
+## 空间字段说明
+
+### WKT 格式
+
+请求时传入 `geomWkt`（非数据库字段，仅用于接收参数）：
+
+```
+LINESTRING(经度 纬度, 经度 纬度, ...)
+```
+
+坐标系固定为 **EPSG:4326**，坐标顺序为 **经度 纬度**。
+
+### 入库转换
+
+MyBatis Mapper 使用 PostGIS 函数转换：
+
+```xml
+ST_GeomFromText(#{geomWkt}, 4326)
+```
+
+### 出库转换
+
+```xml
+ST_AsGeoJSON(geom) AS geom_geo_json
+```
+
+### 更新行为
+
+更新接口若不传 `geomWkt`，不会覆盖原有空间字段：
+
+```xml
+<if test="geomWkt != null and geomWkt != ''">
+  , geom=ST_GeomFromText(#{geomWkt}, 4326)
+</if>
+```
+
+---
+
 ## 核心功能
 
 ### GIS 一张图
 
 - 路线、路段、评定单元空间展示
-- 病害点、线、面分布展示
-- 巡检轨迹上图
-- 按 MQI/PQI/PCI 等渲染路况专题图
-- 空间查询（框选、圈选、多边形）
+- 病害点、线、面分布展示（待实现）
+- 巡检轨迹上图（待实现）
+- 按 MQI/PQI/PCI 等渲染路况专题图（待实现）
+- 空间查询（框选、圈选、多边形）（待实现）
 - 桩号定位
 
 ### 道路资产
 
 - 路线、路段、评定单元三级管理
 - 空间线形（geom）维护
-- 多格式数据导入（Excel、GeoJSON、WKT）
+- 多格式数据导入（待实现）
 
 ### 数据导入
 
-- Excel / CSV / GeoJSON / WKT / Shapefile
-- 字段映射配置
-- 数据校验与错误日志
-- 导入预览与确认入库
+- Excel / CSV / GeoJSON / WKT / Shapefile（待实现）
+- 字段映射配置（待实现）
+- 数据校验与错误日志（待实现）
+- 导入预览与确认入库（待实现）
 
 ### AI 大模型分析
 
-- 自然语言路况问答
-- 病害热点分析
-- 养护建议生成
-- 自动报告生成
-- 地图联动高亮
+- 自然语言路况问答（待实现）
+- 病害热点分析（待实现）
+- 养护建议生成（待实现）
+- 自动报告生成（待实现）
+- 地图联动高亮（待实现）
 
 ### 指标体系
 
@@ -181,7 +366,7 @@ curl http://localhost:8080/api/health
 | 模块 | 路由前缀 |
 |------|---------|
 | 登录认证 | `/api/auth/**` |
-| 道路资产 | `/api/road-routes/**`、`/api/road-sections/**`、`/api/evaluation-units/**` |
+| 道路资产 | `/api/road-routes/**`、`/api/road-sections/**`、`/api/evaluation-units/**`、`/api/road-assets/**` |
 | 巡检任务 | `/api/inspection-tasks/**`、`/api/inspection-tracks/**` |
 | 病害管理 | `/api/disease-types/**`、`/api/diseases/**` |
 | 评定结果 | `/api/assessment-results/**`、`/api/index-results/**` |
@@ -193,18 +378,6 @@ curl http://localhost:8080/api/health
 
 ---
 
-## 实施阶段
-
-| 阶段 | 内容 | 状态 |
-|------|------|------|
-| 阶段一 | 基础骨架搭建 | ✅ 已完成 |
-| 阶段二 | 基础数据与道路资产落地 | 🚧 进行中 |
-| 阶段三 | 数据导入模块 | 📋 待开始 |
-| 阶段四 | GIS 一张图 | 📋 待开始 |
-| 阶段五 | AI 大模型接入 | 📋 待开始 |
-
----
-
 ## 文档
 
 更多设计文档位于 `docs/` 目录：
@@ -213,7 +386,8 @@ curl http://localhost:8080/api/health
 - `smartroad_phase1_module_skeleton.md` — 系统模块拆分与骨架设计
 - `smartroad_phase1_database_design.md` — 一期数据库设计
 - `smartroad_next_step_phase2_plan.md` — 下一步实施计划
-- `SRMP项目概述.md` — 项目完整概述（综合所有文档）
+- `phase2-road-asset-gis-usage.md` — 阶段二道路资产与 GIS 图层接口使用说明
+- `SRMP项目概述.md` — 项目完整概述
 
 ---
 
@@ -310,6 +484,27 @@ curl http://localhost:8080/api/health
     <host>127.0.0.1</host>
     <port>7890</port>
 </proxy>
+```
+
+### MyBatis Mapper 注入失败
+
+**问题：** `Error creating bean... Injection of resource dependencies failed... NoSuchBeanDefinitionException`
+
+**原因：** `@MapperScan` 缺失，MyBatis Plus 无法扫描到 Mapper 接口，导致 `RoadRouteMapper`、`RoadSectionMapper` 等未被注册为 Spring Bean。
+
+**修复：** 在 `MybatisPlusConfig` 上添加 `@MapperScan`：
+
+```java
+@Configuration
+@MapperScan("com.smartroad.srmp.**.mapper")
+public class MybatisPlusConfig {
+    @Bean
+    public MybatisPlusInterceptor mybatisPlusInterceptor() {
+        MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
+        interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.POSTGRE_SQL));
+        return interceptor;
+    }
+}
 ```
 
 ---
