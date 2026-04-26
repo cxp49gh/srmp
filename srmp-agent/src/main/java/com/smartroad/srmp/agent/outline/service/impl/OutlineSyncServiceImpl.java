@@ -23,7 +23,7 @@ import java.util.*;
 public class OutlineSyncServiceImpl implements OutlineSyncService {
 
     @Resource private OutlineProperties properties;
-    @Resource private NamedParameterJdbcTemplate jdbcTemplate;
+    @Resource private NamedParameterJdbcTemplate namedParameterJdbcTemplate;
     @Resource private TextChunkSplitter textChunkSplitter;
 
     private final RestTemplate restTemplate = new RestTemplate();
@@ -99,7 +99,7 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("tenantId", TenantContextHolder.getTenantId())
                 .addValue("limit", normalizeTaskLimit(limit));
-        return jdbcTemplate.queryForList(
+        return namedParameterJdbcTemplate.queryForList(
                 "select id, tenant_id, collection_id, collection_name, sync_mode, status, total_count, success_count, skip_count, fail_count, error_message, started_at, finished_at, created_at " +
                         "from outline_sync_task where tenant_id=:tenantId order by created_at desc limit :limit",
                 params);
@@ -110,7 +110,7 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("tenantId", TenantContextHolder.getTenantId())
                 .addValue("id", id);
-        List<Map<String, Object>> list = jdbcTemplate.queryForList(
+        List<Map<String, Object>> list = namedParameterJdbcTemplate.queryForList(
                 "select id, tenant_id, collection_id, collection_name, sync_mode, status, total_count, success_count, skip_count, fail_count, error_message, started_at, finished_at, created_at " +
                         "from outline_sync_task where tenant_id=:tenantId and id=:id",
                 params);
@@ -130,14 +130,14 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
 
         MapSqlParameterSource find = new MapSqlParameterSource()
                 .addValue("tenantId", tenantId).addValue("sourceType", "OUTLINE").addValue("sourceId", sourceId);
-        List<Map<String, Object>> exists = jdbcTemplate.queryForList(
+        List<Map<String, Object>> exists = namedParameterJdbcTemplate.queryForList(
                 "select id, content_hash from knowledge_document where tenant_id=:tenantId and source_type=:sourceType and source_id=:sourceId and deleted=false",
                 find);
 
         if (!force && !exists.isEmpty() && hash.equals(String.valueOf(exists.get(0).get("content_hash")))) return false;
 
         if (exists.isEmpty()) {
-            jdbcTemplate.update(
+            namedParameterJdbcTemplate.update(
                     "insert into knowledge_document(id, tenant_id, source_type, source_id, title, doc_type, category, content_hash, url, status, synced_at, created_at, updated_at, deleted) " +
                             "values(:id,:tenantId,'OUTLINE',:sourceId,:title,'MARKDOWN','OUTLINE_DOC',:hash,:url,'ENABLED',now(),now(),now(),false)",
                     new MapSqlParameterSource().addValue("id", documentId).addValue("tenantId", tenantId)
@@ -145,7 +145,7 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
                             .addValue("hash", hash).addValue("url", doc.getUrl()));
         } else {
             documentId = String.valueOf(exists.get(0).get("id"));
-            jdbcTemplate.update(
+            namedParameterJdbcTemplate.update(
                     "update knowledge_document set title=:title, content_hash=:hash, url=:url, synced_at=now(), updated_at=now() where tenant_id=:tenantId and id=:id",
                     new MapSqlParameterSource().addValue("id", documentId).addValue("tenantId", tenantId)
                             .addValue("title", safe(doc.getTitle(), "未命名 Outline 文档")).addValue("hash", hash).addValue("url", doc.getUrl()));
@@ -155,11 +155,11 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
     }
 
     private void refreshChunks(String tenantId, String documentId, String content, String sourceUrl) {
-        jdbcTemplate.update("delete from knowledge_chunk where tenant_id=:tenantId and document_id=:documentId",
+        namedParameterJdbcTemplate.update("delete from knowledge_chunk where tenant_id=:tenantId and document_id=:documentId",
                 new MapSqlParameterSource().addValue("tenantId", tenantId).addValue("documentId", documentId));
         int no = 1;
         for (String chunk : textChunkSplitter.split(content)) {
-            jdbcTemplate.update(
+            namedParameterJdbcTemplate.update(
                     "insert into knowledge_chunk(id, tenant_id, document_id, chunk_no, heading, content, content_tokens, source_type, source_url, metadata, created_at, updated_at, deleted) " +
                             "values(:id,:tenantId,:documentId,:chunkNo,:heading,:content,:tokens,'OUTLINE',:sourceUrl,'{}'::jsonb,now(),now(),false)",
                     new MapSqlParameterSource().addValue("id", uuid()).addValue("tenantId", tenantId).addValue("documentId", documentId)
@@ -169,7 +169,7 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
     }
 
     private void insertTask(String taskId, String tenantId, String collectionId) {
-        jdbcTemplate.update(
+        namedParameterJdbcTemplate.update(
                 "insert into outline_sync_task(id, tenant_id, collection_id, collection_name, sync_mode, status, total_count, success_count, skip_count, fail_count, started_at, created_at) " +
                         "values(:id,:tenantId,:collectionId,:collectionName,'COLLECTION','RUNNING',0,0,0,0,now(),now())",
                 new MapSqlParameterSource().addValue("id", taskId).addValue("tenantId", tenantId)
@@ -177,7 +177,7 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
     }
 
     private void updateTask(String taskId, int total, int success, int skipped, int failed, String status, String error) {
-        jdbcTemplate.update(
+        namedParameterJdbcTemplate.update(
                 "update outline_sync_task set total_count=:total, success_count=:success, skip_count=:skipped, fail_count=:failed, status=:status, error_message=:error, finished_at=now() " +
                         "where tenant_id=:tenantId and id=:id",
                 new MapSqlParameterSource().addValue("id", taskId).addValue("tenantId", TenantContextHolder.getTenantId())
