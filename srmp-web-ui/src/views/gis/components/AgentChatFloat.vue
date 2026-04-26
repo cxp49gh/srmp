@@ -9,10 +9,16 @@
         <button type="button" @click="$emit('update:visible', false)">×</button>
       </div>
 
+      <div class="option-row">
+        <el-checkbox v-model="options.useBusinessData">业务数据</el-checkbox>
+        <el-checkbox v-model="options.useKnowledge">知识库</el-checkbox>
+        <el-checkbox v-model="options.useOutline">Outline</el-checkbox>
+      </div>
+
       <div class="quick-list">
         <button type="button" @click="quickAsk('分析当前路线整体路况')">分析路线</button>
         <button type="button" @click="quickAsk('找出次差路段')">次差路段</button>
-        <button type="button" @click="quickAsk('分析病害热点')">病害热点</button>
+        <button type="button" @click="quickAsk('解释 PCI 指标')">解释 PCI</button>
         <button type="button" @click="quickAsk('生成评定报告草稿')">报告草稿</button>
       </div>
 
@@ -21,6 +27,10 @@
           <div class="role">{{ item.role === 'user' ? '我' : 'AI' }}</div>
           <div class="content">{{ item.content }}</div>
         </div>
+      </div>
+
+      <div v-if="sourceSummary" class="source-summary">
+        {{ sourceSummary }}
       </div>
 
       <div class="input-row">
@@ -38,7 +48,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { chat } from '../../../api/agent'
 
 const props = defineProps<{
@@ -53,6 +63,15 @@ defineEmits<{
 const input = ref('')
 const loading = ref(false)
 const messages = ref<Array<{ role: 'user' | 'assistant'; content: string }>>([])
+const knowledgeSources = ref<any[]>([])
+const outlineSources = ref<any[]>([])
+
+const options = reactive({
+  useBusinessData: true,
+  useKnowledge: true,
+  useOutline: false,
+  topK: 5
+})
 
 const contextText = computed(() => {
   const query = props.context?.query || {}
@@ -61,6 +80,13 @@ const contextText = computed(() => {
   const year = query.year || '全部年度'
   const selectedText = selected?.objectType ? `｜已选 ${selected.objectType}` : ''
   return `${route}｜${year}${selectedText}`
+})
+
+const sourceSummary = computed(() => {
+  const k = knowledgeSources.value.length
+  const o = outlineSources.value.length
+  if (k === 0 && o === 0) return ''
+  return `引用来源：知识库 ${k} 条，Outline ${o} 条`
 })
 
 function quickAsk(text: string) {
@@ -77,11 +103,17 @@ async function send() {
   loading.value = true
 
   try {
-    const result = await chat({ message: text, context: props.context })
+    const result = await chat({
+      message: text,
+      context: props.context,
+      options
+    })
     messages.value.push({
       role: 'assistant',
       content: result?.answer || JSON.stringify(result)
     })
+    knowledgeSources.value = result?.data?.knowledgeSources || []
+    outlineSources.value = result?.data?.outlineSources || []
   } catch (error: any) {
     messages.value.push({
       role: 'assistant',
@@ -101,8 +133,8 @@ async function send() {
   z-index: 940;
   display: flex;
   flex-direction: column;
-  width: 360px;
-  height: 480px;
+  width: 380px;
+  height: 520px;
   padding: 12px;
   border: 1px solid rgba(226, 232, 240, 0.9);
   background: rgba(255, 255, 255, 0.97);
@@ -127,6 +159,12 @@ async function send() {
   font-size: 22px;
   color: #64748b;
   cursor: pointer;
+}
+
+.option-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 8px;
 }
 
 .quick-list {
@@ -173,6 +211,12 @@ async function send() {
 
 .message.user .content {
   background: #dbeafe;
+}
+
+.source-summary {
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 12px;
 }
 
 .input-row {

@@ -160,6 +160,7 @@ npm run dev
 | 阶段十二 | GIS一张图方案A轻量化布局 | ✅ 已完成（地图最大化，层/例/全图悬浮按钮，底部统计条，右下AI按钮，底部抽屉详情） |
 | 阶段十三 | AI知识库增强与Outline在线搜索 | ✅ 已完成（本地知识库RAG、Outline在线搜索、/api/agent/chat融合业务+知识+Outline） |
 | 阶段十四 | GIS一张图地图数据加载修复 | ✅ 已完成（修复压缩单行文件、恢复组件、补全图层加载逻辑、默认加载G210/2026） |
+| 阶段十五 | AI知识库前端管理与Outline接入页面 | ✅ 已完成（知识库/Outline API封装、AI问答/文档/检索页面、GIS浮窗增强） |
 
 ---
 
@@ -709,6 +710,7 @@ ST_AsGeoJSON(geom) AS geom_geo_json
 - `phase12-gis-layout-solution-a.md` — 阶段十二 GIS一张图方案A轻量化布局说明
 - `phase13-ai-knowledge-outline-usage.md` — 阶段十三 AI知识库增强与Outline在线搜索使用说明
 - `phase14-gis-onemap-load-fix.md` — 阶段十四 GIS一张图地图数据加载修复说明
+- `phase15-ai-knowledge-ui.md` — 阶段十五 AI知识库前端管理与Outline接入页面
 - `api-smoke-test.http` — API 冒烟测试 HTTP 文件
 - `SRMP项目概述.md` — 项目完整概述
 
