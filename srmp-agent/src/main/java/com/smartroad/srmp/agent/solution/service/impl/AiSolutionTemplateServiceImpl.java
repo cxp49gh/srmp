@@ -20,7 +20,7 @@ import java.util.*;
 public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService {
 
     @Resource
-    private NamedParameterJdbcTemplate jdbcTemplate;
+    private NamedParameterJdbcTemplate namedParameterJdbcTemplate;
 
     @Resource
     private TemplateVariableParser variableParser;
@@ -55,7 +55,7 @@ public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService 
                 .addValue("currentVersion", version)
                 .addValue("status", "ENABLED");
 
-        jdbcTemplate.update(
+        namedParameterJdbcTemplate.update(
                 "insert into ai_solution_template(" +
                         "id, tenant_id, template_code, template_name, solution_type, source_type, source_id, category, current_version, status, created_at, updated_at, deleted" +
                         ") values (" +
@@ -89,7 +89,7 @@ public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService 
                 .addValue("status", safe(query == null ? null : query.getStatus(), ""))
                 .addValue("limit", limit);
 
-        return jdbcTemplate.queryForList(
+        return namedParameterJdbcTemplate.queryForList(
                 "select id, tenant_id, template_code, template_name, solution_type, source_type, source_id, category, current_version, status, created_at, updated_at " +
                         "from ai_solution_template " +
                         "where tenant_id=:tenantId and deleted=false " +
@@ -107,7 +107,7 @@ public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService 
                 .addValue("tenantId", TenantContextHolder.getTenantId())
                 .addValue("id", id);
 
-        List<Map<String, Object>> list = jdbcTemplate.queryForList(
+        List<Map<String, Object>> list = namedParameterJdbcTemplate.queryForList(
                 "select t.id, t.tenant_id, t.template_code, t.template_name, t.solution_type, t.source_type, t.source_id, " +
                         "t.category, t.current_version, t.status, t.created_at, t.updated_at, v.content, v.variables, v.source_url " +
                         "from ai_solution_template t " +
@@ -125,7 +125,7 @@ public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService 
                 .addValue("tenantId", TenantContextHolder.getTenantId())
                 .addValue("templateId", templateId);
 
-        return jdbcTemplate.queryForList(
+        return namedParameterJdbcTemplate.queryForList(
                 "select id, tenant_id, template_id, version, content_hash, variables, source_url, published_at, created_at " +
                         "from ai_solution_template_version " +
                         "where tenant_id=:tenantId and template_id=:templateId order by created_at desc",
@@ -144,7 +144,7 @@ public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService 
                 .addValue("tenantId", tenantId)
                 .addValue("documentId", request.getKnowledgeDocumentId());
 
-        List<Map<String, Object>> docs = jdbcTemplate.queryForList(
+        List<Map<String, Object>> docs = namedParameterJdbcTemplate.queryForList(
                 "select d.id, d.title, d.source_type, d.source_id, d.url, " +
                         "coalesce(string_agg(c.content, E'\\n\\n' order by c.chunk_no), '') as content " +
                         "from knowledge_document d " +
@@ -181,7 +181,7 @@ public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService 
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("tenantId", TenantContextHolder.getTenantId())
                 .addValue("id", id);
-        jdbcTemplate.update(
+        namedParameterJdbcTemplate.update(
                 "update ai_solution_template set status='DISABLED', updated_at=now() where tenant_id=:tenantId and id=:id",
                 params
         );
@@ -206,7 +206,7 @@ public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService 
                 .addValue("variables", toJson(variables))
                 .addValue("sourceUrl", sourceUrl);
 
-        jdbcTemplate.update(
+        namedParameterJdbcTemplate.update(
                 "insert into ai_solution_template_version(" +
                         "id, tenant_id, template_id, version, content, content_hash, variables, source_url, published_at, created_at" +
                         ") values (" +
