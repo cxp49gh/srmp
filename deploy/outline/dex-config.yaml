@@ -1,0 +1,28 @@
+issuer: http://localhost:5556
+
+storage:
+  type: memory
+
+web:
+  http: 0.0.0.0:5556
+
+staticClients:
+  - id: outline
+    redirectURIs:
+      - "http://localhost:3000/auth/oidc.callback"
+    name: "Outline"
+    secret: outline-secret
+
+enablePasswordDB: true
+
+# 本地测试账号：
+# email: admin@example.com
+# password: password
+#
+# 如果登录失败，可重新生成 bcrypt：
+# docker run --rm httpd:2.4-alpine htpasswd -bnBC 10 "" password | tr -d ':\n'
+staticPasswords:
+  - email: "admin@example.com"
+    hash: "$2a$10$2b2K7H8TkgDBZx7A6X2CBukYo05DWolbswKK9l1hULICwhGQ/8mDe"
+    username: "admin"
+    userID: "11111111-1111-1111-1111-111111111111"

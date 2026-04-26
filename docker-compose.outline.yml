@@ -1,0 +1,75 @@
+version: "3.8"
+
+services:
+  outline:
+    image: outlinewiki/outline:latest
+    container_name: srmp-outline
+    env_file:
+      - ./deploy/outline/outline.env
+    ports:
+      - "3000:3000"
+    depends_on:
+      - outline-postgres
+      - outline-redis
+      - outline-minio
+      - outline-dex
+      - outline-createbuckets
+    restart: unless-stopped
+
+  outline-postgres:
+    image: postgres:15
+    container_name: srmp-outline-postgres
+    environment:
+      POSTGRES_USER: outline
+      POSTGRES_PASSWORD: outlinepass
+      POSTGRES_DB: outline
+    ports:
+      - "15432:5432"
+    volumes:
+      - ./deploy/outline/data/postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  outline-redis:
+    image: redis:7
+    container_name: srmp-outline-redis
+    ports:
+      - "16379:6379"
+    restart: unless-stopped
+
+  outline-minio:
+    image: minio/minio:RELEASE.2024-01-16T16-07-38Z
+    container_name: srmp-outline-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: outline
+      MINIO_ROOT_PASSWORD: outlinepass
+    ports:
+      - "19000:9000"
+      - "19001:9001"
+    volumes:
+      - ./deploy/outline/data/minio:/data
+    restart: unless-stopped
+
+  outline-createbuckets:
+    image: minio/mc:latest
+    container_name: srmp-outline-createbuckets
+    depends_on:
+      - outline-minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 8;
+      mc alias set local http://outline-minio:9000 outline outlinepass;
+      mc mb -p local/outline || true;
+      mc anonymous set download local/outline || true;
+      exit 0;
+      "
+
+  outline-dex:
+    image: dexidp/dex:v2.39.1
+    container_name: srmp-outline-dex
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    ports:
+      - "5556:5556"
+    volumes:
+      - ./deploy/outline/dex-config.yaml:/etc/dex/config.yaml
+    restart: unless-stopped
