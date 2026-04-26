@@ -1,4 +1,4 @@
-import axios, { AxiosError } from 'axios'
+import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 
 const request = axios.create({
@@ -6,7 +6,7 @@ const request = axios.create({
   timeout: 30000
 })
 
-request.interceptors.request.use((config) => {
+request.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   config.headers = config.headers || {}
   config.headers['X-Tenant-Id'] = import.meta.env.VITE_TENANT_ID || 'default'
   return config
@@ -16,9 +16,7 @@ request.interceptors.response.use(
   (response) => {
     const data = response.data
     if (data && typeof data.code !== 'undefined') {
-      if (data.code === 0) {
-        return data.data
-      }
+      if (data.code === 0) return data.data
       ElMessage.error(data.message || '请求失败')
       return Promise.reject(new Error(data.message || '请求失败'))
     }

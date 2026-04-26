@@ -5,27 +5,50 @@ import com.smartroad.srmp.common.core.R;
 import com.smartroad.srmp.disease.dto.DiseaseQueryDTO;
 import com.smartroad.srmp.gis.service.GisAssessmentLayerService;
 import com.smartroad.srmp.gis.service.GisDiseaseLayerService;
+import com.smartroad.srmp.gis.service.GisMapSupportService;
 import com.smartroad.srmp.gis.service.GisRoadAssetLayerService;
 import com.smartroad.srmp.gis.vo.GeoJsonFeatureCollectionVO;
-import com.smartroad.srmp.roadasset.dto.*;
-import org.springframework.web.bind.annotation.*;
+import com.smartroad.srmp.roadasset.dto.EvaluationUnitQueryDTO;
+import com.smartroad.srmp.roadasset.dto.RoadRouteQueryDTO;
+import com.smartroad.srmp.roadasset.dto.RoadSectionQueryDTO;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import javax.annotation.Resource;
 import java.util.Arrays;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/gis")
 public class GisMapController {
-    @Resource private GisRoadAssetLayerService roadAssetLayerService;
-    @Resource private GisDiseaseLayerService diseaseLayerService;
-    @Resource private GisAssessmentLayerService assessmentLayerService;
+
+    @Resource
+    private GisRoadAssetLayerService roadAssetLayerService;
+
+    @Resource
+    private GisDiseaseLayerService diseaseLayerService;
+
+    @Resource
+    private GisAssessmentLayerService assessmentLayerService;
+
+    @Resource
+    private GisMapSupportService gisMapSupportService;
 
     @GetMapping("/layers")
     public R<List<String>> layers() {
-        return R.ok(Arrays.asList("ROAD_ROUTE", "ROAD_SECTION", "EVALUATION_UNIT", "DISEASE", "ASSESSMENT", "INSPECTION_TRACK"));
+        return R.ok(Arrays.asList(
+                "ROAD_ROUTE",
+                "ROAD_SECTION",
+                "EVALUATION_UNIT",
+                "DISEASE",
+                "ASSESSMENT",
+                "INSPECTION_TRACK"
+        ));
     }
 
     @GetMapping("/road-routes")
@@ -54,25 +77,17 @@ public class GisMapController {
     }
 
     @PostMapping("/spatial-query")
-    public R<GeoJsonFeatureCollectionVO> spatialQuery(@RequestBody(required = false) Object query) { return R.ok(new GeoJsonFeatureCollectionVO()); }
-
-    @PostMapping("/map-statistics")
-    public R<Map<String, Object>> mapStatistics(@RequestBody(required = false) MapStatisticsRequest request) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("totalLengthKm", 0);
-        result.put("diseaseCount", 0);
-        result.put("avgMqi", null);
-        result.put("excellentGoodRate", null);
-        result.put("poorBadRate", null);
-        return R.ok(result);
+    public R<GeoJsonFeatureCollectionVO> spatialQuery(@RequestBody(required = false) Map<String, Object> query) {
+        return R.ok(gisMapSupportService.spatialQuery(query));
     }
 
-    private static class MapStatisticsRequest {
-        private String routeCode;
-        private Integer year;
-        public String getRouteCode() { return routeCode; }
-        public void setRouteCode(String routeCode) { this.routeCode = routeCode; }
-        public Integer getYear() { return year; }
-        public void setYear(Integer year) { this.year = year; }
+    @PostMapping("/map-statistics")
+    public R<Map<String, Object>> mapStatistics(@RequestBody(required = false) Map<String, Object> request) {
+        return R.ok(gisMapSupportService.mapStatistics(request));
+    }
+
+    @GetMapping("/object-detail")
+    public R<Map<String, Object>> objectDetail(@RequestParam String objectType, @RequestParam String id) {
+        return R.ok(gisMapSupportService.objectDetail(objectType, id));
     }
 }
