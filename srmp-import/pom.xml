@@ -36,6 +36,35 @@
     <artifactId>mybatis-plus-boot-starter</artifactId>
 </dependency>
 
+<dependency>
+    <groupId>com.smartroad</groupId>
+    <artifactId>srmp-road-asset</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
+<dependency>
+    <groupId>com.smartroad</groupId>
+    <artifactId>srmp-disease</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
+<dependency>
+    <groupId>com.smartroad</groupId>
+    <artifactId>srmp-assessment</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
+<dependency>
+    <groupId>org.apache.poi</groupId>
+    <artifactId>poi-ooxml</artifactId>
+    <version>5.2.5</version>
+</dependency>
+
+<dependency>
+    <groupId>org.projectlombok</groupId>
+    <artifactId>lombok</artifactId>
+</dependency>
+
     </dependencies>
 
 </project>

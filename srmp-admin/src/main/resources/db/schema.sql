@@ -306,3 +306,46 @@ CREATE INDEX IF NOT EXISTS idx_index_route_year ON index_result(tenant_id, route
 CREATE INDEX IF NOT EXISTS idx_index_code ON index_result(tenant_id, index_code);
 CREATE INDEX IF NOT EXISTS idx_index_grade ON index_result(tenant_id, grade);
 CREATE INDEX IF NOT EXISTS idx_index_raw_metrics_gin ON index_result USING GIN(raw_metrics);
+
+
+-- ===== Phase 3: data import =====
+CREATE TABLE IF NOT EXISTS data_import_task (
+    id                  VARCHAR(64) PRIMARY KEY DEFAULT gen_random_uuid()::varchar,
+    tenant_id           VARCHAR(64) NOT NULL,
+    import_code         VARCHAR(100) NOT NULL,
+    import_name         VARCHAR(200) NOT NULL,
+    data_type           VARCHAR(50) NOT NULL,
+    file_id             VARCHAR(64),
+    status              VARCHAR(50) DEFAULT 'CREATED',
+    total_count         INTEGER DEFAULT 0,
+    success_count       INTEGER DEFAULT 0,
+    failed_count        INTEGER DEFAULT 0,
+    field_mapping       JSONB,
+    import_params       JSONB,
+    started_at          TIMESTAMP,
+    finished_at         TIMESTAMP,
+    error_message       TEXT,
+    created_by          VARCHAR(64),
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted             BOOLEAN DEFAULT FALSE,
+    CONSTRAINT uk_import_code UNIQUE(tenant_id, import_code)
+);
+CREATE INDEX IF NOT EXISTS idx_import_task_tenant ON data_import_task(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_import_task_type ON data_import_task(tenant_id, data_type);
+CREATE INDEX IF NOT EXISTS idx_import_task_status ON data_import_task(tenant_id, status);
+
+CREATE TABLE IF NOT EXISTS data_import_error_log (
+    id                  VARCHAR(64) PRIMARY KEY DEFAULT gen_random_uuid()::varchar,
+    tenant_id           VARCHAR(64) NOT NULL,
+    import_task_id      VARCHAR(64) NOT NULL,
+    row_no              INTEGER,
+    field_name          VARCHAR(100),
+    field_value         TEXT,
+    error_type          VARCHAR(50),
+    error_message       TEXT,
+    raw_data            JSONB,
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_import_error_task ON data_import_error_log(tenant_id, import_task_id);
+CREATE INDEX IF NOT EXISTS idx_import_error_type ON data_import_error_log(tenant_id, error_type);

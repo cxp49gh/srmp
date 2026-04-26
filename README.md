@@ -136,7 +136,7 @@ curl http://localhost:8080/api/health
 | 阶段一 | 基础骨架搭建 | ✅ 已完成 |
 | 阶段二 | 道路资产 CRUD + GIS 图层接口 | ✅ 已完成（路线/路段/评定单元 CRUD、GIS 路线/路段/评定单元图层、桩号定位） |
 | 阶段二（续） | 病害 GIS 图层 + 评定结果 GIS 图层 | ✅ 已完成（病害类型/记录 CRUD、GIS 图层、评定结果 CRUD、GIS 专题图） |
-| 阶段三 | 数据导入模块 | 📋 待开始 |
+| 阶段三 | 数据导入模块 | ✅ 已完成（CSV/Excel 导入、模板下载、错误日志、支持 ROAD_ROUTE/ROAD_SECTION/EVALUATION_UNIT/DISEASE/ASSESSMENT/INDEX_RESULT） |
 | 阶段四 | GIS 一张图完善 | 📋 待开始 |
 | 阶段五 | AI 大模型接入 | 📋 待开始 |
 
@@ -464,14 +464,15 @@ ST_AsGeoJSON(geom) AS geom_geo_json
 
 - 路线、路段、评定单元三级管理
 - 空间线形（geom）维护
-- 多格式数据导入（待实现）
+- 多格式数据导入
 
 ### 数据导入
 
-- Excel / CSV / GeoJSON / WKT / Shapefile（待实现）
-- 字段映射配置（待实现）
-- 数据校验与错误日志（待实现）
-- 导入预览与确认入库（待实现）
+- CSV / Excel 导入（Apache POI）
+- 模板下载 `/api/import/templates/{dataType}`
+- 上传导入 `/api/import/upload`
+- 错误日志 `/api/import/tasks/{id}/errors`
+- 支持类型：ROAD_ROUTE、ROAD_SECTION、EVALUATION_UNIT、DISEASE、ASSESSMENT、INDEX_RESULT
 
 ### AI 大模型分析
 
@@ -522,6 +523,8 @@ ST_AsGeoJSON(geom) AS geom_geo_json
 - `smartroad_phase1_database_design.md` — 一期数据库设计
 - `smartroad_next_step_phase2_plan.md` — 下一步实施计划
 - `phase2-road-asset-gis-usage.md` — 阶段二道路资产与 GIS 图层接口使用说明
+- `phase2-continued-disease-assessment-gis-usage.md` — 阶段二续期病害与评定 GIS 图层使用说明
+- `phase3-data-import-usage.md` — 阶段三数据导入使用说明
 - `SRMP项目概述.md` — 项目完整概述
 
 ---
@@ -641,6 +644,14 @@ public class MybatisPlusConfig {
     }
 }
 ```
+
+---
+
+## 阶段三数据导入
+
+阶段三新增基础导入能力，支持 ROAD_ROUTE、ROAD_SECTION、EVALUATION_UNIT、DISEASE、ASSESSMENT、INDEX_RESULT 的 CSV / Excel 导入。
+
+使用说明见：`docs/phase3-data-import-usage.md`。
 
 ---
 
