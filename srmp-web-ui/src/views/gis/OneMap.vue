@@ -1,29 +1,39 @@
 <template>
   <div class="one-map-page">
     <div class="top">
-      <MapToolbar :query="query" @search="handleSearch" @reset="handleReset" @fit="fitAll" />
-    </div>
-
-    <div class="left">
-      <LayerTree v-model="layers" @change="reloadLayers" />
+      <MapToolbar
+        :query="query"
+        @search="handleSearch"
+        @reset="handleReset"
+        @fit="handleFitAll"
+      />
     </div>
 
     <div id="map" class="map" />
+
+    <div class="left-panel srmp-card">
+      <div class="left-panel__scroll">
+        <section class="panel-section">
+          <LayerTree v-model="layers" @change="reloadLayers" />
+        </section>
+
+        <section class="panel-section">
+          <ObjectDetailPanel :detail="selectedDetail" />
+        </section>
+
+        <section class="panel-section">
+          <LegendPanel />
+        </section>
+      </div>
+    </div>
 
     <div v-if="loading" class="loading-mask">
       <el-icon class="is-loading"><Loading /></el-icon>
       <span>图层加载中...</span>
     </div>
 
-    <div class="right">
-      <ObjectDetailPanel :detail="selectedDetail" />
-      <div class="agent-wrap">
-        <AgentChatPanel :context="agentContext" />
-      </div>
-    </div>
-
-    <div class="legend">
-      <LegendPanel />
+    <div class="right-panel">
+      <AgentChatPanel :context="agentContext" />
     </div>
 
     <div class="bottom">
@@ -33,8 +43,8 @@
 </template>
 
 <script setup lang="ts">
-import L, { GeoJSON, Map as LeafletMap } from 'leaflet'
-import { computed, onMounted, reactive, ref } from 'vue'
+import L, { GeoJSON, LatLngBounds, Map as LeafletMap } from 'leaflet'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import MapToolbar from './components/MapToolbar.vue'
@@ -130,9 +140,11 @@ async function reloadLayers() {
   if (layers.assessment) tasks.push(loadLayer('assessment', () => getAssessmentResults(query)))
 
   await Promise.allSettled(tasks)
-  fitAll()
-  await loadStatistics()
   loading.value = false
+
+  await nextTick()
+  handleFitAll(false)
+  await loadStatistics()
 }
 
 function clearAllLayers() {
@@ -208,17 +220,47 @@ async function loadStatistics() {
   }
 }
 
-function fitAll() {
-  const group = L.featureGroup(Array.from(layerMap.values()))
-  if (group.getLayers().length === 0) return
-  try {
-    map.fitBounds(group.getBounds(), {
-      padding: [40, 40],
-      maxZoom: 15
-    })
-  } catch {
-    // ignore empty bounds
+/**
+ * 工具栏"全图"按钮修复：
+ * 1. 先 invalidateSize，避免左右面板调整后 Leaflet 尺寸缓存不正确；
+ * 2. 汇总所有可见 GeoJSON 图层边界；
+ * 3. 只在 bounds 有效时执行 fitBounds；
+ * 4. 没有图层时给出明确提示。
+ */
+async function handleFitAll(showMessage = true) {
+  if (!map) return
+
+  await nextTick()
+  map.invalidateSize(false)
+
+  const bounds = collectVisibleBounds()
+  if (!bounds || !bounds.isValid()) {
+    if (showMessage) {
+      ElMessage.warning('当前没有可定位的图层，请先勾选图层或查询有空间数据的路线')
+    }
+    return
   }
+
+  map.fitBounds(bounds, {
+    paddingTopLeft: [390, 90],
+    paddingBottomRight: [390, 120],
+    maxZoom: 15,
+    animate: true
+  })
+}
+
+function collectVisibleBounds(): LatLngBounds | null {
+  let bounds: LatLngBounds | null = null
+
+  layerMap.forEach((layer) => {
+    const layerBounds = layer.getBounds()
+    if (!layerBounds || !layerBounds.isValid()) {
+      return
+    }
+    bounds = bounds ? bounds.extend(layerBounds) : layerBounds
+  })
+
+  return bounds
 }
 
 function popupHtml(properties: Record<string, any>) {
@@ -258,46 +300,59 @@ function layerName(key: string) {
 .top {
   position: absolute;
   top: 16px;
-  left: 300px;
-  right: 390px;
+  left: 386px;
+  right: 386px;
   z-index: 900;
 }
 
-.left {
+.left-panel {
   position: absolute;
   top: 16px;
   left: 16px;
-  width: 250px;
+  width: 340px;
+  bottom: 16px;
   z-index: 900;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
-.right {
+.left-panel__scroll {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+}
+
+.panel-section + .panel-section {
+  margin-top: 12px;
+}
+
+:deep(.layer-tree),
+:deep(.object-detail),
+:deep(.legend-panel) {
+  box-shadow: none;
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+}
+
+:deep(.object-detail) {
+  max-height: 330px;
+}
+
+.right-panel {
   position: absolute;
   top: 16px;
   right: 16px;
   width: 340px;
-  z-index: 900;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.agent-wrap {
-  height: 320px;
-}
-
-.legend {
-  position: absolute;
-  left: 16px;
-  bottom: 96px;
-  width: 170px;
+  bottom: 16px;
   z-index: 900;
 }
 
 .bottom {
   position: absolute;
-  left: 220px;
-  right: 390px;
+  left: 386px;
+  right: 386px;
   bottom: 16px;
   z-index: 900;
 }

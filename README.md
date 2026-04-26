@@ -156,6 +156,7 @@ npm run dev
 | 阶段八 | 一期完整性修复 | ✅ 已完成（GIS地图统计、对象详情、Dashboard概览、SQL参数类型修复、前端组件完善） |
 | 阶段九 | AI统计过滤条件修复 | ✅ 已完成（修复AgentDataQueryServiceFixedImpl，过滤条件逻辑修正，等级分布coalesce处理） |
 | 阶段十 | 一期工程化收口 | ✅ 已完成（前端默认加载G210/2026、GIS loading提示、自动化验收脚本、演示数据重置脚本、导入模板CSV） |
+| 阶段十一 | GIS一张图页面布局优化 | ✅ 已完成（左侧整合图层/详情/图例，右侧仅保留AI问答，修复全图按钮失效问题） |
 
 ---
 
@@ -700,7 +701,8 @@ ST_AsGeoJSON(geom) AS geom_geo_json
 - `phase7-current-fix-ai-agent.md` — 阶段七 AI Agent 接口修复说明
 - `phase8-current-completeness-fix.md` — 阶段八一期完整性修复说明
 - `phase9-ai-statistics-filter-fix.md` — 阶段九 AI 统计过滤条件修复说明
-- `phase10-final-acceptance.md` — 阶段十一期工程化收口说明
+- `phase10-final-acceptance.md` — 阶段十 一期工程化收口说明
+- `phase11-gis-layout-fix.md` — 阶段十一 GIS一张图页面布局优化说明
 - `api-smoke-test.http` — API 冒烟测试 HTTP 文件
 - `SRMP项目概述.md` — 项目完整概述
 
