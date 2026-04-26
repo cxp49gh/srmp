@@ -165,6 +165,7 @@ npm run dev
 | 阶段十七 | Outline同步入库 | ✅ 已完成（Outline文档→知识库同步、/api/outline/sync接口、前端同步页面） |
 | 阶段十八 | AI知识库最终收口与验收 | ✅ 已完成（知识库演示数据、自动验收脚本check-ai/check-outline/check-ai-e2e） |
 | 阶段十九 | 数据库初始化自动化与启动自检 | ✅ 已完成（init-ai-db.sh/check-db-schema.sh/check-ai-startup-prereq.sh、db-init-guide.md） |
+| 阶段二十 | AI方案模板管理 | ✅ 已完成（ai_solution_template表、模板变量解析、CRUD接口、前端模板管理页面） |
 
 ---
 
@@ -719,6 +720,7 @@ ST_AsGeoJSON(geom) AS geom_geo_json
 - `phase17-outline-sync.md` — 阶段十七 Outline同步入库说明
 - `phase18-ai-knowledge-acceptance.md` — 阶段十八 AI知识库最终收口与验收说明
 - `phase19-db-init-check.md` — 阶段十九 数据库初始化自动化与启动自检说明
+- `phase20-ai-solution-template.md` — 阶段二十 AI方案模板管理说明
 - `api-smoke-test.http` — API 冒烟测试 HTTP 文件
 - `SRMP项目概述.md` — 项目完整概述
 

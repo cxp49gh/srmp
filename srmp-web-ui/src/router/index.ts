@@ -6,6 +6,7 @@ import KnowledgeSearchPage from '../views/agent/KnowledgeSearchPage.vue'
 import OutlineSearchPage from '../views/agent/OutlineSearchPage.vue'
 import OutlineStatusPage from '../views/agent/OutlineStatusPage.vue'
 import OutlineSyncPage from '../views/agent/OutlineSyncPage.vue'
+import SolutionTemplatesPage from '../views/agent/SolutionTemplatesPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -61,6 +62,13 @@ const router = createRouter({
       component: OutlineStatusPage,
       meta: {
         title: 'Outline 连接状态'
+      }
+    },
+    {
+      path: '/agent/solution-templates',
+      component: SolutionTemplatesPage,
+      meta: {
+        title: '方案模板管理'
       }
     }
   ]
