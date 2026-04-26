@@ -1,0 +1,154 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.smartroad</groupId>
+        <artifactId>srmp-parent</artifactId>
+        <version>1.0.0</version>
+    </parent>
+    <artifactId>srmp-admin</artifactId>
+    <packaging>jar</packaging>
+    <dependencies>
+
+<dependency>
+    <groupId>com.smartroad</groupId>
+    <artifactId>srmp-common</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
+
+<dependency>
+    <groupId>com.smartroad</groupId>
+    <artifactId>srmp-web</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
+
+<dependency>
+    <groupId>com.smartroad</groupId>
+    <artifactId>srmp-tenant</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
+
+<dependency>
+    <groupId>com.smartroad</groupId>
+    <artifactId>srmp-security</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
+
+<dependency>
+    <groupId>com.smartroad</groupId>
+    <artifactId>srmp-base</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
+
+<dependency>
+    <groupId>com.smartroad</groupId>
+    <artifactId>srmp-road-asset</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
+
+<dependency>
+    <groupId>com.smartroad</groupId>
+    <artifactId>srmp-inspection</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
+
+<dependency>
+    <groupId>com.smartroad</groupId>
+    <artifactId>srmp-disease</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
+
+<dependency>
+    <groupId>com.smartroad</groupId>
+    <artifactId>srmp-assessment</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
+
+<dependency>
+    <groupId>com.smartroad</groupId>
+    <artifactId>srmp-gis</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
+
+<dependency>
+    <groupId>com.smartroad</groupId>
+    <artifactId>srmp-import</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
+
+<dependency>
+    <groupId>com.smartroad</groupId>
+    <artifactId>srmp-file</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
+
+<dependency>
+    <groupId>com.smartroad</groupId>
+    <artifactId>srmp-agent</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
+
+<dependency>
+    <groupId>com.smartroad</groupId>
+    <artifactId>srmp-dashboard</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
+
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+
+
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-redis</artifactId>
+</dependency>
+
+
+<dependency>
+    <groupId>com.baomidou</groupId>
+    <artifactId>mybatis-plus-boot-starter</artifactId>
+</dependency>
+
+
+<dependency>
+    <groupId>org.postgresql</groupId>
+    <artifactId>postgresql</artifactId>
+</dependency>
+
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring.boot.version}</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

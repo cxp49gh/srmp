@@ -1,0 +1,39 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: srmp-admin
+
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:5432/srmp
+    username: srmp
+    password: srmp123
+    driver-class-name: org.postgresql.Driver
+
+  redis:
+    host: 127.0.0.1
+    port: 6379
+
+mybatis-plus:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: com.smartroad.srmp.*.entity
+  configuration:
+    map-underscore-to-camel-case: true
+
+srmp:
+  tenant:
+    enabled: true
+    header-name: X-Tenant-Id
+
+  minio:
+    endpoint: http://127.0.0.1:9000
+    access-key: minioadmin
+    secret-key: minioadmin
+    bucket: srmp
+
+  llm:
+    provider: openai-compatible
+    base-url: http://127.0.0.1:8000/v1
+    api-key: your-api-key
+    model: gpt-4o-mini

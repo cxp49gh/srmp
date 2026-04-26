@@ -1,0 +1,37 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgis/postgis:15-3.4
+    container_name: srmp-postgres
+    environment:
+      POSTGRES_DB: srmp
+      POSTGRES_USER: srmp
+      POSTGRES_PASSWORD: srmp123
+    ports:
+      - "5432:5432"
+    volumes:
+      - srmp_pg_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    container_name: srmp-redis
+    ports:
+      - "6379:6379"
+
+  minio:
+    image: minio/minio:RELEASE.2024-01-16T16-07-38Z
+    container_name: srmp-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - srmp_minio_data:/data
+
+volumes:
+  srmp_pg_data:
+  srmp_minio_data:

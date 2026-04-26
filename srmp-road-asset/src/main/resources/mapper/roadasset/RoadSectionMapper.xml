@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartroad.srmp.roadasset.mapper.RoadSectionMapper">
+    <sql id="SectionWhere">
+        tenant_id = #{tenantId} AND deleted = false
+        <if test="q != null and q.routeCode != null and q.routeCode != ''">AND route_code = #{q.routeCode}</if>
+        <if test="q != null and q.sectionCode != null and q.sectionCode != ''">AND section_code ILIKE concat('%', #{q.sectionCode}, '%')</if>
+        <if test="q != null and q.sectionName != null and q.sectionName != ''">AND section_name ILIKE concat('%', #{q.sectionName}, '%')</if>
+        <if test="q != null and q.direction != null and q.direction != ''">AND direction = #{q.direction}</if>
+        <if test="q != null and q.adcode != null and q.adcode != ''">AND adcode = #{q.adcode}</if>
+        <if test="q != null and q.stake != null">AND start_stake &lt;= #{q.stake} AND end_stake &gt;= #{q.stake}</if>
+    </sql>
+    <sql id="SectionColumns">
+        id, route_id, route_code, section_code, section_name, direction, start_stake, end_stake, length_km, pavement_type, technical_grade,
+        lane_count, road_width, traffic_volume_level, adcode, manage_org_id, ST_AsGeoJSON(geom) AS geom_geo_json, remark, created_at
+    </sql>
+    <select id="selectPageVO" resultType="com.smartroad.srmp.roadasset.vo.RoadSectionVO">
+        SELECT <include refid="SectionColumns"/> FROM road_section WHERE <include refid="SectionWhere"/> ORDER BY route_code ASC, start_stake ASC
+    </select>
+    <select id="selectDetail" resultType="com.smartroad.srmp.roadasset.vo.RoadSectionVO">
+        SELECT <include refid="SectionColumns"/> FROM road_section WHERE tenant_id=#{tenantId} AND id=#{id} AND deleted=false
+    </select>
+    <select id="selectForMap" resultType="com.smartroad.srmp.roadasset.vo.RoadSectionVO">
+        SELECT <include refid="SectionColumns"/> FROM road_section WHERE <include refid="SectionWhere"/> AND geom IS NOT NULL ORDER BY route_code ASC, start_stake ASC
+    </select>
+    <insert id="insertWithGeom" parameterType="com.smartroad.srmp.roadasset.entity.RoadSection">
+        INSERT INTO road_section(id, tenant_id, route_id, route_code, section_code, section_name, direction, start_stake, end_stake, length_km, pavement_type, technical_grade, lane_count, road_width, traffic_volume_level, adcode, manage_org_id, geom, remark, created_by, updated_by, created_at, updated_at, deleted)
+        VALUES (#{id}, #{tenantId}, #{routeId}, #{routeCode}, #{sectionCode}, #{sectionName}, #{direction}, #{startStake}, #{endStake}, #{lengthKm}, #{pavementType}, #{technicalGrade}, #{laneCount}, #{roadWidth}, #{trafficVolumeLevel}, #{adcode}, #{manageOrgId},
+        <choose><when test="geomWkt != null and geomWkt != ''">ST_GeomFromText(#{geomWkt}, 4326)</when><otherwise>NULL</otherwise></choose>,
+        #{remark}, #{createdBy}, #{updatedBy}, now(), now(), false)
+    </insert>
+    <update id="updateWithGeom" parameterType="com.smartroad.srmp.roadasset.entity.RoadSection">
+        UPDATE road_section SET route_id=#{routeId}, route_code=#{routeCode}, section_code=#{sectionCode}, section_name=#{sectionName}, direction=#{direction}, start_stake=#{startStake}, end_stake=#{endStake}, length_km=#{lengthKm}, pavement_type=#{pavementType}, technical_grade=#{technicalGrade}, lane_count=#{laneCount}, road_width=#{roadWidth}, traffic_volume_level=#{trafficVolumeLevel}, adcode=#{adcode}, manage_org_id=#{manageOrgId}, remark=#{remark}, updated_by=#{updatedBy}, updated_at=now()
+        <if test="geomWkt != null and geomWkt != ''">, geom=ST_GeomFromText(#{geomWkt}, 4326)</if>
+        WHERE tenant_id=#{tenantId} AND id=#{id} AND deleted=false
+    </update>
+</mapper>

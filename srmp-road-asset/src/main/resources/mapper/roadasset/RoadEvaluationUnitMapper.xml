@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartroad.srmp.roadasset.mapper.RoadEvaluationUnitMapper">
+    <sql id="UnitWhere">
+        tenant_id = #{tenantId} AND deleted = false
+        <if test="q != null and q.routeCode != null and q.routeCode != ''">AND route_code = #{q.routeCode}</if>
+        <if test="q != null and q.unitCode != null and q.unitCode != ''">AND unit_code ILIKE concat('%', #{q.unitCode}, '%')</if>
+        <if test="q != null and q.direction != null and q.direction != ''">AND direction = #{q.direction}</if>
+        <if test="q != null and q.laneNo != null">AND lane_no = #{q.laneNo}</if>
+        <if test="q != null and q.adcode != null and q.adcode != ''">AND adcode = #{q.adcode}</if>
+        <if test="q != null and q.stake != null">AND start_stake &lt;= #{q.stake} AND end_stake &gt;= #{q.stake}</if>
+    </sql>
+    <sql id="UnitColumns">
+        id, route_id, section_id, route_code, unit_code, direction, lane_no, start_stake, end_stake, length_m, pavement_type, technical_grade,
+        road_width, adcode, manage_org_id, ST_AsGeoJSON(geom) AS geom_geo_json, ST_AsGeoJSON(center_point) AS center_point_geo_json, created_at
+    </sql>
+    <select id="selectPageVO" resultType="com.smartroad.srmp.roadasset.vo.RoadEvaluationUnitVO">
+        SELECT <include refid="UnitColumns"/> FROM road_evaluation_unit WHERE <include refid="UnitWhere"/> ORDER BY route_code ASC, start_stake ASC, lane_no ASC
+    </select>
+    <select id="selectDetail" resultType="com.smartroad.srmp.roadasset.vo.RoadEvaluationUnitVO">
+        SELECT <include refid="UnitColumns"/> FROM road_evaluation_unit WHERE tenant_id=#{tenantId} AND id=#{id} AND deleted=false
+    </select>
+    <select id="selectForMap" resultType="com.smartroad.srmp.roadasset.vo.RoadEvaluationUnitVO">
+        SELECT <include refid="UnitColumns"/> FROM road_evaluation_unit WHERE <include refid="UnitWhere"/> AND geom IS NOT NULL ORDER BY route_code ASC, start_stake ASC, lane_no ASC
+    </select>
+    <select id="locateByStake" resultType="com.smartroad.srmp.roadasset.vo.StakeLocationVO">
+        SELECT id AS unit_id, unit_code, route_code, direction, start_stake, end_stake, ST_AsGeoJSON(center_point) AS center_point_geo_json, ST_AsGeoJSON(geom) AS geom_geo_json
+        FROM road_evaluation_unit
+        WHERE tenant_id=#{tenantId} AND route_code=#{q.routeCode} AND (direction=#{q.direction} OR direction='BOTH') AND start_stake &lt;= #{q.stake} AND end_stake &gt;= #{q.stake} AND deleted=false
+        ORDER BY CASE WHEN direction=#{q.direction} THEN 0 ELSE 1 END, start_stake ASC LIMIT 1
+    </select>
+    <insert id="insertWithGeom" parameterType="com.smartroad.srmp.roadasset.entity.RoadEvaluationUnit">
+        INSERT INTO road_evaluation_unit(id, tenant_id, route_id, section_id, route_code, unit_code, direction, lane_no, start_stake, end_stake, length_m, pavement_type, technical_grade, road_width, adcode, manage_org_id, geom, center_point, created_by, updated_by, created_at, updated_at, deleted)
+        VALUES (#{id}, #{tenantId}, #{routeId}, #{sectionId}, #{routeCode}, #{unitCode}, #{direction}, #{laneNo}, #{startStake}, #{endStake}, #{lengthM}, #{pavementType}, #{technicalGrade}, #{roadWidth}, #{adcode}, #{manageOrgId},
+        <choose><when test="geomWkt != null and geomWkt != ''">ST_GeomFromText(#{geomWkt}, 4326)</when><otherwise>NULL</otherwise></choose>,
+        <choose><when test="centerPointWkt != null and centerPointWkt != ''">ST_GeomFromText(#{centerPointWkt}, 4326)</when><when test="geomWkt != null and geomWkt != ''">ST_PointOnSurface(ST_GeomFromText(#{geomWkt}, 4326))</when><otherwise>NULL</otherwise></choose>,
+        #{createdBy}, #{updatedBy}, now(), now(), false)
+    </insert>
+    <update id="updateWithGeom" parameterType="com.smartroad.srmp.roadasset.entity.RoadEvaluationUnit">
+        UPDATE road_evaluation_unit SET route_id=#{routeId}, section_id=#{sectionId}, route_code=#{routeCode}, unit_code=#{unitCode}, direction=#{direction}, lane_no=#{laneNo}, start_stake=#{startStake}, end_stake=#{endStake}, length_m=#{lengthM}, pavement_type=#{pavementType}, technical_grade=#{technicalGrade}, road_width=#{roadWidth}, adcode=#{adcode}, manage_org_id=#{manageOrgId}, updated_by=#{updatedBy}, updated_at=now()
+        <if test="geomWkt != null and geomWkt != ''">, geom=ST_GeomFromText(#{geomWkt}, 4326)</if>
+        <if test="centerPointWkt != null and centerPointWkt != ''">, center_point=ST_GeomFromText(#{centerPointWkt}, 4326)</if>
+        WHERE tenant_id=#{tenantId} AND id=#{id} AND deleted=false
+    </update>
+</mapper>
