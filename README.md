@@ -153,6 +153,7 @@ npm run dev
 | 阶段五 | AI 大模型接入 | ✅ 已完成（OpenAI兼容客户端、业务数据查询、路线综合分析、病害热点分析、评定结果分析、地图联动查询、报告草稿生成、本地规则兜底） |
 | 阶段六 | 一期演示闭环与验收 | ✅ 已完成（演示数据脚本、快速启动脚本、冒烟测试、验收文档） |
 | 阶段七 | AI Agent 接口修复 | ✅ 已完成（修复 AgentChatController 占位实现，完整接入 AgentChatService） |
+| 阶段八 | 一期完整性修复 | ✅ 已完成（GIS地图统计、对象详情、Dashboard概览、SQL参数类型修复、前端组件完善） |
 
 ---
 
@@ -680,6 +681,7 @@ ST_AsGeoJSON(geom) AS geom_geo_json
 - `phase5-ai-agent-usage.md` — 阶段五 AI 大模型分析使用说明
 - `phase6-demo-acceptance.md` — 阶段六一期演示闭环与验收说明
 - `phase7-current-fix-ai-agent.md` — 阶段七 AI Agent 接口修复说明
+- `phase8-current-completeness-fix.md` — 阶段八一期完整性修复说明
 - `api-smoke-test.http` — API 冒烟测试 HTTP 文件
 - `SRMP项目概述.md` — 项目完整概述
 
