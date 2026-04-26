@@ -5,6 +5,7 @@ import KnowledgeDocumentPage from '../views/agent/KnowledgeDocumentPage.vue'
 import KnowledgeSearchPage from '../views/agent/KnowledgeSearchPage.vue'
 import OutlineSearchPage from '../views/agent/OutlineSearchPage.vue'
 import OutlineStatusPage from '../views/agent/OutlineStatusPage.vue'
+import OutlineSyncPage from '../views/agent/OutlineSyncPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -46,6 +47,13 @@ const router = createRouter({
       component: OutlineSearchPage,
       meta: {
         title: 'Outline 文档搜索'
+      }
+    },
+    {
+      path: '/agent/outline-sync',
+      component: OutlineSyncPage,
+      meta: {
+        title: 'Outline 同步入库'
       }
     },
     {
