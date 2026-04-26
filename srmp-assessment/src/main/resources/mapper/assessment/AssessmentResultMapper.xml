@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartroad.srmp.assessment.mapper.AssessmentResultMapper">
+    <sql id="AssessmentWhere">
+        a.tenant_id = #{tenantId} AND a.deleted = false
+        <if test="q != null and q.taskId != null and q.taskId != ''">AND a.task_id = #{q.taskId}</if>
+        <if test="q != null and q.objectType != null and q.objectType != ''">AND a.object_type = #{q.objectType}</if>
+        <if test="q != null and q.objectId != null and q.objectId != ''">AND a.object_id = #{q.objectId}</if>
+        <if test="q != null and q.routeCode != null and q.routeCode != ''">AND a.route_code = #{q.routeCode}</if>
+        <if test="q != null and q.direction != null and q.direction != ''">AND a.direction = #{q.direction}</if>
+        <if test="q != null and q.unitId != null and q.unitId != ''">AND a.unit_id = #{q.unitId}</if>
+        <if test="q != null and q.year != null">AND a.year = #{q.year}</if>
+        <if test="q != null and q.grade != null and q.grade != ''">AND a.grade = #{q.grade}</if>
+        <if test="q != null and q.startStake != null">AND (a.end_stake IS NULL OR a.end_stake &gt;= #{q.startStake})</if>
+        <if test="q != null and q.endStake != null">AND (a.start_stake IS NULL OR a.start_stake &lt;= #{q.endStake})</if>
+    </sql>
+    <sql id="AssessmentColumns">
+        a.id, a.task_id, a.object_type, a.object_id, a.route_id, a.section_id, a.unit_id, a.route_code, a.direction, a.start_stake, a.end_stake,
+        a.year, a.standard_code, a.mqi, a.sci, a.pqi, a.bci, a.tci, a.pci, a.rqi, a.rdi, a.pbi, a.pwi, a.sri, a.pssi,
+        a.grade, a.zero_reason, a.assessed_at, ST_AsGeoJSON(u.geom) AS geom_geo_json, a.created_at
+    </sql>
+    <select id="selectPageVO" resultType="com.smartroad.srmp.assessment.vo.AssessmentResultVO">
+        SELECT <include refid="AssessmentColumns"/>
+        FROM assessment_result a
+        LEFT JOIN road_evaluation_unit u ON a.tenant_id = u.tenant_id AND a.unit_id = u.id AND u.deleted = false
+        WHERE <include refid="AssessmentWhere"/> ORDER BY a.route_code ASC, a.start_stake ASC NULLS LAST, a.year DESC
+    </select>
+    <select id="selectDetail" resultType="com.smartroad.srmp.assessment.vo.AssessmentResultVO">
+        SELECT <include refid="AssessmentColumns"/>
+        FROM assessment_result a
+        LEFT JOIN road_evaluation_unit u ON a.tenant_id = u.tenant_id AND a.unit_id = u.id AND u.deleted = false
+        WHERE a.tenant_id = #{tenantId} AND a.id = #{id} AND a.deleted = false
+    </select>
+    <select id="selectForMap" resultType="com.smartroad.srmp.assessment.vo.AssessmentResultVO">
+        SELECT <include refid="AssessmentColumns"/>
+        FROM assessment_result a
+        LEFT JOIN road_evaluation_unit u ON a.tenant_id = u.tenant_id AND a.unit_id = u.id AND u.deleted = false
+        WHERE <include refid="AssessmentWhere"/> AND u.geom IS NOT NULL ORDER BY a.route_code ASC, a.start_stake ASC NULLS LAST
+    </select>
+    <select id="selectSummary" resultType="com.smartroad.srmp.assessment.vo.AssessmentSummaryVO">
+        SELECT count(1) AS total_count,
+               count(CASE WHEN a.grade = 'EXCELLENT' THEN 1 END) AS excellent_count,
+               count(CASE WHEN a.grade = 'GOOD' THEN 1 END) AS good_count,
+               count(CASE WHEN a.grade = 'MEDIUM' THEN 1 END) AS medium_count,
+               count(CASE WHEN a.grade = 'POOR' THEN 1 END) AS poor_count,
+               count(CASE WHEN a.grade = 'BAD' THEN 1 END) AS bad_count,
+               avg(a.mqi) AS avg_mqi,
+               avg(a.pqi) AS avg_pqi,
+               avg(a.pci) AS avg_pci
+        FROM assessment_result a
+        WHERE <include refid="AssessmentWhere"/>
+    </select>
+</mapper>

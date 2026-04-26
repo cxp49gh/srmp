@@ -135,7 +135,7 @@ curl http://localhost:8080/api/health
 |------|------|------|
 | 阶段一 | 基础骨架搭建 | ✅ 已完成 |
 | 阶段二 | 道路资产 CRUD + GIS 图层接口 | ✅ 已完成（路线/路段/评定单元 CRUD、GIS 路线/路段/评定单元图层、桩号定位） |
-| 阶段二（续） | 病害 GIS 图层 + 评定结果 GIS 图层 | 📋 待开始 |
+| 阶段二（续） | 病害 GIS 图层 + 评定结果 GIS 图层 | ✅ 已完成（病害类型/记录 CRUD、GIS 图层、评定结果 CRUD、GIS 专题图） |
 | 阶段三 | 数据导入模块 | 📋 待开始 |
 | 阶段四 | GIS 一张图完善 | 📋 待开始 |
 | 阶段五 | AI 大模型接入 | 📋 待开始 |
@@ -220,6 +220,121 @@ GET /api/road-assets/stake-location?routeCode=G210&direction=BOTH&stake=0.5
 X-Tenant-Id: default
 ```
 
+### 病害类型管理
+
+```http
+POST   /api/disease-types/page
+GET    /api/disease-types/{id}
+POST   /api/disease-types
+PUT    /api/disease-types/{id}
+DELETE /api/disease-types/{id}
+```
+
+**新增病害类型示例：**
+
+```http
+POST /api/disease-types
+Content-Type: application/json
+X-Tenant-Id: default
+```
+
+```json
+{
+  "diseaseCode": "POTHOLE",
+  "diseaseName": "坑槽",
+  "diseaseCategory": "PAVEMENT",
+  "measureUnit": "m2",
+  "relatedIndex": "PCI",
+  "severityEnabled": true,
+  "enabled": true,
+  "sortNo": 1
+}
+```
+
+### 病害记录管理
+
+```http
+POST   /api/diseases/page
+GET    /api/diseases/{id}
+POST   /api/diseases
+PUT    /api/diseases/{id}
+DELETE /api/diseases/{id}
+```
+
+**新增病害记录示例：**
+
+```http
+POST /api/diseases
+Content-Type: application/json
+X-Tenant-Id: default
+```
+
+```json
+{
+  "routeCode": "G210",
+  "direction": "BOTH",
+  "laneNo": 1,
+  "startStake": 0.35,
+  "endStake": 0.36,
+  "diseaseCategory": "PAVEMENT",
+  "diseaseType": "POTHOLE",
+  "diseaseName": "坑槽",
+  "severity": "HEAVY",
+  "quantity": 1,
+  "measureUnit": "m2",
+  "damageArea": 2.5,
+  "source": "MANUAL",
+  "geomWkt": "POINT(106.635 26.655)"
+}
+```
+
+### 评定结果管理
+
+```http
+POST   /api/assessment-results/page
+GET    /api/assessment-results/{id}
+POST   /api/assessment-results
+PUT    /api/assessment-results/{id}
+DELETE /api/assessment-results/{id}
+```
+
+**新增评定结果示例：**
+
+```http
+POST /api/assessment-results
+Content-Type: application/json
+X-Tenant-Id: default
+```
+
+```json
+{
+  "taskId": "task_demo_001",
+  "objectType": "EVALUATION_UNIT",
+  "objectId": "单元ID",
+  "unitId": "单元ID",
+  "routeCode": "G210",
+  "direction": "BOTH",
+  "startStake": 0,
+  "endStake": 1,
+  "year": 2026,
+  "mqi": 78.5,
+  "pqi": 75.2,
+  "pci": 68.9,
+  "rqi": 82.1,
+  "grade": "MEDIUM"
+}
+```
+
+### 指标结果管理
+
+```http
+POST   /api/index-results/page
+GET    /api/index-results/{id}
+POST   /api/index-results
+PUT    /api/index-results/{id}
+DELETE /api/index-results/{id}
+```
+
 ---
 
 ## GIS 图层 API
@@ -273,6 +388,26 @@ GET /api/gis/road-sections?routeCode=G210
 ```http
 GET /api/gis/evaluation-units?routeCode=G210
 ```
+
+### 病害图层
+
+```http
+GET /api/gis/diseases?routeCode=G210
+X-Tenant-Id: default
+```
+
+返回 GeoJSON，properties 包含：objectType=DISEASE, routeCode, diseaseType, diseaseName, severity, quantity, measureUnit, status, color
+
+### 评定结果专题图
+
+```http
+GET /api/gis/assessment-results?routeCode=G210&year=2026
+X-Tenant-Id: default
+```
+
+返回 GeoJSON，geometry 取自评定单元geom，properties 包含：objectType=ASSESSMENT_RESULT, routeCode, unitId, mqi, pqi, pci, rqi, grade, color
+
+颜色规则：EXCELLENT=绿色, GOOD=蓝色, MEDIUM=黄色, POOR=橙色, BAD=红色
 
 ---
 
@@ -512,3 +647,4 @@ public class MybatisPlusConfig {
 ## 许可证
 
 Private - All Rights Reserved
+

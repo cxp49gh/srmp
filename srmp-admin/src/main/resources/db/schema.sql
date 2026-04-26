@@ -169,3 +169,140 @@ ALTER TABLE road_evaluation_unit ADD COLUMN IF NOT EXISTS adcode VARCHAR(20);
 ALTER TABLE road_evaluation_unit ADD COLUMN IF NOT EXISTS manage_org_id VARCHAR(64);
 ALTER TABLE road_evaluation_unit ADD COLUMN IF NOT EXISTS created_by VARCHAR(64);
 ALTER TABLE road_evaluation_unit ADD COLUMN IF NOT EXISTS updated_by VARCHAR(64);
+
+-- ===== Phase 2 Continued: disease and assessment GIS layers =====
+CREATE TABLE IF NOT EXISTS disease_type_dict (
+    id                  VARCHAR(64) PRIMARY KEY DEFAULT gen_random_uuid()::varchar,
+    tenant_id           VARCHAR(64) NOT NULL,
+    disease_code        VARCHAR(100) NOT NULL,
+    disease_name        VARCHAR(200) NOT NULL,
+    disease_category    VARCHAR(50) NOT NULL,
+    measure_unit        VARCHAR(20),
+    related_index       VARCHAR(50),
+    severity_enabled    BOOLEAN DEFAULT TRUE,
+    enabled             BOOLEAN DEFAULT TRUE,
+    sort_no             INTEGER DEFAULT 0,
+    remark              TEXT,
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted             BOOLEAN DEFAULT FALSE,
+    CONSTRAINT uk_disease_type_code UNIQUE(tenant_id, disease_code)
+);
+CREATE INDEX IF NOT EXISTS idx_disease_type_category ON disease_type_dict(tenant_id, disease_category);
+
+CREATE TABLE IF NOT EXISTS disease_record (
+    id                  VARCHAR(64) PRIMARY KEY DEFAULT gen_random_uuid()::varchar,
+    tenant_id           VARCHAR(64) NOT NULL,
+    task_id             VARCHAR(64),
+    route_id            VARCHAR(64),
+    section_id          VARCHAR(64),
+    unit_id             VARCHAR(64),
+    route_code          VARCHAR(50) NOT NULL,
+    direction           VARCHAR(20),
+    lane_no             INTEGER,
+    start_stake         NUMERIC(12,3),
+    end_stake           NUMERIC(12,3),
+    disease_category    VARCHAR(50) NOT NULL,
+    disease_type        VARCHAR(100) NOT NULL,
+    disease_name        VARCHAR(200),
+    severity            VARCHAR(30),
+    quantity            NUMERIC(14,4),
+    measure_unit        VARCHAR(20),
+    damage_area         NUMERIC(14,4),
+    damage_length       NUMERIC(14,4),
+    damage_width        NUMERIC(14,4),
+    damage_depth        NUMERIC(14,4),
+    source              VARCHAR(50),
+    confidence          NUMERIC(5,4),
+    geom                GEOMETRY(Geometry, 4326),
+    status              VARCHAR(50) DEFAULT 'UNPROCESSED',
+    verified            BOOLEAN DEFAULT FALSE,
+    verified_by         VARCHAR(64),
+    verified_at         TIMESTAMP,
+    remark              TEXT,
+    created_by          VARCHAR(64),
+    updated_by          VARCHAR(64),
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted             BOOLEAN DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS idx_disease_task ON disease_record(tenant_id, task_id);
+CREATE INDEX IF NOT EXISTS idx_disease_unit ON disease_record(tenant_id, unit_id);
+CREATE INDEX IF NOT EXISTS idx_disease_route_stake ON disease_record(tenant_id, route_code, direction, start_stake, end_stake);
+CREATE INDEX IF NOT EXISTS idx_disease_type ON disease_record(tenant_id, disease_category, disease_type, severity);
+CREATE INDEX IF NOT EXISTS idx_disease_status ON disease_record(tenant_id, status);
+CREATE INDEX IF NOT EXISTS idx_disease_geom ON disease_record USING GIST(geom);
+
+CREATE TABLE IF NOT EXISTS assessment_result (
+    id                  VARCHAR(64) PRIMARY KEY DEFAULT gen_random_uuid()::varchar,
+    tenant_id           VARCHAR(64) NOT NULL,
+    task_id             VARCHAR(64),
+    object_type         VARCHAR(50) NOT NULL,
+    object_id           VARCHAR(64) NOT NULL,
+    route_id            VARCHAR(64),
+    section_id          VARCHAR(64),
+    unit_id             VARCHAR(64),
+    route_code          VARCHAR(50),
+    direction           VARCHAR(20),
+    start_stake         NUMERIC(12,3),
+    end_stake           NUMERIC(12,3),
+    year                INTEGER NOT NULL,
+    standard_code       VARCHAR(50) DEFAULT 'JTG_5210_2018',
+    mqi                 NUMERIC(8,3),
+    sci                 NUMERIC(8,3),
+    pqi                 NUMERIC(8,3),
+    bci                 NUMERIC(8,3),
+    tci                 NUMERIC(8,3),
+    pci                 NUMERIC(8,3),
+    rqi                 NUMERIC(8,3),
+    rdi                 NUMERIC(8,3),
+    pbi                 NUMERIC(8,3),
+    pwi                 NUMERIC(8,3),
+    sri                 NUMERIC(8,3),
+    pssi                NUMERIC(8,3),
+    grade               VARCHAR(30),
+    zero_reason         TEXT,
+    assessed_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by          VARCHAR(64),
+    updated_by          VARCHAR(64),
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted             BOOLEAN DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS idx_assessment_task ON assessment_result(tenant_id, task_id);
+CREATE INDEX IF NOT EXISTS idx_assessment_object ON assessment_result(tenant_id, object_type, object_id);
+CREATE INDEX IF NOT EXISTS idx_assessment_unit ON assessment_result(tenant_id, unit_id);
+CREATE INDEX IF NOT EXISTS idx_assessment_route_year ON assessment_result(tenant_id, route_code, year);
+CREATE INDEX IF NOT EXISTS idx_assessment_grade ON assessment_result(tenant_id, grade);
+
+CREATE TABLE IF NOT EXISTS index_result (
+    id                  VARCHAR(64) PRIMARY KEY DEFAULT gen_random_uuid()::varchar,
+    tenant_id           VARCHAR(64) NOT NULL,
+    task_id             VARCHAR(64),
+    assessment_id       VARCHAR(64),
+    unit_id             VARCHAR(64),
+    route_id            VARCHAR(64),
+    section_id          VARCHAR(64),
+    route_code          VARCHAR(50) NOT NULL,
+    direction           VARCHAR(20),
+    start_stake         NUMERIC(12,3),
+    end_stake           NUMERIC(12,3),
+    year                INTEGER NOT NULL,
+    index_code          VARCHAR(50) NOT NULL,
+    index_name          VARCHAR(100),
+    index_value         NUMERIC(8,3),
+    grade               VARCHAR(30),
+    raw_metrics         JSONB,
+    calculation_version VARCHAR(50),
+    calculated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted             BOOLEAN DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS idx_index_task ON index_result(tenant_id, task_id);
+CREATE INDEX IF NOT EXISTS idx_index_assessment ON index_result(tenant_id, assessment_id);
+CREATE INDEX IF NOT EXISTS idx_index_unit ON index_result(tenant_id, unit_id);
+CREATE INDEX IF NOT EXISTS idx_index_route_year ON index_result(tenant_id, route_code, year);
+CREATE INDEX IF NOT EXISTS idx_index_code ON index_result(tenant_id, index_code);
+CREATE INDEX IF NOT EXISTS idx_index_grade ON index_result(tenant_id, grade);
+CREATE INDEX IF NOT EXISTS idx_index_raw_metrics_gin ON index_result USING GIN(raw_metrics);

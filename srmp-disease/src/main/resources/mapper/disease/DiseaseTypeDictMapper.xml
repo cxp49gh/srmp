@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartroad.srmp.disease.mapper.DiseaseTypeDictMapper">
+    <sql id="TypeWhere">
+        tenant_id = #{tenantId} AND deleted = false
+        <if test="q != null and q.diseaseCode != null and q.diseaseCode != ''">AND disease_code ILIKE concat('%', #{q.diseaseCode}, '%')</if>
+        <if test="q != null and q.diseaseName != null and q.diseaseName != ''">AND disease_name ILIKE concat('%', #{q.diseaseName}, '%')</if>
+        <if test="q != null and q.diseaseCategory != null and q.diseaseCategory != ''">AND disease_category = #{q.diseaseCategory}</if>
+        <if test="q != null and q.relatedIndex != null and q.relatedIndex != ''">AND related_index = #{q.relatedIndex}</if>
+        <if test="q != null and q.enabled != null">AND enabled = #{q.enabled}</if>
+    </sql>
+    <select id="selectPageVO" resultType="com.smartroad.srmp.disease.vo.DiseaseTypeVO">
+        SELECT id, disease_code, disease_name, disease_category, measure_unit, related_index, severity_enabled, enabled, sort_no, remark, created_at
+        FROM disease_type_dict WHERE <include refid="TypeWhere"/> ORDER BY sort_no ASC, created_at DESC
+    </select>
+    <select id="selectDetail" resultType="com.smartroad.srmp.disease.vo.DiseaseTypeVO">
+        SELECT id, disease_code, disease_name, disease_category, measure_unit, related_index, severity_enabled, enabled, sort_no, remark, created_at
+        FROM disease_type_dict WHERE tenant_id = #{tenantId} AND id = #{id} AND deleted = false
+    </select>
+</mapper>

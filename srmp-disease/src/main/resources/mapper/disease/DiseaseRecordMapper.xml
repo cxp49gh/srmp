@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartroad.srmp.disease.mapper.DiseaseRecordMapper">
+    <sql id="DiseaseWhere">
+        tenant_id = #{tenantId} AND deleted = false
+        <if test="q != null and q.taskId != null and q.taskId != ''">AND task_id = #{q.taskId}</if>
+        <if test="q != null and q.routeCode != null and q.routeCode != ''">AND route_code = #{q.routeCode}</if>
+        <if test="q != null and q.direction != null and q.direction != ''">AND direction = #{q.direction}</if>
+        <if test="q != null and q.unitId != null and q.unitId != ''">AND unit_id = #{q.unitId}</if>
+        <if test="q != null and q.diseaseCategory != null and q.diseaseCategory != ''">AND disease_category = #{q.diseaseCategory}</if>
+        <if test="q != null and q.diseaseType != null and q.diseaseType != ''">AND disease_type = #{q.diseaseType}</if>
+        <if test="q != null and q.severity != null and q.severity != ''">AND severity = #{q.severity}</if>
+        <if test="q != null and q.status != null and q.status != ''">AND status = #{q.status}</if>
+        <if test="q != null and q.startStake != null">AND (end_stake IS NULL OR end_stake &gt;= #{q.startStake})</if>
+        <if test="q != null and q.endStake != null">AND (start_stake IS NULL OR start_stake &lt;= #{q.endStake})</if>
+    </sql>
+    <sql id="DiseaseColumns">
+        id, task_id, route_id, section_id, unit_id, route_code, direction, lane_no, start_stake, end_stake,
+        disease_category, disease_type, disease_name, severity, quantity, measure_unit, damage_area, damage_length,
+        damage_width, damage_depth, source, confidence, status, verified, verified_by, verified_at,
+        ST_AsGeoJSON(geom) AS geom_geo_json, remark, created_at
+    </sql>
+    <select id="selectPageVO" resultType="com.smartroad.srmp.disease.vo.DiseaseRecordVO">
+        SELECT <include refid="DiseaseColumns"/> FROM disease_record WHERE <include refid="DiseaseWhere"/> ORDER BY route_code ASC, start_stake ASC NULLS LAST, created_at DESC
+    </select>
+    <select id="selectDetail" resultType="com.smartroad.srmp.disease.vo.DiseaseRecordVO">
+        SELECT <include refid="DiseaseColumns"/> FROM disease_record WHERE tenant_id = #{tenantId} AND id = #{id} AND deleted = false
+    </select>
+    <select id="selectForMap" resultType="com.smartroad.srmp.disease.vo.DiseaseRecordVO">
+        SELECT <include refid="DiseaseColumns"/> FROM disease_record WHERE <include refid="DiseaseWhere"/> AND geom IS NOT NULL ORDER BY route_code ASC, start_stake ASC NULLS LAST
+    </select>
+    <select id="selectStatistics" resultType="com.smartroad.srmp.disease.vo.DiseaseStatisticsVO">
+        SELECT count(1) AS total_count,
+               count(CASE WHEN severity = 'HEAVY' THEN 1 END) AS heavy_count,
+               count(CASE WHEN severity = 'MEDIUM' THEN 1 END) AS medium_count,
+               count(CASE WHEN severity = 'LIGHT' THEN 1 END) AS light_count,
+               coalesce(sum(damage_area), 0) AS total_area,
+               coalesce(sum(damage_length), 0) AS total_length
+        FROM disease_record WHERE <include refid="DiseaseWhere"/>
+    </select>
+    <insert id="insertWithGeom" parameterType="com.smartroad.srmp.disease.entity.DiseaseRecord">
+        INSERT INTO disease_record(id, tenant_id, task_id, route_id, section_id, unit_id, route_code, direction, lane_no, start_stake, end_stake,
+        disease_category, disease_type, disease_name, severity, quantity, measure_unit, damage_area, damage_length, damage_width, damage_depth,
+        source, confidence, geom, status, verified, remark, created_by, updated_by, created_at, updated_at, deleted)
+        VALUES (#{id}, #{tenantId}, #{taskId}, #{routeId}, #{sectionId}, #{unitId}, #{routeCode}, #{direction}, #{laneNo}, #{startStake}, #{endStake},
+        #{diseaseCategory}, #{diseaseType}, #{diseaseName}, #{severity}, #{quantity}, #{measureUnit}, #{damageArea}, #{damageLength}, #{damageWidth}, #{damageDepth},
+        #{source}, #{confidence},
+        <choose><when test="geomWkt != null and geomWkt != ''">ST_GeomFromText(#{geomWkt}, 4326)</when><otherwise>NULL</otherwise></choose>,
+        #{status}, #{verified}, #{remark}, #{createdBy}, #{updatedBy}, now(), now(), false)
+    </insert>
+    <update id="updateWithGeom" parameterType="com.smartroad.srmp.disease.entity.DiseaseRecord">
+        UPDATE disease_record SET task_id=#{taskId}, route_id=#{routeId}, section_id=#{sectionId}, unit_id=#{unitId}, route_code=#{routeCode}, direction=#{direction}, lane_no=#{laneNo},
+        start_stake=#{startStake}, end_stake=#{endStake}, disease_category=#{diseaseCategory}, disease_type=#{diseaseType}, disease_name=#{diseaseName}, severity=#{severity},
+        quantity=#{quantity}, measure_unit=#{measureUnit}, damage_area=#{damageArea}, damage_length=#{damageLength}, damage_width=#{damageWidth}, damage_depth=#{damageDepth},
+        source=#{source}, confidence=#{confidence}, status=#{status}, remark=#{remark}, updated_by=#{updatedBy}, updated_at=now()
+        <if test="geomWkt != null and geomWkt != ''">, geom=ST_GeomFromText(#{geomWkt}, 4326)</if>
+        WHERE tenant_id=#{tenantId} AND id=#{id} AND deleted=false
+    </update>
+</mapper>

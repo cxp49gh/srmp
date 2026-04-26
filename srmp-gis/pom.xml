@@ -16,6 +16,12 @@
     <version>${project.version}</version>
 </dependency>
 
+<dependency>
+    <groupId>com.smartroad</groupId>
+    <artifactId>srmp-assessment</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
 
 <dependency>
     <groupId>com.smartroad</groupId>
@@ -27,6 +33,12 @@
 <dependency>
     <groupId>com.smartroad</groupId>
     <artifactId>srmp-tenant</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
+<dependency>
+    <groupId>com.smartroad</groupId>
+    <artifactId>srmp-disease</artifactId>
     <version>${project.version}</version>
 </dependency>
 

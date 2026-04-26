@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartroad.srmp.assessment.mapper.IndexResultMapper">
+    <sql id="IndexWhere">
+        tenant_id = #{tenantId} AND deleted = false
+        <if test="q != null and q.taskId != null and q.taskId != ''">AND task_id = #{q.taskId}</if>
+        <if test="q != null and q.assessmentId != null and q.assessmentId != ''">AND assessment_id = #{q.assessmentId}</if>
+        <if test="q != null and q.unitId != null and q.unitId != ''">AND unit_id = #{q.unitId}</if>
+        <if test="q != null and q.routeCode != null and q.routeCode != ''">AND route_code = #{q.routeCode}</if>
+        <if test="q != null and q.year != null">AND year = #{q.year}</if>
+        <if test="q != null and q.indexCode != null and q.indexCode != ''">AND index_code = #{q.indexCode}</if>
+        <if test="q != null and q.grade != null and q.grade != ''">AND grade = #{q.grade}</if>
+    </sql>
+    <select id="selectPageVO" resultType="com.smartroad.srmp.assessment.vo.IndexResultVO">
+        SELECT id, task_id, assessment_id, unit_id, route_code, year, index_code, index_name, index_value, grade, raw_metrics::text AS raw_metrics, calculation_version, calculated_at
+        FROM index_result WHERE <include refid="IndexWhere"/> ORDER BY route_code ASC, year DESC, index_code ASC
+    </select>
+    <select id="selectDetail" resultType="com.smartroad.srmp.assessment.vo.IndexResultVO">
+        SELECT id, task_id, assessment_id, unit_id, route_code, year, index_code, index_name, index_value, grade, raw_metrics::text AS raw_metrics, calculation_version, calculated_at
+        FROM index_result WHERE tenant_id = #{tenantId} AND id = #{id} AND deleted = false
+    </select>
+
+    <insert id="insertWithJson" parameterType="com.smartroad.srmp.assessment.entity.IndexResult">
+        INSERT INTO index_result(id, tenant_id, task_id, assessment_id, unit_id, route_id, section_id, route_code, direction, start_stake, end_stake, year,
+        index_code, index_name, index_value, grade, raw_metrics, calculation_version, calculated_at, created_at, updated_at, deleted)
+        VALUES (#{id}, #{tenantId}, #{taskId}, #{assessmentId}, #{unitId}, #{routeId}, #{sectionId}, #{routeCode}, #{direction}, #{startStake}, #{endStake}, #{year},
+        #{indexCode}, #{indexName}, #{indexValue}, #{grade},
+        <choose><when test="rawMetrics != null and rawMetrics != ''">CAST(#{rawMetrics} AS jsonb)</when><otherwise>NULL</otherwise></choose>,
+        #{calculationVersion}, now(), now(), now(), false)
+    </insert>
+    <update id="updateWithJson" parameterType="com.smartroad.srmp.assessment.entity.IndexResult">
+        UPDATE index_result SET task_id=#{taskId}, assessment_id=#{assessmentId}, unit_id=#{unitId}, route_id=#{routeId}, section_id=#{sectionId}, route_code=#{routeCode}, direction=#{direction},
+        start_stake=#{startStake}, end_stake=#{endStake}, year=#{year}, index_code=#{indexCode}, index_name=#{indexName}, index_value=#{indexValue}, grade=#{grade},
+        raw_metrics=<choose><when test="rawMetrics != null and rawMetrics != ''">CAST(#{rawMetrics} AS jsonb)</when><otherwise>NULL</otherwise></choose>,
+        calculation_version=#{calculationVersion}, updated_at=now()
+        WHERE tenant_id=#{tenantId} AND id=#{id} AND deleted=false
+    </update>
+</mapper>
