@@ -1,3 +1,4 @@
+<<<<<<< ours
 # SmartRoad Maintenance Platform（SRMP）
 
 智路养护平台 — 公路养护 GIS 智能分析平台
@@ -53,7 +54,8 @@ srmp-parent/
 ├── srmp-file                # 文件资料：MinIO 对象存储
 ├── srmp-agent               # AI大模型：智能问答、路况分析、报告生成
 ├── srmp-dashboard           # 首页驾驶舱：统计概览、趋势分析
-└── srmp-admin               # 启动模块：Spring Boot 主入口
+├── srmp-admin               # 启动模块：Spring Boot 主入口
+└── srmp-web-ui              # 前端工程：Vue 3 + Vite + Element Plus + Leaflet
 ```
 
 ---
@@ -127,6 +129,16 @@ curl http://localhost:8080/api/health
 }
 ```
 
+### 6. 启动前端（可选）
+
+```bash
+cd srmp-web-ui
+npm install
+npm run dev
+```
+
+访问 http://localhost:5173 查看 GIS 一张图。
+
 ---
 
 ## 实施阶段
@@ -137,7 +149,7 @@ curl http://localhost:8080/api/health
 | 阶段二 | 道路资产 CRUD + GIS 图层接口 | ✅ 已完成（路线/路段/评定单元 CRUD、GIS 路线/路段/评定单元图层、桩号定位） |
 | 阶段二（续） | 病害 GIS 图层 + 评定结果 GIS 图层 | ✅ 已完成（病害类型/记录 CRUD、GIS 图层、评定结果 CRUD、GIS 专题图） |
 | 阶段三 | 数据导入模块 | ✅ 已完成（CSV/Excel 导入、模板下载、错误日志、支持 ROAD_ROUTE/ROAD_SECTION/EVALUATION_UNIT/DISEASE/ASSESSMENT/INDEX_RESULT） |
-| 阶段四 | GIS 一张图完善 | 📋 待开始 |
+| 阶段四 | GIS 一张图完善 | ✅ 已完成（GIS 一张图前端、图层树、工具栏、病害/评定专题图、AI 问答浮窗） |
 | 阶段五 | AI 大模型接入 | 📋 待开始 |
 
 ---
@@ -525,6 +537,7 @@ ST_AsGeoJSON(geom) AS geom_geo_json
 - `phase2-road-asset-gis-usage.md` — 阶段二道路资产与 GIS 图层接口使用说明
 - `phase2-continued-disease-assessment-gis-usage.md` — 阶段二续期病害与评定 GIS 图层使用说明
 - `phase3-data-import-usage.md` — 阶段三数据导入使用说明
+- `phase4-gis-web-ui-usage.md` — 阶段四 GIS 一张图前端使用说明
 - `SRMP项目概述.md` — 项目完整概述
 
 ---
@@ -645,13 +658,32 @@ public class MybatisPlusConfig {
 }
 ```
 
----
+### 前端跨域请求失败
 
-## 阶段三数据导入
+**问题：** `Access to XMLHttpRequest at 'http://localhost:8080/api/...' from origin 'http://localhost:5173' has been blocked by CORS policy`
 
-阶段三新增基础导入能力，支持 ROAD_ROUTE、ROAD_SECTION、EVALUATION_UNIT、DISEASE、ASSESSMENT、INDEX_RESULT 的 CSV / Excel 导入。
+**原因：** 后端未配置 CORS 跨域，前端无法请求后端 API。
 
-使用说明见：`docs/phase3-data-import-usage.md`。
+**修复：** 在 `srmp-web` 模块的 `CorsConfig` 中添加跨域配置：
+
+```java
+@Configuration
+public class CorsConfig {
+    @Bean
+    public CorsFilter corsFilter() {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowCredentials(true);
+        config.addAllowedOriginPattern("*");
+        config.addAllowedHeader("*");
+        config.addAllowedMethod("*");
+        config.setMaxAge(3600L);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return new CorsFilter(source);
+    }
+}
+```
 
 ---
 
@@ -659,3 +691,47 @@ public class MybatisPlusConfig {
 
 Private - All Rights Reserved
 
+=======
+# srmp-web-ui
+
+智路养护平台 GIS 一张图前端工程。
+
+## 启动
+
+```bash
+npm install
+npm run dev
+```
+
+访问：
+
+```text
+http://localhost:5173
+```
+
+## 环境变量
+
+```text
+VITE_API_BASE_URL=http://localhost:8080
+VITE_TENANT_ID=default
+```
+
+## 页面
+
+```text
+/gis/one-map
+```
+
+## 功能
+
+```text
+1. 路线图层
+2. 路段图层
+3. 评定单元图层
+4. 病害图层
+5. 评定结果专题图
+6. 对象详情面板
+7. 地图统计面板
+8. AI 问答面板
+```
+>>>>>>> theirs
