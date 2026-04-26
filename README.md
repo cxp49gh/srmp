@@ -1,4 +1,3 @@
-<<<<<<< ours
 # SmartRoad Maintenance Platform（SRMP）
 
 智路养护平台 — 公路养护 GIS 智能分析平台
@@ -150,7 +149,7 @@ npm run dev
 | 阶段二（续） | 病害 GIS 图层 + 评定结果 GIS 图层 | ✅ 已完成（病害类型/记录 CRUD、GIS 图层、评定结果 CRUD、GIS 专题图） |
 | 阶段三 | 数据导入模块 | ✅ 已完成（CSV/Excel 导入、模板下载、错误日志、支持 ROAD_ROUTE/ROAD_SECTION/EVALUATION_UNIT/DISEASE/ASSESSMENT/INDEX_RESULT） |
 | 阶段四 | GIS 一张图完善 | ✅ 已完成（GIS 一张图前端、图层树、工具栏、病害/评定专题图、AI 问答浮窗） |
-| 阶段五 | AI 大模型接入 | 📋 待开始 |
+| 阶段五 | AI 大模型接入 | ✅ 已完成（OpenAI兼容客户端、业务数据查询、路线综合分析、病害热点分析、评定结果分析、地图联动查询、报告草稿生成、本地规则兜底） |
 
 ---
 
@@ -423,6 +422,128 @@ X-Tenant-Id: default
 
 ---
 
+## AI 大模型分析 API
+
+### 路线综合分析
+
+```http
+POST /api/agent/analyze/route
+Content-Type: application/json
+X-Tenant-Id: default
+```
+
+请求：
+```json
+{
+  "routeCode": "G210",
+  "year": 2026
+}
+```
+
+### 病害热点分析
+
+```http
+POST /api/agent/analyze/disease
+Content-Type: application/json
+X-Tenant-Id: default
+```
+
+请求：
+```json
+{
+  "routeCode": "G210",
+  "diseaseType": "POTHOLE",
+  "severity": "HEAVY"
+}
+```
+
+### 评定结果分析
+
+```http
+POST /api/agent/analyze/assessment
+Content-Type: application/json
+X-Tenant-Id: default
+```
+
+请求：
+```json
+{
+  "routeCode": "G210",
+  "year": 2026,
+  "indexCode": "PCI",
+  "grade": "POOR"
+}
+```
+
+### 地图联动查询
+
+```http
+POST /api/agent/map-query
+Content-Type: application/json
+X-Tenant-Id: default
+```
+
+请求：
+```json
+{
+  "message": "把 PCI 小于 70 的路段显示出来",
+  "routeCode": "G210",
+  "year": 2026
+}
+```
+
+### 评定分析报告草稿
+
+```http
+POST /api/agent/report/assessment
+Content-Type: application/json
+X-Tenant-Id: default
+```
+
+请求：
+```json
+{
+  "routeCode": "G210",
+  "year": 2026
+}
+```
+
+返回 Markdown 报告草稿。
+
+### 智能问答
+
+```http
+POST /api/agent/chat
+Content-Type: application/json
+X-Tenant-Id: default
+```
+
+请求：
+```json
+{
+  "message": "分析 G210 的病害情况",
+  "context": {
+    "routeCode": "G210",
+    "year": 2026
+  }
+}
+```
+
+**配置项**（application-dev.yml）：
+
+```yaml
+srmp:
+  llm:
+    provider: openai-compatible
+    base-url: http://127.0.0.1:8000/v1
+    api-key: your-api-key
+    model: gpt-4o-mini
+```
+
+若 `api-key` 为空或为 `your-api-key`，系统使用本地规则分析兜底返回。
+
+---
+
 ## 空间字段说明
 
 ### WKT 格式
@@ -466,10 +587,10 @@ ST_AsGeoJSON(geom) AS geom_geo_json
 ### GIS 一张图
 
 - 路线、路段、评定单元空间展示
-- 病害点、线、面分布展示（待实现）
-- 巡检轨迹上图（待实现）
-- 按 MQI/PQI/PCI 等渲染路况专题图（待实现）
-- 空间查询（框选、圈选、多边形）（待实现）
+- 病害点、线、面分布展示
+- 巡检轨迹上图
+- 按 MQI/PQI/PCI 等渲染路况专题图
+- 空间查询（框选、圈选、多边形）
 - 桩号定位
 
 ### 道路资产
@@ -488,11 +609,12 @@ ST_AsGeoJSON(geom) AS geom_geo_json
 
 ### AI 大模型分析
 
-- 自然语言路况问答（待实现）
-- 病害热点分析（待实现）
-- 养护建议生成（待实现）
-- 自动报告生成（待实现）
-- 地图联动高亮（待实现）
+- 自然语言路况问答
+- 病害热点分析
+- 养护建议生成
+- 自动报告生成
+- 地图联动高亮
+- 本地规则兜底（未配置大模型时）
 
 ### 指标体系
 
@@ -538,6 +660,7 @@ ST_AsGeoJSON(geom) AS geom_geo_json
 - `phase2-continued-disease-assessment-gis-usage.md` — 阶段二续期病害与评定 GIS 图层使用说明
 - `phase3-data-import-usage.md` — 阶段三数据导入使用说明
 - `phase4-gis-web-ui-usage.md` — 阶段四 GIS 一张图前端使用说明
+- `phase5-ai-agent-usage.md` — 阶段五 AI 大模型分析使用说明
 - `SRMP项目概述.md` — 项目完整概述
 
 ---
@@ -685,53 +808,16 @@ public class CorsConfig {
 }
 ```
 
+### PostgreSQL 隐式类型推断失败
+
+**问题：** `could not determine data type of parameter`
+
+**原因：** Spring JDBC NamedParameterJdbcTemplate 对 null 值的类型推断不明确。
+
+**修复：** 使用空字符串 `''` 代替 null，并使用 `nullif(x, '') is not distinct from` 进行比较。
+
 ---
 
 ## 许可证
 
 Private - All Rights Reserved
-
-=======
-# srmp-web-ui
-
-智路养护平台 GIS 一张图前端工程。
-
-## 启动
-
-```bash
-npm install
-npm run dev
-```
-
-访问：
-
-```text
-http://localhost:5173
-```
-
-## 环境变量
-
-```text
-VITE_API_BASE_URL=http://localhost:8080
-VITE_TENANT_ID=default
-```
-
-## 页面
-
-```text
-/gis/one-map
-```
-
-## 功能
-
-```text
-1. 路线图层
-2. 路段图层
-3. 评定单元图层
-4. 病害图层
-5. 评定结果专题图
-6. 对象详情面板
-7. 地图统计面板
-8. AI 问答面板
-```
->>>>>>> theirs
