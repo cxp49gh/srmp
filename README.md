@@ -92,6 +92,7 @@ docker compose up -d
 psql -h 127.0.0.1 -U srmp -d srmp -f srmp-admin/src/main/resources/db/schema.sql
 psql -h 127.0.0.1 -U srmp -d srmp -f srmp-admin/src/main/resources/db/init_dict.sql
 psql -h 127.0.0.1 -U srmp -d srmp -f srmp-admin/src/main/resources/db/init_admin.sql
+psql -h 127.0.0.1 -U srmp -d srmp -f srmp-admin/src/main/resources/db/demo_data.sql
 ```
 
 > 默认数据库：`srmp`，用户名：`srmp`，密码：`srmp123`
@@ -150,6 +151,21 @@ npm run dev
 | 阶段三 | 数据导入模块 | ✅ 已完成（CSV/Excel 导入、模板下载、错误日志、支持 ROAD_ROUTE/ROAD_SECTION/EVALUATION_UNIT/DISEASE/ASSESSMENT/INDEX_RESULT） |
 | 阶段四 | GIS 一张图完善 | ✅ 已完成（GIS 一张图前端、图层树、工具栏、病害/评定专题图、AI 问答浮窗） |
 | 阶段五 | AI 大模型接入 | ✅ 已完成（OpenAI兼容客户端、业务数据查询、路线综合分析、病害热点分析、评定结果分析、地图联动查询、报告草稿生成、本地规则兜底） |
+| 阶段六 | 一期演示闭环与验收 | ✅ 已完成（演示数据脚本、快速启动脚本、冒烟测试、验收文档） |
+
+---
+
+## 一期演示闭环
+
+```bash
+docker compose up -d
+chmod +x scripts/*.sh
+./scripts/init-db.sh
+./scripts/start-backend.sh
+./scripts/start-frontend.sh
+```
+
+访问 http://localhost:5173，输入路线 `G210` 即可演示。
 
 ---
 
@@ -661,6 +677,8 @@ ST_AsGeoJSON(geom) AS geom_geo_json
 - `phase3-data-import-usage.md` — 阶段三数据导入使用说明
 - `phase4-gis-web-ui-usage.md` — 阶段四 GIS 一张图前端使用说明
 - `phase5-ai-agent-usage.md` — 阶段五 AI 大模型分析使用说明
+- `phase6-demo-acceptance.md` — 阶段六一期演示闭环与验收说明
+- `api-smoke-test.http` — API 冒烟测试 HTTP 文件
 - `SRMP项目概述.md` — 项目完整概述
 
 ---

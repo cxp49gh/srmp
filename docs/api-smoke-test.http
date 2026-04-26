@@ -1,0 +1,94 @@
+### 健康检查
+GET http://localhost:8080/api/health
+
+### 当前租户
+GET http://localhost:8080/api/tenants/current
+X-Tenant-Id: default
+
+### 路线图层
+GET http://localhost:8080/api/gis/road-routes?routeCode=G210
+X-Tenant-Id: default
+
+### 路段图层
+GET http://localhost:8080/api/gis/road-sections?routeCode=G210
+X-Tenant-Id: default
+
+### 评定单元图层
+GET http://localhost:8080/api/gis/evaluation-units?routeCode=G210
+X-Tenant-Id: default
+
+### 病害图层
+GET http://localhost:8080/api/gis/diseases?routeCode=G210
+X-Tenant-Id: default
+
+### 评定专题图层
+GET http://localhost:8080/api/gis/assessment-results?routeCode=G210&year=2026&indexCode=MQI
+X-Tenant-Id: default
+
+### 病害热点分析
+POST http://localhost:8080/api/agent/analyze/disease
+Content-Type: application/json
+X-Tenant-Id: default
+
+{
+  "routeCode": "G210",
+  "year": 2026
+}
+
+### 路线综合分析
+POST http://localhost:8080/api/agent/analyze/route
+Content-Type: application/json
+X-Tenant-Id: default
+
+{
+  "routeCode": "G210",
+  "year": 2026
+}
+
+### 评定结果分析
+POST http://localhost:8080/api/agent/analyze/assessment
+Content-Type: application/json
+X-Tenant-Id: default
+
+{
+  "routeCode": "G210",
+  "year": 2026,
+  "indexCode": "PCI"
+}
+
+### 地图联动查询
+POST http://localhost:8080/api/agent/map-query
+Content-Type: application/json
+X-Tenant-Id: default
+
+{
+  "message": "把 PCI 较低的次差路段显示出来",
+  "routeCode": "G210",
+  "year": 2026,
+  "grade": "POOR",
+  "indexCode": "PCI"
+}
+
+### 评定报告草稿
+POST http://localhost:8080/api/agent/report/assessment
+Content-Type: application/json
+X-Tenant-Id: default
+
+{
+  "routeCode": "G210",
+  "year": 2026
+}
+
+### AI 问答
+POST http://localhost:8080/api/agent/chat
+Content-Type: application/json
+X-Tenant-Id: default
+
+{
+  "message": "分析 G210 2026 年整体路况，并指出重点养护路段",
+  "context": {
+    "routeCode": "G210",
+    "year": 2026,
+    "indexCode": "MQI"
+  }
+}
