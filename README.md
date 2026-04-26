@@ -166,6 +166,71 @@ npm run dev
 | 阶段十八 | AI知识库最终收口与验收 | ✅ 已完成（知识库演示数据、自动验收脚本check-ai/check-outline/check-ai-e2e） |
 | 阶段十九 | 数据库初始化自动化与启动自检 | ✅ 已完成（init-ai-db.sh/check-db-schema.sh/check-ai-startup-prereq.sh、db-init-guide.md） |
 | 阶段二十 | AI方案模板管理 | ✅ 已完成（ai_solution_template表、模板变量解析、CRUD接口、前端模板管理页面） |
+| 阶段二十一 | AI方案生成 | ✅ 已完成（方案模板→业务数据→知识库检索→模板填充→大模型润色→任务保存→来源记录） |
+
+---
+
+## AI 方案生成接口
+
+### 方案生成
+
+```http
+POST /api/ai/solution/generate
+Content-Type: application/json
+X-Tenant-Id: default
+```
+
+请求：
+```json
+{
+  "solutionType": "ROAD_ASSESSMENT_REPORT",
+  "routeCode": "G210",
+  "year": 2026,
+  "templateCode": "road_assessment_report_default",
+  "options": {
+    "useBusinessData": true,
+    "useKnowledge": true,
+    "useOutline": false,
+    "topK": 5
+  }
+}
+```
+
+响应：
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "taskId": "...",
+    "title": "G210 2026 年技术状况评定报告",
+    "draft": "## G210 2026 年技术状况评定报告\n\n## 评定结果\n...",
+    "status": "COMPLETED"
+  }
+}
+```
+
+### 方案任务列表
+
+```http
+POST /api/ai/solution/tasks/list
+Content-Type: application/json
+X-Tenant-Id: default
+```
+
+### 方案任务详情
+
+```http
+GET /api/ai/solution/tasks/{id}
+X-Tenant-Id: default
+```
+
+### 方案任务来源
+
+```http
+GET /api/ai/solution/tasks/{id}/sources
+X-Tenant-Id: default
+```
 
 ---
 
