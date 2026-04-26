@@ -158,6 +158,7 @@ npm run dev
 | 阶段十 | 一期工程化收口 | ✅ 已完成（前端默认加载G210/2026、GIS loading提示、自动化验收脚本、演示数据重置脚本、导入模板CSV） |
 | 阶段十一 | GIS一张图页面布局优化 | ✅ 已完成（左侧整合图层/详情/图例，右侧仅保留AI问答，修复全图按钮失效问题） |
 | 阶段十二 | GIS一张图方案A轻量化布局 | ✅ 已完成（地图最大化，层/例/全图悬浮按钮，底部统计条，右下AI按钮，底部抽屉详情） |
+| 阶段十三 | AI知识库增强与Outline在线搜索 | ✅ 已完成（本地知识库RAG、Outline在线搜索、/api/agent/chat融合业务+知识+Outline） |
 
 ---
 
@@ -705,6 +706,7 @@ ST_AsGeoJSON(geom) AS geom_geo_json
 - `phase10-final-acceptance.md` — 阶段十 一期工程化收口说明
 - `phase11-gis-layout-fix.md` — 阶段十一 GIS一张图页面布局优化说明
 - `phase12-gis-layout-solution-a.md` — 阶段十二 GIS一张图方案A轻量化布局说明
+- `phase13-ai-knowledge-outline-usage.md` — 阶段十三 AI知识库增强与Outline在线搜索使用说明
 - `api-smoke-test.http` — API 冒烟测试 HTTP 文件
 - `SRMP项目概述.md` — 项目完整概述
 
