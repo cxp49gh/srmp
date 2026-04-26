@@ -12,7 +12,9 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/gis")
@@ -53,4 +55,24 @@ public class GisMapController {
 
     @PostMapping("/spatial-query")
     public R<GeoJsonFeatureCollectionVO> spatialQuery(@RequestBody(required = false) Object query) { return R.ok(new GeoJsonFeatureCollectionVO()); }
+
+    @PostMapping("/map-statistics")
+    public R<Map<String, Object>> mapStatistics(@RequestBody(required = false) MapStatisticsRequest request) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("totalLengthKm", 0);
+        result.put("diseaseCount", 0);
+        result.put("avgMqi", null);
+        result.put("excellentGoodRate", null);
+        result.put("poorBadRate", null);
+        return R.ok(result);
+    }
+
+    private static class MapStatisticsRequest {
+        private String routeCode;
+        private Integer year;
+        public String getRouteCode() { return routeCode; }
+        public void setRouteCode(String routeCode) { this.routeCode = routeCode; }
+        public Integer getYear() { return year; }
+        public void setYear(Integer year) { this.year = year; }
+    }
 }
