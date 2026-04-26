@@ -154,7 +154,7 @@ public class AgentDataQueryServiceImpl implements AgentDataQueryService {
         MapSqlParameterSource params = new MapSqlParameterSource();
         params.addValue("tenantId", TenantContextHolder.getTenantId());
         params.addValue("routeCode", request == null || request.getRouteCode() == null ? "" : request.getRouteCode());
-        params.addValue("year", request == null ? null : request.getYear());
+        params.addValue("year", request == null || request.getYear() == null ? "" : String.valueOf(request.getYear()));
         params.addValue("grade", request == null || request.getGrade() == null ? "" : request.getGrade());
         params.addValue("diseaseType", request == null || request.getDiseaseType() == null ? "" : request.getDiseaseType());
         params.addValue("severity", request == null || request.getSeverity() == null ? "" : request.getSeverity());
@@ -166,7 +166,7 @@ public class AgentDataQueryServiceImpl implements AgentDataQueryService {
     }
 
     private String optionalYear(String alias) {
-        return " and (:year is null or " + alias + ".year=:year) ";
+        return " and ('' = :year or cast(" + alias + ".year as text) = :year) ";
     }
 
     private String optionalGrade(String alias) {
