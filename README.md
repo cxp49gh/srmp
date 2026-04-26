@@ -163,6 +163,7 @@ npm run dev
 | 阶段十五 | AI知识库前端管理与Outline接入页面 | ✅ 已完成（知识库/Outline API封装、AI问答/文档/检索页面、GIS浮窗增强） |
 | 阶段十六 | Outline本地Docker部署 | ✅ 已完成（docker-compose.outline.yml、本地Outline联调环境、start/stop脚本） |
 | 阶段十七 | Outline同步入库 | ✅ 已完成（Outline文档→知识库同步、/api/outline/sync接口、前端同步页面） |
+| 阶段十八 | AI知识库最终收口与验收 | ✅ 已完成（知识库演示数据、自动验收脚本check-ai/check-outline/check-ai-e2e） |
 
 ---
 
@@ -715,6 +716,7 @@ ST_AsGeoJSON(geom) AS geom_geo_json
 - `phase15-ai-knowledge-ui.md` — 阶段十五 AI知识库前端管理与Outline接入页面
 - `phase16-outline-local-deploy.md` — 阶段十六 Outline本地Docker部署说明
 - `phase17-outline-sync.md` — 阶段十七 Outline同步入库说明
+- `phase18-ai-knowledge-acceptance.md` — 阶段十八 AI知识库最终收口与验收说明
 - `api-smoke-test.http` — API 冒烟测试 HTTP 文件
 - `SRMP项目概述.md` — 项目完整概述
 
