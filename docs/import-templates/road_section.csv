@@ -1,0 +1,3 @@
+route_code,section_code,section_name,direction,start_stake,end_stake,length_km,pavement_type,technical_grade,geom_wkt
+G321,G321_K0_K3,G321 K0-K3,BOTH,0,3,3,ASPHALT,FIRST_CLASS,"LINESTRING(106.600 26.600,106.610 26.610,106.620 26.620)"
+S101,S101_K0_K2,S101 K0-K2,BOTH,0,2,2,ASPHALT,SECOND_CLASS,"LINESTRING(106.700 26.600,106.710 26.610,106.720 26.620)"

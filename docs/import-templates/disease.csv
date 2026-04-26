@@ -1,0 +1,4 @@
+route_code,direction,lane_no,start_stake,end_stake,disease_category,disease_type,disease_name,severity,quantity,measure_unit,damage_area,damage_length,geom_wkt
+G321,BOTH,1,0.3,0.35,PAVEMENT,CRACK,裂缝,LIGHT,12,m,,12,"LINESTRING(106.601 26.601,106.602 26.602)"
+G321,BOTH,1,1.2,1.21,PAVEMENT,POTHOLE,坑槽,HEAVY,1,处,2.5,1.5,"POINT(106.607 26.607)"
+G321,BOTH,1,2.1,2.3,PAVEMENT,RUTTING,车辙,MEDIUM,80,m,,80,"LINESTRING(106.612 26.612,106.616 26.616)"

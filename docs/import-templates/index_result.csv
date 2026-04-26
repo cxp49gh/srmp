@@ -1,0 +1,4 @@
+route_code,direction,start_stake,end_stake,year,index_code,index_name,index_value,grade
+G321,BOTH,0,1,2026,MQI,公路技术状况指数,91,EXCELLENT
+G321,BOTH,1,2,2026,PCI,路面损坏状况指数,78,GOOD
+G321,BOTH,2,3,2026,PCI,路面损坏状况指数,58,POOR
