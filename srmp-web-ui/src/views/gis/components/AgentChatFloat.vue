@@ -181,15 +181,4 @@ async function send() {
   margin-top: 8px;
   align-items: flex-end;
 }
-
-.chat-enter-active,
-.chat-leave-active {
-  transition: all 0.2s ease;
-}
-
-.chat-enter-from,
-.chat-leave-to {
-  transform: translateY(10px);
-  opacity: 0;
-}
 </style>

@@ -68,11 +68,13 @@ const displayItems = computed(() => {
 
   if (result.length > 0) return result
 
-  return Object.entries(detail).slice(0, 10).map(([key, value]) => ({
-    key,
-    label: key,
-    value: value === null || typeof value === 'undefined' ? '-' : String(value)
-  }))
+  return Object.entries(detail)
+    .slice(0, 10)
+    .map(([key, value]) => ({
+      key,
+      label: key,
+      value: value === null || typeof value === 'undefined' ? '-' : String(value)
+    }))
 })
 </script>
 
@@ -137,16 +139,5 @@ const displayItems = computed(() => {
 .actions {
   margin-top: 12px;
   text-align: right;
-}
-
-.drawer-up-enter-active,
-.drawer-up-leave-active {
-  transition: all 0.2s ease;
-}
-
-.drawer-up-enter-from,
-.drawer-up-leave-to {
-  transform: translate(-50%, 12px);
-  opacity: 0;
 }
 </style>

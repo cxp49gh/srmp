@@ -16,21 +16,12 @@
       <div class="group-title">业务图层</div>
       <el-checkbox v-model="localLayers.disease" @change="emitChange">病害</el-checkbox>
       <el-checkbox v-model="localLayers.assessment" @change="emitChange">评定专题</el-checkbox>
-
-      <el-divider />
-
-      <div class="group-title">底图</div>
-      <el-radio-group v-model="baseMap">
-        <el-radio label="osm">OSM</el-radio>
-        <el-radio label="tdt" disabled>天地图</el-radio>
-        <el-radio label="satellite" disabled>卫星图</el-radio>
-      </el-radio-group>
     </div>
   </transition>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { reactive, watch } from 'vue'
 
 export interface LayerState {
   roadRoute: boolean
@@ -51,7 +42,6 @@ const emit = defineEmits<{
   (e: 'change', value: LayerState): void
 }>()
 
-const baseMap = ref('osm')
 const localLayers = reactive<LayerState>({ ...props.layers })
 
 watch(
@@ -104,21 +94,9 @@ function emitChange() {
   color: #475569;
 }
 
-:deep(.el-checkbox),
-:deep(.el-radio) {
+:deep(.el-checkbox) {
   display: flex;
   margin-right: 0;
   margin-bottom: 8px;
-}
-
-.slide-enter-active,
-.slide-leave-active {
-  transition: all 0.18s ease;
-}
-
-.slide-enter-from,
-.slide-leave-to {
-  transform: translateX(-10px);
-  opacity: 0;
 }
 </style>

@@ -8,7 +8,7 @@ const request = axios.create({
 
 request.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   config.headers = config.headers || {}
-  config.headers['X-Tenant-Id'] = import.meta.env.VITE_TENANT_ID || 'default'
+  config.headers.set('X-Tenant-Id', import.meta.env.VITE_TENANT_ID || 'default')
   return config
 })
 
@@ -16,7 +16,9 @@ request.interceptors.response.use(
   (response) => {
     const data = response.data
     if (data && typeof data.code !== 'undefined') {
-      if (data.code === 0) return data.data
+      if (data.code === 0) {
+        return data.data
+      }
       ElMessage.error(data.message || '请求失败')
       return Promise.reject(new Error(data.message || '请求失败'))
     }

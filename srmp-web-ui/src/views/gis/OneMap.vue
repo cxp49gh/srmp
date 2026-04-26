@@ -6,7 +6,8 @@
       <MapToolbar
         :query="query"
         @search="handleSearch"
-        @toggle-panel="panelVisible = !panelVisible"
+        @reset="handleReset"
+        @fit="handleFitAll"
       />
     </div>
 
@@ -59,6 +60,7 @@
 </template>
 
 <script setup lang="ts">
+import L, { GeoJSON, LatLngBounds, Map as LeafletMap } from 'leaflet'
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
@@ -67,9 +69,11 @@ import {
   getAssessmentResults,
   getDiseases,
   getEvaluationUnits,
+  getMapStatistics,
+  getObjectDetail,
   getRoadRoutes,
   getRoadSections,
-  getMapStatistics
+  type GisLayerQuery
 } from '../../api/gis'
 import { layerStyle } from '../../utils/leafletStyle'
 import type { GeoJsonFeatureCollection } from '../../types/geojson'
@@ -82,17 +86,19 @@ import AgentChatFloat from './components/AgentChatFloat.vue'
 
 const query = reactive<GisLayerQuery>({
   routeCode: 'G210',
-  year: 2024
+  year: '2026',
+  indexCode: 'MQI',
+  grade: ''
 })
 
-const panelVisible = ref(false)
 const layers = reactive<LayerState>({
   roadRoute: true,
   roadSection: true,
-  evaluationUnit: true,
+  evaluationUnit: false,
   disease: true,
   assessment: true
 })
+
 const statistics = ref<Record<string, any>>({})
 const selectedDetail = ref<Record<string, any> | null>(null)
 const loading = ref(false)
@@ -126,33 +132,43 @@ onMounted(async () => {
     attribution: '&copy; OpenStreetMap contributors'
   }).addTo(map)
 
+  map.on('moveend', loadStatistics)
+  await nextTick()
+  map.invalidateSize(true)
   await reloadLayers()
 })
 
-function handleSearch() {
-  reloadLayers()
+async function handleSearch(next: GisLayerQuery) {
+  Object.assign(query, next)
+  await reloadLayers()
+}
+
+async function handleReset() {
+  Object.assign(query, {
+    routeCode: 'G210',
+    year: '2026',
+    indexCode: 'MQI',
+    grade: '',
+    diseaseType: '',
+    severity: ''
+  })
+  await reloadLayers()
 }
 
 async function reloadLayers() {
+  if (!map) return
   loading.value = true
   clearAllLayers()
 
-  if (layers.roadRoute) {
-    await loadLayer('roadRoute', getRoadRoutes)
-  }
-  if (layers.roadSection) {
-    await loadLayer('roadSection', getRoadSections)
-  }
-  if (layers.evaluationUnit) {
-    await loadLayer('evaluationUnit', getEvaluationUnits)
-  }
-  if (layers.disease) {
-    await loadLayer('disease', getDiseases)
-  }
-  if (layers.assessment) {
-    await loadLayer('assessment', getAssessmentResults)
-  }
+  const tasks: Array<Promise<void>> = []
 
+  if (layers.roadRoute) tasks.push(loadLayer('roadRoute', () => getRoadRoutes(query)))
+  if (layers.roadSection) tasks.push(loadLayer('roadSection', () => getRoadSections(query)))
+  if (layers.evaluationUnit) tasks.push(loadLayer('evaluationUnit', () => getEvaluationUnits(query)))
+  if (layers.disease) tasks.push(loadLayer('disease', () => getDiseases(query)))
+  if (layers.assessment) tasks.push(loadLayer('assessment', () => getAssessmentResults(query)))
+
+  await Promise.allSettled(tasks)
   loading.value = false
 
   await nextTick()
@@ -169,9 +185,20 @@ function clearAllLayers() {
 async function loadLayer(key: string, loader: () => Promise<GeoJsonFeatureCollection>) {
   try {
     const data = await loader()
-    const style = layerStyle(key)
-    const layer = L.geoJSON(data, {
-      style: (feature) => style(feature?.properties),
+    const featureCount = data?.features?.length || 0
+    if (featureCount === 0) {
+      ElMessage.info(`${layerName(key)}：当前条件无数据`)
+      return
+    }
+
+    const geoLayer = L.geoJSON(data as any, {
+      style: (feature) => layerStyle(feature?.properties || {}),
+      pointToLayer: (feature, latlng) => {
+        return L.circleMarker(latlng, {
+          radius: 6,
+          ...layerStyle(feature?.properties || {})
+        })
+      },
       onEachFeature: (feature, layer) => {
         const properties = feature.properties || {}
         layer.bindPopup(popupHtml(properties), { className: 'srmp-popup' })
@@ -183,10 +210,11 @@ async function loadLayer(key: string, loader: () => Promise<GeoJsonFeatureCollec
         })
       }
     })
-    layer.addTo(map)
-    layerMap.set(key, layer)
+
+    geoLayer.addTo(map)
+    layerMap.set(key, geoLayer)
   } catch (error: any) {
-    ElMessage.error(`图层 ${layerName(key)} 加载失败: ${error.message}`)
+    ElMessage.error(`${layerName(key)}加载失败：${error.message || error}`)
   }
 }
 
@@ -203,34 +231,46 @@ function highlightLayer(layer: L.Layer) {
 async function loadObjectDetail(properties: Record<string, any>) {
   const objectType = properties.objectType
   const id = properties.id || properties.objectId
-  if (!objectType || !id) return
+  if (!objectType || !id) {
+    selectedDetail.value = properties
+    return
+  }
 
-  if (objectType === 'disease') {
-    const data = await getDiseases()
-    const feature = data.features.find((f) => f.properties?.id === id || f.properties?.objectId === id)
-    if (feature) {
-      selectedDetail.value = feature.properties
-    }
+  try {
+    selectedDetail.value = await getObjectDetail({ objectType, id })
+  } catch {
+    selectedDetail.value = properties
   }
 }
 
 async function loadStatistics() {
+  if (!map) return
+  const bounds = map.getBounds()
+  const bbox = [
+    bounds.getWest(),
+    bounds.getSouth(),
+    bounds.getEast(),
+    bounds.getNorth()
+  ]
+
   try {
-    statistics.value = await getStatistics({
-      routeCode: query.routeCode,
-      year: query.year
-    })
-  } catch (error: any) {
-    console.warn('统计接口不可用:', error.message)
+    statistics.value = await getMapStatistics({ ...query, bbox })
+  } catch {
+    statistics.value = {}
   }
 }
 
 async function handleFitAll(showMessage = true) {
   if (!map) return
 
+  await nextTick()
+  map.invalidateSize(false)
+
   const bounds = collectVisibleBounds()
   if (!bounds || !bounds.isValid()) {
-    if (showMessage) ElMessage.warning('当前无可见图层，无法执行全图')
+    if (showMessage) {
+      ElMessage.warning('当前没有可定位的图层，请先勾选图层或查询有空间数据的路线')
+    }
     return
   }
 
@@ -244,13 +284,11 @@ async function handleFitAll(showMessage = true) {
 
 function collectVisibleBounds(): LatLngBounds | null {
   let bounds: LatLngBounds | null = null
-
   layerMap.forEach((layer) => {
     const layerBounds = layer.getBounds()
     if (!layerBounds || !layerBounds.isValid()) return
     bounds = bounds ? bounds.extend(layerBounds) : layerBounds
   })
-
   return bounds
 }
 
@@ -268,26 +306,27 @@ function popupHtml(properties: Record<string, any>) {
 }
 
 function layerName(key: string) {
-  const map: Record<string, string> = {
-    roadRoute: '路线',
-    roadSection: '路段',
-    evaluationUnit: '评定单元',
-    disease: '病害',
-    assessment: '评定专题'
+  const names: Record<string, string> = {
+    roadRoute: '路线图层',
+    roadSection: '路段图层',
+    evaluationUnit: '评定单元图层',
+    disease: '病害图层',
+    assessment: '评定专题图层'
   }
-  return map[key] || key
+  return names[key] || key
 }
 </script>
 
 <style scoped>
 .one-map-page {
   position: relative;
+  width: 100%;
   height: 100%;
+  background: #e2e8f0;
 }
 
-#map {
-  position: absolute;
-  inset: 0;
+.map {
+  width: 100%;
   height: 100%;
 }
 

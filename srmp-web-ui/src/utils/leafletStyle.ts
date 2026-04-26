@@ -2,12 +2,18 @@ import type { PathOptions } from 'leaflet'
 
 export function gradeColor(grade?: string): string {
   switch ((grade || '').toUpperCase()) {
-    case 'EXCELLENT': return '#16a34a'
-    case 'GOOD': return '#2563eb'
-    case 'MEDIUM': return '#eab308'
-    case 'POOR': return '#f97316'
-    case 'BAD': return '#dc2626'
-    default: return '#64748b'
+    case 'EXCELLENT':
+      return '#16a34a'
+    case 'GOOD':
+      return '#2563eb'
+    case 'MEDIUM':
+      return '#eab308'
+    case 'POOR':
+      return '#f97316'
+    case 'BAD':
+      return '#dc2626'
+    default:
+      return '#64748b'
   }
 }
 
