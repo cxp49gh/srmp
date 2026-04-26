@@ -1,0 +1,40 @@
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.srmp-card {
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
+}
+
+.leaflet-container {
+  font: inherit;
+}
+
+.srmp-popup {
+  min-width: 220px;
+}
+
+.srmp-popup-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.srmp-popup-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  line-height: 22px;
+}
