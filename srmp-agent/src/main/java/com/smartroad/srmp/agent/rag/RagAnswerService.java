@@ -24,10 +24,9 @@ public class RagAnswerService {
     private LlmClient llmClient;
 
     public Map answer(String question, String businessAnalysis, RagOptions options) {
-        Map<String, Object> result = new LinkedHashMap<>();
-
-        List<KnowledgeSearchResult> knowledgeSources = new ArrayList<>();
-        List<OutlineSearchResult> outlineSources = new ArrayList<>();
+        Map result = new LinkedHashMap<>();
+        List knowledgeSources = new ArrayList<>();
+        List outlineSources = new ArrayList<>();
 
         if (options.isUseKnowledge()) {
             KnowledgeSearchRequest searchRequest = new KnowledgeSearchRequest();
@@ -35,19 +34,37 @@ public class RagAnswerService {
             searchRequest.setTopK(options.getTopK());
             knowledgeSources = knowledgeService.search(searchRequest);
         }
-
         if (options.isUseOutline()) {
             outlineSources = outlineService.search(question, options.getTopK());
         }
 
         String prompt = buildPrompt(question, businessAnalysis, knowledgeSources, outlineSources);
-        String answer = llmClient.chat("你是智路养护平台 AI 助手，请综合业务数据和知识库资料回答。资料不足时必须说明。", prompt);
+        String answer = null;
+        boolean llmSuccess = false;
+        String fallbackReason = null;
+        String answerSource = "LLM";
 
-        if (answer == null || answer.trim().isEmpty()) {
+        try {
+            answer = llmClient.chat("你是智路养护平台 AI 助手，请综合业务数据和知识库资料回答。资料不足时必须说明。", prompt);
+            llmSuccess = answer != null && answer.trim().length() > 0;
+            if (!llmSuccess) {
+                fallbackReason = "LLM 返回为空";
+            }
+        } catch (Exception e) {
+            fallbackReason = e.getMessage() == null ? "LLM 调用异常" : e.getMessage();
+        }
+
+        if (!llmSuccess) {
             answer = localAnswer(businessAnalysis, knowledgeSources, outlineSources);
+            answerSource = "LOCAL_FALLBACK";
         }
 
         result.put("answer", answer);
+        result.put("answerSource", answerSource);
+        result.put("answerSourceLabel", "LLM".equals(answerSource) ? "大模型返回" : "本地降级返回");
+        result.put("llmSuccess", llmSuccess);
+        result.put("fallback", !llmSuccess);
+        result.put("fallbackReason", fallbackReason);
         result.put("knowledgeSources", knowledgeSources);
         result.put("outlineSources", outlineSources);
         result.put("usedKnowledge", options.isUseKnowledge());
@@ -55,84 +72,64 @@ public class RagAnswerService {
         return result;
     }
 
-    private String buildPrompt(String question,
-                               String businessAnalysis,
-                               List<KnowledgeSearchResult> knowledgeSources,
-                               List<OutlineSearchResult> outlineSources) {
+    private String buildPrompt(String question, String businessAnalysis, List knowledgeSources, List outlineSources) {
         StringBuilder sb = new StringBuilder();
         sb.append("请基于以下资料回答用户问题。\n\n");
-
         if (businessAnalysis != null && businessAnalysis.trim().length() > 0) {
             sb.append("【业务数据分析】\n").append(businessAnalysis).append("\n\n");
         }
-
         sb.append("【本地知识库片段】\n");
         int i = 1;
-        for (KnowledgeSearchResult item : knowledgeSources) {
+        for (Object source : knowledgeSources) {
+            KnowledgeSearchResult item = (KnowledgeSearchResult) source;
             sb.append("片段").append(i++).append("\n");
             sb.append("标题：").append(item.getTitle()).append("\n");
             sb.append("来源：").append(item.getSourceType()).append("\n");
-            if (item.getSourceUrl() != null) {
-                sb.append("链接：").append(item.getSourceUrl()).append("\n");
-            }
+            if (item.getSourceUrl() != null) sb.append("链接：").append(item.getSourceUrl()).append("\n");
             sb.append("内容：").append(item.getContent()).append("\n\n");
         }
-
         sb.append("【Outline 文档片段】\n");
         i = 1;
-        for (OutlineSearchResult item : outlineSources) {
+        for (Object source : outlineSources) {
+            OutlineSearchResult item = (OutlineSearchResult) source;
             sb.append("片段").append(i++).append("\n");
             sb.append("标题：").append(item.getTitle()).append("\n");
-            if (item.getUrl() != null) {
-                sb.append("链接：").append(item.getUrl()).append("\n");
-            }
+            if (item.getUrl() != null) sb.append("链接：").append(item.getUrl()).append("\n");
             sb.append("内容：").append(item.getText()).append("\n\n");
         }
-
         sb.append("【回答要求】\n");
         sb.append("1. 优先引用业务数据；\n");
         sb.append("2. 知识库和 Outline 资料只能作为依据，不能编造；\n");
         sb.append("3. 如果资料不足，请明确说明；\n");
         sb.append("4. 涉及标准规范、流程、操作说明时，需要说明来源标题；\n");
         sb.append("5. 不直接生成正式决策，只生成建议或草稿。\n\n");
-
         sb.append("【用户问题】\n").append(question);
         return sb.toString();
     }
 
-    private String localAnswer(String businessAnalysis,
-                               List<KnowledgeSearchResult> knowledgeSources,
-                               List<OutlineSearchResult> outlineSources) {
+    private String localAnswer(String businessAnalysis, List knowledgeSources, List outlineSources) {
         StringBuilder sb = new StringBuilder();
-        if (businessAnalysis != null && businessAnalysis.trim().length() > 0) {
-            sb.append(businessAnalysis).append("\n\n");
-        }
+        if (businessAnalysis != null && businessAnalysis.trim().length() > 0) sb.append(businessAnalysis).append("\n\n");
         if (!knowledgeSources.isEmpty()) {
             sb.append("本地知识库检索到以下相关资料：\n");
             for (int i = 0; i < knowledgeSources.size(); i++) {
-                KnowledgeSearchResult item = knowledgeSources.get(i);
-                sb.append(i + 1).append(". ").append(item.getTitle()).append("：")
-                        .append(shortText(item.getContent(), 160)).append("\n");
+                KnowledgeSearchResult item = (KnowledgeSearchResult) knowledgeSources.get(i);
+                sb.append(i + 1).append(". ").append(item.getTitle()).append("：").append(shortText(item.getContent(), 160)).append("\n");
             }
         }
         if (!outlineSources.isEmpty()) {
             sb.append("\nOutline 检索到以下相关资料：\n");
             for (int i = 0; i < outlineSources.size(); i++) {
-                OutlineSearchResult item = outlineSources.get(i);
-                sb.append(i + 1).append(". ").append(item.getTitle()).append("：")
-                        .append(shortText(item.getText(), 160)).append("\n");
+                OutlineSearchResult item = (OutlineSearchResult) outlineSources.get(i);
+                sb.append(i + 1).append(". ").append(item.getTitle()).append("：").append(shortText(item.getText(), 160)).append("\n");
             }
         }
-        if (sb.length() == 0) {
-            return "当前未检索到足够的业务数据或知识库资料，无法给出可靠回答。";
-        }
+        if (sb.length() == 0) return "当前未检索到足够的业务数据或知识库资料，无法给出可靠回答。";
         return sb.toString();
     }
 
     private String shortText(String text, int max) {
-        if (text == null) {
-            return "";
-        }
+        if (text == null) return "";
         return text.length() <= max ? text : text.substring(0, max) + "...";
     }
 }
