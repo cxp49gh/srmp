@@ -40,6 +40,7 @@
     <AgentChatFloat
       v-model:visible="agentVisible"
       :context="agentContext"
+      :map-object="selectedDetail"
     />
 
     <button

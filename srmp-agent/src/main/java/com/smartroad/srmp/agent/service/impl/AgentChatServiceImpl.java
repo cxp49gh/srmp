@@ -147,6 +147,24 @@ public class AgentChatServiceImpl implements com.smartroad.srmp.agent.service.Ag
             data.put("usedKnowledge", rag.get("usedKnowledge"));
             data.put("usedOutline", rag.get("usedOutline"));
 
+            // Handle map object context - support both top-level and nested in context
+            Map<String, Object> mapObject = request == null ? null : request.getMapObject();
+            if ((mapObject == null || mapObject.isEmpty()) && request != null && request.getContext() != null) {
+                Object nestedMapObj = request.getContext().get("mapObject");
+                if (nestedMapObj instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> nested = (Map<String, Object>) nestedMapObj;
+                    mapObject = nested;
+                }
+            }
+            boolean mapObjectUsed = mapObject != null && !mapObject.isEmpty();
+            response.setMapObjectUsed(mapObjectUsed);
+            response.setMapObject(mapObject);
+            response.setMapObjectContext(buildMapObjectContext(mapObject));
+            data.put("mapObjectUsed", mapObjectUsed);
+            data.put("mapObject", mapObject);
+            data.put("mapObjectContext", buildMapObjectContext(mapObject));
+
             fillAnswerMeta(data, answerSource, llmSuccess, fallback, fallbackReason, mode);
             response.setData(data);
 
@@ -283,5 +301,50 @@ public class AgentChatServiceImpl implements com.smartroad.srmp.agent.service.Ag
             return "";
         }
         return text.length() <= max ? text : text.substring(0, max) + "...";
+    }
+
+    private String buildMapObjectContext(Map<String, Object> mapObject) {
+        if (mapObject == null || mapObject.isEmpty()) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("【当前地图选中对象】\n");
+        String objectType = asString(mapObject.get("objectType"));
+        sb.append("- 类型：").append(objectType).append("\n");
+        String routeCode = asString(mapObject.get("routeCode"));
+        if (routeCode != null) {
+            sb.append("- 路线：").append(routeCode).append("\n");
+        }
+        Object startStake = mapObject.get("startStake");
+        Object endStake = mapObject.get("endStake");
+        if (startStake != null && endStake != null) {
+            sb.append("- 桩号：").append(startStake).append(" ~ ").append(endStake).append("\n");
+        }
+        Object mqi = mapObject.get("mqi");
+        if (mqi != null) {
+            sb.append("- MQI：").append(mqi).append("\n");
+        }
+        Object pqi = mapObject.get("pqi");
+        if (pqi != null) {
+            sb.append("- PQI：").append(pqi).append("\n");
+        }
+        Object pci = mapObject.get("pci");
+        if (pci != null) {
+            sb.append("- PCI：").append(pci).append("\n");
+        }
+        Object grade = mapObject.get("grade");
+        if (grade != null) {
+            sb.append("- 等级：").append(grade).append("\n");
+        }
+        Object diseaseType = mapObject.get("diseaseType");
+        Object diseaseName = mapObject.get("diseaseName");
+        if (diseaseType != null || diseaseName != null) {
+            sb.append("- 病害：").append(diseaseName != null ? diseaseName : diseaseType).append("\n");
+        }
+        Object severity = mapObject.get("severity");
+        if (severity != null) {
+            sb.append("- 程度：").append(severity).append("\n");
+        }
+        return sb.toString();
     }
 }

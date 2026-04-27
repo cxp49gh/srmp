@@ -9,5 +9,8 @@ import java.util.Map;
 public class AgentChatResponse {
     private String answer;
     private String mode;
+    private Boolean mapObjectUsed;
+    private Map<String, Object> mapObject;
+    private String mapObjectContext;
     private Map<String, Object> data = new HashMap<>();
 }

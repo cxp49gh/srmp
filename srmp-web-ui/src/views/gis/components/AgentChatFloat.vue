@@ -54,6 +54,7 @@ import { chat } from '../../../api/agent'
 const props = defineProps<{
   visible: boolean
   context: Record<string, any>
+  mapObject?: Record<string, any>
 }>()
 
 defineEmits<{
@@ -106,7 +107,8 @@ async function send() {
     const result = await chat({
       message: text,
       context: props.context,
-      options
+      options,
+      mapObject: props.mapObject
     })
     messages.value.push({
       role: 'assistant',
