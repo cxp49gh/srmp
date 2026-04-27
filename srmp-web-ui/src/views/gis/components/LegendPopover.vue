@@ -5,7 +5,6 @@
         <span>路况等级</span>
         <button type="button" @click="$emit('update:visible', false)">×</button>
       </div>
-
       <div v-for="item in legends" :key="item.code" class="legend-row">
         <span class="color" :style="{ background: item.color }" />
         <span>{{ item.name }}</span>
@@ -33,13 +32,14 @@ const legends = [
 <style scoped>
 .legend-popover {
   position: absolute;
-  left: 68px;
-  top: 136px;
+  left: 18px;
+  top: 92px;
   z-index: 925;
-  width: 160px;
+  width: 150px;
   padding: 12px;
   border: 1px solid rgba(226, 232, 240, 0.9);
   background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.14);
 }
 
 .popover-header {
@@ -71,5 +71,16 @@ const legends = [
   height: 4px;
   display: inline-block;
   border-radius: 4px;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 </style>

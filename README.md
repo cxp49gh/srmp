@@ -174,6 +174,7 @@ npm run dev
 | 阶段二十六 | 地图选中对象作为AI上下文 | ✅ 已完成（MapObjectContext、mapObject注入AgentChatRequest、AgentChatPanel展示当前选中对象、MapObjectContextService查询对象详情、RAG prompt前置上下文） |
 | 阶段二十七 | 地图AI交互UX增强 | ✅ 已完成（AgentChatFloat重新设计：地图上下文横幅+操作按钮、消息标签展示来源/降级状态、快速操作按钮、AI分析/生成建议一键触发、前端Vue文件格式规范化修复vue-tsc解析） |
 | 阶段二十八 | 地图对象答案质量优化 | ✅ 已完成（MapObjectContextService.resolve(buildContextMap)体系升级、enrichMapObject合并原始属性、单病害对象本地规则回答、think标签清洗、MAP_OBJECT_LOCAL来源标签、LayerState assessmentResult支持） |
+| 阶段二十九 | OneMap布局与图层抽屉重设计 | ✅ 已完成（LayerDrawer图层分组：基础图层/业务图层/路况等级图例、AgentChatFloat消息markdown渲染、layerStyle单参数修复、地图上下文横幅简化标签、MapStatisticsBar/ObjectDetailDrawer整合） |
 
 ---
 

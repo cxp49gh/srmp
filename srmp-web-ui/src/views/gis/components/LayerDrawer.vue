@@ -16,6 +16,14 @@
       <div class="group-title">业务图层</div>
       <el-checkbox v-model="localLayers.disease" @change="emitChange">病害</el-checkbox>
       <el-checkbox v-model="localLayers.assessment" @change="emitChange">评定专题</el-checkbox>
+
+      <el-divider />
+
+      <div class="group-title">路况等级</div>
+      <div v-for="item in legends" :key="item.code" class="legend-row">
+        <span class="legend-color" :style="{ background: item.color }" />
+        <span>{{ item.name }}</span>
+      </div>
     </div>
   </transition>
 </template>
@@ -45,6 +53,14 @@ const emit = defineEmits<{
 
 const localLayers = reactive<LayerState>({ ...props.layers })
 
+const legends = [
+  { code: 'EXCELLENT', name: '优', color: '#16a34a' },
+  { code: 'GOOD', name: '良', color: '#2563eb' },
+  { code: 'MEDIUM', name: '中', color: '#eab308' },
+  { code: 'POOR', name: '次', color: '#f97316' },
+  { code: 'BAD', name: '差', color: '#dc2626' }
+]
+
 watch(
   () => props.layers,
   (value) => Object.assign(localLayers, value),
@@ -61,15 +77,16 @@ function emitChange() {
 <style scoped>
 .layer-drawer {
   position: absolute;
-  top: 84px;
-  left: 68px;
+  top: 92px;
+  left: 18px;
   z-index: 920;
-  width: 260px;
-  max-height: calc(100vh - 140px);
+  width: 236px;
+  max-height: calc(100vh - 170px);
   padding: 14px;
   overflow: auto;
   border: 1px solid rgba(226, 232, 240, 0.9);
   background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.14);
 }
 
 .drawer-header {
@@ -95,9 +112,40 @@ function emitChange() {
   color: #475569;
 }
 
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  color: #334155;
+  font-size: 12px;
+}
+
+.legend-color {
+  display: inline-block;
+  width: 24px;
+  height: 4px;
+  border-radius: 999px;
+}
+
 :deep(.el-checkbox) {
   display: flex;
   margin-right: 0;
-  margin-bottom: 8px;
+  height: 28px;
+}
+
+:deep(.el-divider--horizontal) {
+  margin: 12px 0;
+}
+
+.slide-enter-active,
+.slide-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.slide-enter-from,
+.slide-leave-to {
+  opacity: 0;
+  transform: translateX(-8px);
 }
 </style>

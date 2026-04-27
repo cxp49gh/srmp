@@ -1,15 +1,68 @@
 <template>
   <div class="one-map-page">
-    <div id="map" class="map" />
-    <div class="top-toolbar"><MapToolbar :query="query" @search="handleSearch" @reset="handleReset" @fit="handleFitAll" /></div>
-    <MapFloatTools class="float-tools" @toggle-layer="layerDrawerVisible = !layerDrawerVisible" @toggle-legend="legendVisible = !legendVisible" @fit="handleFitAll" />
-    <LayerDrawer v-model:visible="layerDrawerVisible" v-model:layers="layers" @change="reloadLayers" />
-    <LegendPopover v-model:visible="legendVisible" />
-    <ObjectDetailDrawer v-model:visible="detailVisible" :detail="selectedDetail" @ai-analyze="openAiForSelected" />
-    <MapStatisticsBar v-model:collapsed="statisticsCollapsed" :value="statistics" />
-    <AgentChatFloat v-model:visible="agentVisible" :context="agentContext" :map-object="selectedMapObject" :auto-question="pendingAiQuestion" @auto-question-consumed="pendingAiQuestion = ''" />
-    <button v-if="!agentVisible" class="ai-float-button" type="button" title="AI 助手" @click="agentVisible = true">AI</button>
-    <div v-if="loading" class="loading-mask"><el-icon class="is-loading"><Loading /></el-icon><span>图层加载中...</span></div>
+    <div id="map" class="map"></div>
+
+    <div class="top-toolbar">
+      <MapToolbar
+        :query="query"
+        @search="handleSearch"
+        @reset="handleReset"
+        @fit="handleFitAll"
+      />
+    </div>
+
+    <MapFloatTools
+      class="float-tools"
+      @toggle-layer="layerDrawerVisible = !layerDrawerVisible"
+      @toggle-legend="toggleLegend"
+      @fit="handleFitAll"
+    />
+
+    <LayerDrawer
+      v-model:visible="layerDrawerVisible"
+      v-model:layers="layers"
+      @change="reloadLayers"
+    />
+
+    <LegendPopover
+      v-if="!layerDrawerVisible"
+      v-model:visible="legendVisible"
+    />
+
+    <ObjectDetailDrawer
+      v-model:visible="detailVisible"
+      :detail="selectedDetail"
+      @ai-analyze="openAiForSelected"
+    />
+
+    <MapStatisticsBar
+      v-model:collapsed="statisticsCollapsed"
+      :value="statistics"
+      :class="{ 'with-agent': agentVisible }"
+    />
+
+    <AgentChatFloat
+      v-model:visible="agentVisible"
+      :context="agentContext"
+      :map-object="selectedMapObject"
+      :auto-question="pendingAiQuestion"
+      @auto-question-consumed="pendingAiQuestion = ''"
+    />
+
+    <button
+      v-if="!agentVisible"
+      class="ai-float-button"
+      type="button"
+      title="AI 助手"
+      @click="agentVisible = true"
+    >
+      AI
+    </button>
+
+    <div v-if="loading" class="loading-mask">
+      <el-icon class="is-loading"><Loading /></el-icon>
+      <span>图层加载中...</span>
+    </div>
   </div>
 </template>
 
@@ -19,7 +72,16 @@ import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import MapToolbar from './components/MapToolbar.vue'
-import { getAssessmentResults, getDiseases, getEvaluationUnits, getMapStatistics, getObjectDetail, getRoadRoutes, getRoadSections, type GisLayerQuery } from '../../api/gis'
+import {
+  getAssessmentResults,
+  getDiseases,
+  getEvaluationUnits,
+  getMapStatistics,
+  getObjectDetail,
+  getRoadRoutes,
+  getRoadSections,
+  type GisLayerQuery
+} from '../../api/gis'
 import { layerStyle } from '../../utils/leafletStyle'
 import type { GeoJsonFeatureCollection } from '../../types/geojson'
 import MapFloatTools from './components/MapFloatTools.vue'
@@ -29,50 +91,402 @@ import ObjectDetailDrawer from './components/ObjectDetailDrawer.vue'
 import MapStatisticsBar from './components/MapStatisticsBar.vue'
 import AgentChatFloat from './components/AgentChatFloat.vue'
 
-const query = reactive<GisLayerQuery>({ routeCode: 'G210', year: '2026', indexCode: 'MQI', grade: '' })
-const layers = reactive<LayerState>({ roadRoute: true, roadSection: false, evaluationUnit: false, assessmentResult: true, disease: true })
+const query = reactive<GisLayerQuery>({
+  routeCode: 'G210',
+  year: '2026',
+  indexCode: 'MQI',
+  grade: ''
+})
+
+const layers = reactive<LayerState>({
+  roadRoute: true,
+  roadSection: true,
+  evaluationUnit: false,
+  disease: true,
+  assessment: true
+})
+
 const statistics = ref<Record<string, any>>({})
-const loading = ref(false)
-const layerDrawerVisible = ref(false)
-const legendVisible = ref(false)
-const detailVisible = ref(false)
-const statisticsCollapsed = ref(false)
-const agentVisible = ref(false)
-const pendingAiQuestion = ref('')
 const selectedDetail = ref<Record<string, any> | null>(null)
 const selectedFeatureProperties = ref<Record<string, any> | null>(null)
-let map: LeafletMap | null = null
+const loading = ref(false)
+const layerDrawerVisible = ref(true)
+const legendVisible = ref(false)
+const detailVisible = ref(false)
+const agentVisible = ref(false)
+const pendingAiQuestion = ref('')
+const statisticsCollapsed = ref(false)
+
+let map: LeafletMap
+const layerMap = new Map<string, GeoJSON>()
 let selectedLayer: L.Layer | null = null
-const layerMap: Record<string, GeoJSON> = {}
-function normalizeMapObjectType(rawType: any) { const type = String(rawType || '').toUpperCase().replace('-', '_'); if (type === 'ASSESSMENT') return 'ASSESSMENT_RESULT'; if (type === 'DISEASE_RECORD') return 'DISEASE'; return type }
-const selectedMapObject = computed(() => { const raw: any = selectedFeatureProperties.value || {}; const detail: any = selectedDetail.value || {}; const detailProps: any = detail.properties || detail; const props: any = { ...raw, ...detailProps }; if (!props || Object.keys(props).length === 0) return null; const objectType = normalizeMapObjectType(props.objectType || props.object_type || props.type || props.layerType); const objectId = props.objectId || props.object_id || props.id || raw.objectId || raw.id; return { objectType, objectId, id: objectId, routeCode: props.routeCode || props.route_code || raw.routeCode || raw.route_code || query.routeCode, year: Number(props.year || query.year || 2026), startStake: props.startStake ?? props.start_stake ?? raw.startStake ?? raw.start_stake, endStake: props.endStake ?? props.end_stake ?? raw.endStake ?? raw.end_stake, routeName: props.routeName || props.route_name || raw.routeName || raw.route_name, sectionName: props.sectionName || props.section_name || raw.sectionName || raw.section_name, sectionCode: props.sectionCode || props.section_code || raw.sectionCode || raw.section_code, unitCode: props.unitCode || props.unit_code || raw.unitCode || raw.unit_code, diseaseName: props.diseaseName || props.disease_name || raw.diseaseName || raw.disease_name, diseaseType: props.diseaseType || props.disease_type || raw.diseaseType || raw.disease_type, severity: props.severity || raw.severity, quantity: props.quantity ?? raw.quantity, measureUnit: props.measureUnit || props.measure_unit || raw.measureUnit || raw.measure_unit, mqi: props.mqi ?? raw.mqi, pqi: props.pqi ?? raw.pqi, pci: props.pci ?? raw.pci, grade: props.grade || raw.grade, raw: props } })
-const agentContext = computed(() => ({ query: { ...query }, selected: selectedDetail.value, mapObject: selectedMapObject.value, selectedMapObject: selectedMapObject.value }))
-onMounted(async () => { map = L.map('map', { zoomControl: false }).setView([26.6, 106.7], 8); L.control.zoom({ position: 'bottomright' }).addTo(map); L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map); map.on('moveend', loadStatistics); await nextTick(); map.invalidateSize(true); await reloadLayers() })
-async function handleSearch(next: GisLayerQuery) { Object.assign(query, next); await reloadLayers() }
-async function handleReset() { Object.assign(query, { routeCode: 'G210', year: '2026', indexCode: 'MQI', grade: '', diseaseType: '', severity: '' }); await reloadLayers() }
-async function reloadLayers() { if (!map) return; loading.value = true; clearAllLayers(); const tasks: Array<Promise<void>> = []; if (layers.roadRoute) tasks.push(loadLayer('roadRoute', () => getRoadRoutes(query))); if (layers.roadSection) tasks.push(loadLayer('roadSection', () => getRoadSections(query))); if (layers.evaluationUnit) tasks.push(loadLayer('evaluationUnit', () => getEvaluationUnits(query))); if (layers.assessmentResult) tasks.push(loadLayer('assessmentResult', () => getAssessmentResults(query))); if (layers.disease) tasks.push(loadLayer('disease', () => getDiseases(query))); await Promise.allSettled(tasks); await loadStatistics(); handleFitAll(false); loading.value = false }
-function clearAllLayers() { Object.values(layerMap).forEach((layer) => layer.remove()); Object.keys(layerMap).forEach((key) => delete layerMap[key]) }
-async function loadLayer(key: string, loader: () => Promise<GeoJsonFeatureCollection>) { if (!map) return; try { const data = await loader(); const featureCount = data?.features?.length || 0; if (featureCount === 0) { ElMessage.info(`${layerName(key)}：当前条件无数据`); return } const geoLayer = L.geoJSON(data as any, { style: (feature) => layerStyle(feature?.properties || {}), pointToLayer: (feature, latlng) => L.circleMarker(latlng, { radius: 6, ...layerStyle(feature?.properties || {}) }), onEachFeature: (feature, layer) => { const properties = feature?.properties || {}; layer.bindPopup(popupHtml(properties)); layer.on('click', async () => { selectedFeatureProperties.value = properties; selectedDetail.value = properties; detailVisible.value = true; highlightLayer(layer); await loadObjectDetail(properties) }) } }).addTo(map); layerMap[key] = geoLayer } catch (error: any) { ElMessage.error(`${layerName(key)}加载失败：${error.message || error}`) } }
-function highlightLayer(layer: L.Layer) { if (selectedLayer && 'setStyle' in selectedLayer) (selectedLayer as any).setStyle({ weight: 4, opacity: 0.85 }); selectedLayer = layer; if ('setStyle' in layer) (layer as any).setStyle({ weight: 7, opacity: 1 }) }
-async function loadObjectDetail(properties: Record<string, any>) { const objectType = properties.objectType || properties.object_type || properties.type; const id = properties.id || properties.objectId || properties.object_id; if (!objectType || !id) { selectedDetail.value = properties; return } try { const detail = await getObjectDetail({ objectType, id }); selectedDetail.value = { ...properties, ...(detail || {}), objectType, objectId: id, id } } catch { selectedDetail.value = { ...properties, objectType, objectId: id, id } } }
-async function loadStatistics() { if (!map) return; const bounds = map.getBounds(); const bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]; try { statistics.value = await getMapStatistics({ ...query, bbox }) } catch { statistics.value = {} } }
-async function handleFitAll(showMessage = true) { if (!map) return; await nextTick(); map.invalidateSize(false); const bounds = collectVisibleBounds(); if (!bounds || !bounds.isValid()) { if (showMessage) ElMessage.warning('当前没有可定位的图层，请先勾选图层或查询有空间数据的路线'); return } map.fitBounds(bounds, { paddingTopLeft: [80, 96], paddingBottomRight: [420, 120], maxZoom: 16 }) }
-function collectVisibleBounds() { const bounds = new LatLngBounds([] as any); Object.values(layerMap).forEach((layer: any) => { if (layer?.getBounds) { const b = layer.getBounds(); if (b?.isValid?.()) bounds.extend(b) } }); return bounds }
-function openAiForSelected() { if (!selectedDetail.value) { ElMessage.warning('请先在地图上选择一个对象'); return } agentVisible.value = true; pendingAiQuestion.value = '分析当前地图选中对象，说明主要问题、成因判断，并给出养护处置建议' }
-function popupHtml(properties: Record<string, any>) { const title = properties.name || properties.routeName || properties.route_name || properties.diseaseName || properties.disease_name || properties.objectType || properties.object_type || '对象'; const rows = Object.entries(properties).slice(0, 6).map(([key, value]) => `<div class="srmp-popup-row"><span>${key}</span><strong>${value ?? '-'}</strong></div>`).join(''); return `<div class="srmp-popup"><div class="srmp-popup-title">${title}</div>${rows}</div>` }
-function layerName(key: string) { const names: Record<string, string> = { roadRoute: '路线', roadSection: '路段', evaluationUnit: '评定单元', assessmentResult: '评定结果', disease: '病害' }; return names[key] || key }
+
+function normalizeObjectType(rawType: any) {
+  const type = String(rawType || '').toUpperCase()
+  if (type === 'ASSESSMENT') return 'ASSESSMENT_RESULT'
+  if (type === 'DISEASE_RECORD') return 'DISEASE'
+  return type
+}
+
+function firstValue(...values: any[]) {
+  return values.find((it) => it !== undefined && it !== null && it !== '')
+}
+
+const selectedMapObject = computed(() => {
+  const raw: any = selectedFeatureProperties.value || {}
+  const detail: any = selectedDetail.value || {}
+  const detailProps: any = detail.properties || detail
+  const props: any = { ...raw, ...detailProps }
+
+  if (!props || Object.keys(props).length === 0) return null
+
+  const objectType = normalizeObjectType(
+    firstValue(props.objectType, props.object_type, props.type, props.layerType)
+  )
+  const objectId = firstValue(props.objectId, props.object_id, props.id, raw.objectId, raw.object_id, raw.id)
+
+  return {
+    objectType,
+    objectId,
+    id: objectId,
+    routeCode: firstValue(props.routeCode, props.route_code, raw.routeCode, raw.route_code, query.routeCode),
+    year: Number(firstValue(props.year, query.year, 2026)),
+    startStake: firstValue(props.startStake, props.start_stake, raw.startStake, raw.start_stake),
+    endStake: firstValue(props.endStake, props.end_stake, raw.endStake, raw.end_stake),
+    routeName: firstValue(props.routeName, props.route_name, raw.routeName, raw.route_name),
+    sectionName: firstValue(props.sectionName, props.section_name, raw.sectionName, raw.section_name),
+    sectionCode: firstValue(props.sectionCode, props.section_code, raw.sectionCode, raw.section_code),
+    unitCode: firstValue(props.unitCode, props.unit_code, raw.unitCode, raw.unit_code),
+    diseaseName: firstValue(props.diseaseName, props.disease_name, raw.diseaseName, raw.disease_name),
+    diseaseType: firstValue(props.diseaseType, props.disease_type, raw.diseaseType, raw.disease_type),
+    severity: firstValue(props.severity, raw.severity),
+    quantity: firstValue(props.quantity, raw.quantity),
+    measureUnit: firstValue(props.measureUnit, props.measure_unit, raw.measureUnit, raw.measure_unit),
+    mqi: firstValue(props.mqi, raw.mqi),
+    pqi: firstValue(props.pqi, raw.pqi),
+    pci: firstValue(props.pci, raw.pci),
+    grade: firstValue(props.grade, raw.grade),
+    raw: props
+  }
+})
+
+const agentContext = computed(() => ({
+  query: { ...query },
+  selected: selectedDetail.value,
+  mapObject: selectedMapObject.value,
+  selectedMapObject: selectedMapObject.value
+}))
+
+onMounted(async () => {
+  map = L.map('map', {
+    center: [26.65, 106.63],
+    zoom: 11,
+    preferCanvas: true,
+    zoomControl: false
+  })
+
+  L.control.zoom({ position: 'bottomright' }).addTo(map)
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map)
+
+  map.on('moveend', loadStatistics)
+
+  await nextTick()
+  map.invalidateSize(true)
+  await reloadLayers()
+  await loadStatistics()
+  handleFitAll()
+})
+
+function layerQuery(): GisLayerQuery {
+  return { ...query }
+}
+
+async function handleSearch() {
+  await reloadLayers()
+  await loadStatistics()
+  handleFitAll()
+}
+
+async function handleReset() {
+  query.routeCode = 'G210'
+  query.year = '2026'
+  query.indexCode = 'MQI'
+  query.grade = ''
+  await handleSearch()
+}
+
+function toggleLegend() {
+  if (layerDrawerVisible.value) {
+    layerDrawerVisible.value = false
+    nextTick(() => {
+      legendVisible.value = !legendVisible.value
+    })
+    return
+  }
+  legendVisible.value = !legendVisible.value
+}
+
+async function reloadLayers() {
+  if (!map) return
+  loading.value = true
+  try {
+    clearLayers()
+
+    const tasks: Promise<void>[] = []
+    const params = layerQuery()
+
+    if (layers.roadRoute) tasks.push(loadLayer('roadRoute', () => getRoadRoutes(params)))
+    if (layers.roadSection) tasks.push(loadLayer('roadSection', () => getRoadSections(params)))
+    if (layers.evaluationUnit) tasks.push(loadLayer('evaluationUnit', () => getEvaluationUnits(params)))
+    if (layers.disease) tasks.push(loadLayer('disease', () => getDiseases(params)))
+    if (layers.assessment || layers.assessmentResult) {
+      tasks.push(loadLayer('assessment', () => getAssessmentResults(params)))
+    }
+
+    await Promise.all(tasks)
+  } catch (error: any) {
+    ElMessage.error(error?.message || '图层加载失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+function clearLayers() {
+  layerMap.forEach((layer) => {
+    map.removeLayer(layer)
+  })
+  layerMap.clear()
+  selectedLayer = null
+}
+
+async function loadLayer(layerKey: string, loader: () => Promise<GeoJsonFeatureCollection>) {
+  const collection: any = await loader()
+  if (!collection || !collection.features || collection.features.length === 0) return
+
+  const geoLayer = L.geoJSON(collection as any, {
+    style: (feature: any) => layerStyle(feature?.properties || feature),
+    pointToLayer: (feature, latlng) => {
+      const style = layerStyle(feature?.properties || feature) as any
+      return L.circleMarker(latlng, {
+        radius: style.radius || 5,
+        color: style.color || '#2563eb',
+        weight: style.weight || 2,
+        fillColor: style.fillColor || style.color || '#2563eb',
+        fillOpacity: style.fillOpacity ?? 0.85
+      })
+    },
+    onEachFeature: (feature: any, layer: L.Layer) => {
+      layer.on('click', () => handleFeatureClick(layerKey, feature, layer))
+    }
+  })
+
+  geoLayer.addTo(map)
+  layerMap.set(layerKey, geoLayer)
+}
+
+async function handleFeatureClick(layerKey: string, feature: any, layer: L.Layer) {
+  const properties = {
+    ...(feature?.properties || {}),
+    layerKey,
+    objectType: feature?.properties?.objectType || feature?.properties?.object_type || layerKeyToObjectType(layerKey)
+  }
+
+  selectedFeatureProperties.value = properties
+  selectedDetail.value = properties
+  detailVisible.value = true
+  highlightLayer(layer)
+
+  await loadObjectDetail(properties)
+}
+
+function highlightLayer(layer: L.Layer) {
+  if (selectedLayer && (selectedLayer as any).setStyle) {
+    const feature = (selectedLayer as any).feature
+    ;(selectedLayer as any).setStyle(layerStyle(feature?.properties || feature))
+  }
+
+  selectedLayer = layer
+
+  if ((layer as any).setStyle) {
+    ;(layer as any).setStyle({
+      color: '#0ea5e9',
+      weight: 5,
+      fillOpacity: 0.95
+    })
+  }
+}
+
+function layerKeyToObjectType(layerKey: string) {
+  const map: Record<string, string> = {
+    roadRoute: 'ROAD_ROUTE',
+    roadSection: 'ROAD_SECTION',
+    evaluationUnit: 'EVALUATION_UNIT',
+    disease: 'DISEASE',
+    assessment: 'ASSESSMENT_RESULT'
+  }
+  return map[layerKey] || layerKey.toUpperCase()
+}
+
+async function loadObjectDetail(properties: Record<string, any>) {
+  const objectType = normalizeObjectType(
+    firstValue(properties.objectType, properties.object_type, properties.type, properties.layerType)
+  )
+  const id = firstValue(properties.objectId, properties.object_id, properties.id)
+
+  if (!objectType || !id) {
+    selectedDetail.value = { ...properties, objectType, objectId: id, id }
+    return
+  }
+
+  try {
+    const detail = await getObjectDetail({ objectType, id })
+    selectedDetail.value = {
+      ...properties,
+      ...(detail || {}),
+      objectType,
+      objectId: id,
+      id
+    }
+  } catch {
+    selectedDetail.value = {
+      ...properties,
+      objectType,
+      objectId: id,
+      id
+    }
+  }
+}
+
+function openAiForSelected() {
+  if (!selectedDetail.value) {
+    ElMessage.warning('请先在地图上选择一个对象')
+    return
+  }
+  agentVisible.value = true
+  pendingAiQuestion.value = '分析当前地图选中对象，说明主要问题、成因判断，并给出养护处置建议'
+}
+
+async function loadStatistics() {
+  try {
+    statistics.value = await getMapStatistics(layerQuery())
+  } catch {
+    statistics.value = {}
+  }
+}
+
+function handleFitAll() {
+  if (!map) return
+
+  const bounds = new LatLngBounds([])
+  layerMap.forEach((layer) => {
+    const layerBounds = layer.getBounds()
+    if (layerBounds.isValid()) bounds.extend(layerBounds)
+  })
+
+  if (bounds.isValid()) {
+    map.fitBounds(bounds, {
+      paddingTopLeft: [320, 110],
+      paddingBottomRight: agentVisible.value ? [470, 120] : [120, 120],
+      maxZoom: 15
+    })
+  } else {
+    map.setView([26.65, 106.63], 11)
+  }
+}
 </script>
 
 <style scoped>
-.one-map-page { position: relative; width: 100%; height: calc(100vh - 56px); overflow: hidden; background: #e2e8f0; }
-.map { width: 100%; height: 100%; }
-.top-toolbar { position: absolute; top: 14px; left: 14px; right: 96px; z-index: 500; }
-.float-tools { position: absolute; right: 16px; top: 92px; z-index: 520; }
-.ai-float-button { position: absolute; right: 20px; bottom: 28px; z-index: 700; width: 52px; height: 52px; border-radius: 50%; border: 0; background: #2563eb; color: white; font-weight: 800; box-shadow: 0 12px 28px rgba(37, 99, 235, .35); cursor: pointer; }
-.loading-mask { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 1000; display: flex; align-items: center; gap: 8px; border-radius: 999px; padding: 10px 16px; background: rgba(15, 23, 42, .82); color: white; }
-:deep(.srmp-popup) { min-width: 220px; }
-:deep(.srmp-popup-title) { font-weight: 700; margin-bottom: 6px; }
-:deep(.srmp-popup-row) { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; border-top: 1px solid #e5e7eb; padding: 3px 0; }
-:deep(.srmp-popup-row span) { color: #64748b; }
-:deep(.srmp-popup-row strong) { color: #0f172a; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.one-map-page {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  min-height: 640px;
+  overflow: hidden;
+  background: #e5e7eb;
+}
+
+.map {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.top-toolbar {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  right: 104px;
+  z-index: 930;
+}
+
+.float-tools {
+  position: absolute;
+  top: 156px;
+  right: 18px;
+  z-index: 935;
+}
+
+.ai-float-button {
+  position: absolute;
+  right: 28px;
+  bottom: 44px;
+  z-index: 940;
+  width: 56px;
+  height: 56px;
+  border: none;
+  border-radius: 18px;
+  color: #fff;
+  font-weight: 800;
+  font-size: 16px;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  box-shadow: 0 16px 32px rgba(37, 99, 235, 0.34);
+  cursor: pointer;
+}
+
+.loading-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 960;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #2563eb;
+  background: rgba(248, 250, 252, 0.52);
+  backdrop-filter: blur(2px);
+}
+
+:deep(.leaflet-bottom.leaflet-right) {
+  right: 18px;
+  bottom: 36px;
+}
+
+:deep(.with-agent.statistics-bar) {
+  max-width: min(640px, calc(100vw - 620px));
+}
+
+@media (max-width: 1280px) {
+  .top-toolbar {
+    right: 76px;
+  }
+
+  :deep(.with-agent.statistics-bar) {
+    display: none;
+  }
+}
+
+@media (max-width: 960px) {
+  .top-toolbar {
+    left: 10px;
+    right: 10px;
+  }
+
+  .float-tools {
+    top: 122px;
+    right: 12px;
+  }
+}
 </style>

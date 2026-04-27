@@ -3,7 +3,6 @@
     <button class="collapse-btn" type="button" @click="$emit('update:collapsed', !collapsed)">
       {{ collapsed ? '展开统计' : '收起' }}
     </button>
-
     <div v-if="!collapsed" class="stat-list">
       <div class="stat-item">
         <span>总里程</span>
@@ -48,24 +47,30 @@ function format(value: any) {
 .statistics-bar {
   position: absolute;
   left: 50%;
-  bottom: 18px;
+  bottom: 22px;
   z-index: 910;
-  min-width: 560px;
-  max-width: min(720px, calc(100vw - 420px));
+  width: min(620px, calc(100vw - 520px));
+  min-width: 520px;
   transform: translateX(-50%);
   padding: 8px 12px;
   border: 1px solid rgba(226, 232, 240, 0.9);
   background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.12);
 }
 
 .statistics-bar.collapsed {
+  width: auto;
   min-width: auto;
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 .collapse-btn {
   position: absolute;
   right: 10px;
-  top: -28px;
+  top: -30px;
   border: 1px solid rgba(226, 232, 240, 0.9);
   border-radius: 999px;
   padding: 4px 10px;
@@ -96,5 +101,18 @@ function format(value: any) {
   margin-top: 2px;
   color: #0f172a;
   font-size: 16px;
+}
+
+@media (max-width: 1180px) {
+  .statistics-bar {
+    width: min(620px, calc(100vw - 320px));
+    min-width: 420px;
+  }
+}
+
+@media (max-width: 900px) {
+  .statistics-bar {
+    display: none;
+  }
 }
 </style>
