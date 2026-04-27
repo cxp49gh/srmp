@@ -57,7 +57,45 @@ const knowledgeSources = ref<any[]>([])
 const outlineSources = ref<any[]>([])
 const options = reactive({ useBusinessData: true, useKnowledge: true, useOutline: false, topK: 5 })
 const activeMapObject = computed(() => props.mapObject || props.context?.mapObject || props.context?.selectedMapObject || props.context?.selected || null)
-const mapContextLabel = computed(() => { const obj: any = activeMapObject.value || {}; return obj.routeCode || obj.route_code || obj.objectType || obj.object_type || '已选中对象' })
+function mapObjectTypeLabel(type: any) {
+  const value = String(type || '').toUpperCase()
+  const map: Record<string, string> = { ROAD_ROUTE: '路线', ROAD_SECTION: '路段', EVALUATION_UNIT: '评定单元', ASSESSMENT: '评定结果', ASSESSMENT_RESULT: '评定结果', DISEASE: '病害', DISEASE_RECORD: '病害' }
+  return map[value] || value || '地图对象'
+}
+function formatStake(start: any, end?: any) {
+  if (start === undefined || start === null || start === '') return ''
+  const s = `K${start}`
+  return end !== undefined && end !== null && end !== '' ? `${s}—K${end}` : s
+}
+const mapContextLabel = computed(() => {
+  const obj: any = activeMapObject.value || {}
+  const type = String(obj.objectType || obj.object_type || '').toUpperCase()
+  const typeLabel = mapObjectTypeLabel(type)
+  const route = obj.routeCode || obj.route_code || ''
+  const stake = formatStake(obj.startStake ?? obj.start_stake, obj.endStake ?? obj.end_stake)
+  if (type === 'DISEASE' || type === 'DISEASE_RECORD') {
+    const name = obj.diseaseName || obj.disease_name || obj.diseaseType || obj.disease_type || '病害'
+    const sev = obj.severity ? `｜${obj.severity}` : ''
+    return `${typeLabel}｜${name}${sev}${route ? `｜${route}` : ''}${stake ? `｜${stake}` : ''}`
+  }
+  if (type === 'ASSESSMENT' || type === 'ASSESSMENT_RESULT') {
+    const score = obj.mqi !== undefined && obj.mqi !== null ? `｜MQI ${obj.mqi}` : (obj.pci !== undefined && obj.pci !== null ? `｜PCI ${obj.pci}` : '')
+    return `${typeLabel}${route ? `｜${route}` : ''}${stake ? `｜${stake}` : ''}${score}`
+  }
+  if (type === 'EVALUATION_UNIT') {
+    const unit = obj.unitCode || obj.unit_code || ''
+    return `${typeLabel}${route ? `｜${route}` : ''}${stake ? `｜${stake}` : ''}${unit ? `｜${unit}` : ''}`
+  }
+  if (type === 'ROAD_SECTION') {
+    const section = obj.sectionName || obj.section_name || obj.sectionCode || obj.section_code || ''
+    return `${typeLabel}${section ? `｜${section}` : ''}${route ? `｜${route}` : ''}${stake ? `｜${stake}` : ''}`
+  }
+  if (type === 'ROAD_ROUTE') {
+    const name = obj.routeName || obj.route_name || route || '路线'
+    return `${typeLabel}｜${name}${route && name !== route ? `｜${route}` : ''}`
+  }
+  return `${typeLabel}${route ? `｜${route}` : ''}${stake ? `｜${stake}` : ''}`
+})
 const contextText = computed(() => { const query = props.context?.query || {}; const selected: any = activeMapObject.value; const route = query.routeCode || selected?.routeCode || selected?.route_code || '全部路线'; const year = query.year || selected?.year || '全部年度'; const selectedText = selected ? `｜已选 ${selected.objectType || selected.object_type || selected.routeCode || selected.route_code || '地图对象'}` : ''; return `${route}｜${year}${selectedText}` })
 const sourceSummary = computed(() => { const k = knowledgeSources.value.length; const o = outlineSources.value.length; if (k === 0 && o === 0) return ''; return `引用来源：知识库 ${k} 条，Outline ${o} 条` })
 watch(() => props.autoQuestion, async (question) => { const text = String(question || '').trim(); if (!props.visible || !text || loading.value) return; input.value = text; await nextTick(); await send(); emit('auto-question-consumed') }, { immediate: true })

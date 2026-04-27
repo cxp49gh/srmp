@@ -104,6 +104,7 @@ const layers = reactive<LayerState>({
 
 const statistics = ref<Record<string, any>>({})
 const selectedDetail = ref<Record<string, any> | null>(null)
+const selectedFeatureProperties = ref<Record<string, any> | null>(null)
 const loading = ref(false)
 const layerDrawerVisible = ref(false)
 const legendVisible = ref(false)
@@ -237,7 +238,8 @@ async function loadLayer(key: string, loader: () => Promise<GeoJsonFeatureCollec
         layer.bindPopup(popupHtml(properties), { className: 'srmp-popup' })
         layer.on('click', async () => {
           highlightLayer(layer)
-          selectedDetail.value = properties
+          selectedFeatureProperties.value = properties
+  selectedDetail.value = properties
           detailVisible.value = true
           await loadObjectDetail(properties)
         })
@@ -270,7 +272,8 @@ async function loadObjectDetail(properties: Record<string, any>) {
   }
 
   try {
-    selectedDetail.value = await getObjectDetail({ objectType, id })
+    const detail = await getObjectDetail({ objectType, id })
+  selectedDetail.value = { ...properties, ...(detail || {}), objectType, objectId: id, id }
   } catch {
     selectedDetail.value = properties
   }
