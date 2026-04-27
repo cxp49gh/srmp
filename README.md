@@ -167,6 +167,32 @@ npm run dev
 | 阶段十九 | 数据库初始化自动化与启动自检 | ✅ 已完成（init-ai-db.sh/check-db-schema.sh/check-ai-startup-prereq.sh、db-init-guide.md） |
 | 阶段二十 | AI方案模板管理 | ✅ 已完成（ai_solution_template表、模板变量解析、CRUD接口、前端模板管理页面） |
 | 阶段二十一 | AI方案生成 | ✅ 已完成（方案模板→业务数据→知识库检索→模板填充→大模型润色→任务保存→来源记录） |
+| 阶段二十二 | AI调用监控 | ✅ 已完成（ai_trace_log/step表、调用链路记录、GET /api/ai/traces接口、前端监控页面） |
+
+---
+
+## AI 调用监控接口
+
+### 调用记录列表
+
+```http
+GET /api/ai/traces?status=&keyword=&limit=
+X-Tenant-Id: default
+```
+
+### 调用详情
+
+```http
+GET /api/ai/traces/{traceId}
+X-Tenant-Id: default
+```
+
+### 调用步骤
+
+```http
+GET /api/ai/traces/{traceId}/steps
+X-Tenant-Id: default
+```
 
 ---
 
