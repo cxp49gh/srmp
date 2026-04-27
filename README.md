@@ -171,6 +171,7 @@ npm run dev
 | 阶段二十三 | AI方案质量检查与导出 | ✅ 已完成（POST /api/ai/solution/tasks/{id}/quality-check、GET quality-result、GET export/markdown、SolutionQualityPanel组件） |
 | 阶段二十四 | 演示数据接入与GIS/AI联调收口 | ✅ 已完成（GET /api/demo/status|dashboard|routes|questions、演示驾驶舱页面、tenant自动探测、availableTenants、check-demo-*.sh验收脚本） |
 | 阶段二十五 | GIS真实数据适配器 | ✅ 已完成（GeoJSON直接映射PostGIS、JdbcGeoJsonHelper、GisMapController重构、/api/gis/road-routes|sections|units|diseases|results、check-gis-layers.sh） |
+| 阶段二十六 | 地图选中对象作为AI上下文 | ✅ 已完成（MapObjectContext、mapObject注入AgentChatRequest、AgentChatPanel展示当前选中对象、MapObjectContextService查询对象详情、RAG prompt前置上下文） |
 
 ---
 
