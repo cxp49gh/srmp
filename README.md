@@ -173,6 +173,7 @@ npm run dev
 | 阶段二十五 | GIS真实数据适配器 | ✅ 已完成（GeoJSON直接映射PostGIS、JdbcGeoJsonHelper、GisMapController重构、/api/gis/road-routes|sections|units|diseases|results、check-gis-layers.sh） |
 | 阶段二十六 | 地图选中对象作为AI上下文 | ✅ 已完成（MapObjectContext、mapObject注入AgentChatRequest、AgentChatPanel展示当前选中对象、MapObjectContextService查询对象详情、RAG prompt前置上下文） |
 | 阶段二十七 | 地图AI交互UX增强 | ✅ 已完成（AgentChatFloat重新设计：地图上下文横幅+操作按钮、消息标签展示来源/降级状态、快速操作按钮、AI分析/生成建议一键触发、前端Vue文件格式规范化修复vue-tsc解析） |
+| 阶段二十八 | 地图对象答案质量优化 | 🔄 补丁已就绪（待合入：单病害对象本地规则回答、think标签清洗、mapObjectContextService.resolve体系升级、MAP_OBJECT_LOCAL来源标签；当前实现使用resolveRawMapObject/enrichMapObject体系已具备同等功能） |
 
 ---
 
