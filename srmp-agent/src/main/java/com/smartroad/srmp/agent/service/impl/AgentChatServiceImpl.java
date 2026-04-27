@@ -57,6 +57,7 @@ public class AgentChatServiceImpl implements com.smartroad.srmp.agent.service.Ag
             com.smartroad.srmp.agent.map.MapObjectContext mapObjCtx = null;
             String mapObjectContextMarkdown = "";
             boolean mapObjectUsed = false;
+            String mapObjectContext = null;
             try {
                 if (mapObjectContextService != null) {
                     mapObjCtx = mapObjectContextService.resolve(buildContextMap(request));
@@ -74,7 +75,7 @@ public class AgentChatServiceImpl implements com.smartroad.srmp.agent.service.Ag
 
             AiTraceContext.StepTimer businessTimer = trace.step("business_analysis", "业务数据分析");
             try {
-                if (options.isUseBusinessData() && looksLikeBusinessQuestion(message)) {
+                if (options.isUseBusinessData() && (looksLikeBusinessQuestion(message) || mapObjectUsed)) {
                     AgentAnalysisRequest analysisRequest = toAnalysisRequest(request);
                     if (containsAny(message, "病害", "裂缝", "坑槽", "车辙", "沉陷")) {
                         analysis = agentAnalysisService.analyzeDisease(analysisRequest);
@@ -221,7 +222,14 @@ public class AgentChatServiceImpl implements com.smartroad.srmp.agent.service.Ag
         }
     }
 
-    private void fillAnswerMeta(Map data,
+    private Map resolveRawMapObject(AgentChatRequest request) { if (request == null) return null; Map mapObject = request.getMapObject(); if (mapObject != null && !mapObject.isEmpty()) return mapObject; Map context = request.getContext(); if (context == null || context.isEmpty()) return null; Object direct = context.get("mapObject"); if (direct instanceof Map) return (Map) direct; Object selectedMapObject = context.get("selectedMapObject"); if (selectedMapObject instanceof Map) return (Map) selectedMapObject; Object selected = context.get("selected"); if (selected instanceof Map) return (Map) selected; return null; }
+private Map enrichMapObject(Map rawMapObject, AgentChatRequest request) { if (rawMapObject == null || rawMapObject.isEmpty()) return new LinkedHashMap(); String objectType = firstString(rawMapObject, "objectType", "object_type", "type", "layerType"); String objectId = firstString(rawMapObject, "objectId", "object_id", "id"); String routeCode = firstString(rawMapObject, "routeCode", "route_code"); Integer year = firstInteger(rawMapObject, "year"); if (year == null && request != null && request.getContext() != null) year = asInteger(request.getContext().get("year")); Map detail = mapObjectContextService.getObjectDetail(objectType, objectId, routeCode, year); Map merged = new LinkedHashMap(); merged.putAll(rawMapObject); if (detail != null) merged.putAll(detail); if (objectType != null) merged.put("objectType", objectType); if (objectId != null) merged.put("objectId", objectId); if (routeCode != null) merged.put("routeCode", routeCode); if (year != null) merged.put("year", year); return merged; }
+private String buildEnrichedMapObjectContext(Map mapObject) { if (mapObject == null || mapObject.isEmpty()) return null; StringBuilder sb = new StringBuilder(); sb.append("【当前地图选中对象】\n"); appendMapContext(sb, "对象类型", firstString(mapObject, "objectType", "object_type")); appendMapContext(sb, "对象ID", firstString(mapObject, "objectId", "object_id", "id")); appendMapContext(sb, "路线", firstString(mapObject, "routeCode", "route_code")); appendMapContext(sb, "名称", firstString(mapObject, "routeName", "route_name", "sectionName", "section_name", "unitCode", "unit_code")); appendMapContext(sb, "起点桩号", valueOfFirst(mapObject, "startStake", "start_stake")); appendMapContext(sb, "终点桩号", valueOfFirst(mapObject, "endStake", "end_stake")); appendMapContext(sb, "年度", valueOfFirst(mapObject, "year")); appendMapContext(sb, "MQI", valueOfFirst(mapObject, "mqi")); appendMapContext(sb, "PQI", valueOfFirst(mapObject, "pqi")); appendMapContext(sb, "PCI", valueOfFirst(mapObject, "pci")); appendMapContext(sb, "等级", valueOfFirst(mapObject, "grade")); appendMapContext(sb, "病害", firstString(mapObject, "diseaseName", "disease_name", "diseaseType", "disease_type")); appendMapContext(sb, "严重程度", valueOfFirst(mapObject, "severity")); appendMapContext(sb, "数量", valueOfFirst(mapObject, "quantity")); appendMapContext(sb, "单位", valueOfFirst(mapObject, "measureUnit", "measure_unit")); appendMapContext(sb, "摘要", firstString(mapObject, "context_summary", "contextSummary")); return sb.toString(); }
+private void appendMapContext(StringBuilder sb, String label, Object value) { if (value != null && String.valueOf(value).trim().length() > 0) sb.append("- ").append(label).append("：").append(value).append("\n"); }
+private String firstString(Map map, String... keys) { Object value = valueOfFirst(map, keys); return value == null ? null : String.valueOf(value); }
+private Integer firstInteger(Map map, String... keys) { Object value = valueOfFirst(map, keys); return asInteger(value); }
+private Object valueOfFirst(Map map, String... keys) { if (map == null) return null; for (String key : keys) { Object value = map.get(key); if (value != null && String.valueOf(value).trim().length() > 0) return value; } return null; }
+private void fillAnswerMeta(Map data,
                                 String answerSource,
                                 Boolean llmSuccess,
                                 Boolean fallback,

@@ -9,7 +9,13 @@
         <button type="button" @click="$emit('update:visible', false)">×</button>
       </div>
 
-      <div class="option-row">
+      
+  <div v-if="activeMapObject" class="map-context-banner">
+    <strong>当前地图上下文</strong>
+    <span>{{ activeMapObject.routeCode || activeMapObject.route_code || activeMapObject.objectType || activeMapObject.object_type || '已选中对象' }}</span>
+  </div>
+
+  <div class="option-row">
         <el-checkbox v-model="options.useBusinessData">业务数据</el-checkbox>
         <el-checkbox v-model="options.useKnowledge">知识库</el-checkbox>
         <el-checkbox v-model="options.useOutline">Outline</el-checkbox>
@@ -48,17 +54,21 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { chat } from '../../../api/agent'
 
 const props = defineProps<{
   visible: boolean
   context: Record<string, any>
-  mapObject?: Record<string, any>
+  mapObject?: Record<string, any> | null
+
+  autoQuestion?: string
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'update:visible', value: boolean): void
+
+  (e: 'auto-question-consumed'): void
 }>()
 
 const input = ref('')
@@ -74,12 +84,17 @@ const options = reactive({
   topK: 5
 })
 
+
+const activeMapObject = computed(() => {
+  return props.mapObject || props.context?.mapObject || props.context?.selectedMapObject || props.context?.selected || null
+})
+
 const contextText = computed(() => {
   const query = props.context?.query || {}
-  const selected = props.context?.selected
+  const selected = activeMapObject.value
   const route = query.routeCode || '全部路线'
   const year = query.year || '全部年度'
-  const selectedText = selected?.objectType ? `｜已选 ${selected.objectType}` : ''
+  const selectedText = selected ? `｜已选 ${selected.objectType || selected.object_type || selected.routeCode || selected.route_code || '地图对象'}` : ''
   return `${route}｜${year}${selectedText}`
 })
 
@@ -89,6 +104,20 @@ const sourceSummary = computed(() => {
   if (k === 0 && o === 0) return ''
   return `引用来源：知识库 ${k} 条，Outline ${o} 条`
 })
+
+
+watch(
+  () => props.autoQuestion,
+  async (question) => {
+    const text = String(question || '').trim()
+    if (!props.visible || !text || loading.value) return
+    input.value = text
+    await nextTick()
+    await send()
+    emit('auto-question-consumed')
+  },
+  { immediate: true }
+)
 
 function quickAsk(text: string) {
   input.value = text
@@ -108,7 +137,7 @@ async function send() {
       message: text,
       context: props.context,
       options,
-      mapObject: props.mapObject
+      mapObject: activeMapObject.value
     })
     messages.value.push({
       role: 'assistant',
@@ -227,4 +256,17 @@ async function send() {
   margin-top: 8px;
   align-items: flex-end;
 }
+
+.map-context-banner {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+}
+
 </style>

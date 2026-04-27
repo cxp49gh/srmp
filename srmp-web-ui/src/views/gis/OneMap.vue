@@ -40,6 +40,8 @@
     <AgentChatFloat
       v-model:visible="agentVisible"
       :context="agentContext"
+      :auto-question="pendingAiQuestion"
+      @auto-question-consumed="pendingAiQuestion = ''"
       :map-object="selectedDetail"
     />
 
@@ -107,11 +109,41 @@ const layerDrawerVisible = ref(false)
 const legendVisible = ref(false)
 const detailVisible = ref(false)
 const agentVisible = ref(false)
+const pendingAiQuestion = ref('')
 const statisticsCollapsed = ref(false)
+
+
+const selectedMapObject = computed(() => {
+  const detail: any = selectedDetail.value || {}
+  const props: any = detail.properties || detail
+  if (!props || Object.keys(props).length === 0) return null
+
+  const rawType = props.objectType || props.object_type || props.type || props.layerType
+  const objectType = rawType === 'ASSESSMENT' ? 'ASSESSMENT_RESULT' : rawType
+
+  return {
+    objectType,
+    objectId: props.objectId || props.object_id || props.id,
+    routeCode: props.routeCode || props.route_code || query.routeCode,
+    year: Number(query.year || props.year || 2026),
+    startStake: props.startStake || props.start_stake,
+    endStake: props.endStake || props.end_stake,
+    mqi: props.mqi,
+    pqi: props.pqi,
+    pci: props.pci,
+    grade: props.grade,
+    diseaseType: props.diseaseType || props.disease_type,
+    diseaseName: props.diseaseName || props.disease_name,
+    severity: props.severity,
+    raw: props
+  }
+})
 
 const agentContext = computed(() => ({
   query: { ...query },
-  selected: selectedDetail.value
+  selected: selectedDetail.value,
+  mapObject: selectedMapObject.value,
+  selectedMapObject: selectedMapObject.value
 }))
 
 let map: LeafletMap
@@ -294,7 +326,12 @@ function collectVisibleBounds(): LatLngBounds | null {
 }
 
 function openAiForSelected() {
+  if (!selectedDetail.value) {
+    ElMessage.warning('请先在地图上选择一个对象')
+    return
+  }
   agentVisible.value = true
+  pendingAiQuestion.value = '分析当前地图选中对象，说明主要问题、成因判断，并给出养护处置建议'
 }
 
 function popupHtml(properties: Record<string, any>) {

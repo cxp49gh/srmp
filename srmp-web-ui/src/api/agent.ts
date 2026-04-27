@@ -3,6 +3,7 @@ import { aiRequest } from '../utils/request'
 export interface AgentChatRequest {
   message: string
   context?: Record<string, any>
+  mapObject?: Record<string, any> | null
   options?: Record<string, any>
 }
 
