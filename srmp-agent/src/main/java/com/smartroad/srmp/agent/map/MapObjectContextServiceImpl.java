@@ -13,8 +13,8 @@ import java.util.Map;
 @Service
 public class MapObjectContextServiceImpl implements MapObjectContextService {
 
-    @Resource
-    private NamedParameterJdbcTemplate jdbcTemplate;
+    @Resource(name = "namedParameterJdbcTemplate")
+    private NamedParameterJdbcTemplate namedParameterJdbcTemplate;
 
     @Override
     @SuppressWarnings("unchecked")
@@ -74,7 +74,7 @@ public class MapObjectContextServiceImpl implements MapObjectContextService {
     }
 
     private Map one(String sql, MapSqlParameterSource p) {
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, p);
+        List<Map<String, Object>> rows = namedParameterJdbcTemplate.queryForList(sql, p);
         return rows.isEmpty() ? new LinkedHashMap() : rows.get(0);
     }
 }
