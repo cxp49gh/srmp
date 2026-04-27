@@ -1,12 +1,15 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import OneMap from '../views/gis/OneMap.vue'
 import AiChatPage from '../views/agent/AiChatPage.vue'
+import AiTracesPage from '../views/agent/AiTracesPage.vue'
 import KnowledgeDocumentPage from '../views/agent/KnowledgeDocumentPage.vue'
 import KnowledgeSearchPage from '../views/agent/KnowledgeSearchPage.vue'
 import OutlineSearchPage from '../views/agent/OutlineSearchPage.vue'
 import OutlineStatusPage from '../views/agent/OutlineStatusPage.vue'
 import OutlineSyncPage from '../views/agent/OutlineSyncPage.vue'
 import SolutionTemplatesPage from '../views/agent/SolutionTemplatesPage.vue'
+import SolutionGeneratePage from '../views/agent/SolutionGeneratePage.vue'
+import SolutionTasksPage from '../views/agent/SolutionTasksPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -27,6 +30,34 @@ const router = createRouter({
       component: AiChatPage,
       meta: {
         title: 'AI 问答'
+      }
+    },
+    {
+      path: '/agent/ai-traces',
+      component: AiTracesPage,
+      meta: {
+        title: 'AI 调用监控'
+      }
+    },
+    {
+      path: '/agent/solution-templates',
+      component: SolutionTemplatesPage,
+      meta: {
+        title: '方案模板管理'
+      }
+    },
+    {
+      path: '/agent/solution-generate',
+      component: SolutionGeneratePage,
+      meta: {
+        title: '方案生成'
+      }
+    },
+    {
+      path: '/agent/solution-tasks',
+      component: SolutionTasksPage,
+      meta: {
+        title: '方案任务'
       }
     },
     {
@@ -62,13 +93,6 @@ const router = createRouter({
       component: OutlineStatusPage,
       meta: {
         title: 'Outline 连接状态'
-      }
-    },
-    {
-      path: '/agent/solution-templates',
-      component: SolutionTemplatesPage,
-      meta: {
-        title: '方案模板管理'
       }
     }
   ]

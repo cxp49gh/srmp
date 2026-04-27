@@ -27,6 +27,23 @@ export interface AiSolutionTemplateImportRequest {
   force?: boolean
 }
 
+export interface AiSolutionGenerateRequest {
+  solutionType: string
+  routeCode: string
+  year: number
+  templateCode?: string
+  templateId?: string
+  options?: Record<string, any>
+}
+
+export interface AiSolutionTaskQuery {
+  solutionType?: string
+  routeCode?: string
+  year?: number
+  status?: string
+  limit?: number
+}
+
 export function createSolutionTemplate(data: AiSolutionTemplateRequest): Promise<Record<string, any>> {
   return request.post('/api/ai/solution/templates', data)
 }
@@ -49,4 +66,20 @@ export function importTemplateFromKnowledge(data: AiSolutionTemplateImportReques
 
 export function disableSolutionTemplate(id: string): Promise<Record<string, any>> {
   return request.post(`/api/ai/solution/templates/${id}/disable`)
+}
+
+export function generateSolution(data: AiSolutionGenerateRequest): Promise<Record<string, any>> {
+  return request.post('/api/ai/solution/generate', data)
+}
+
+export function listSolutionTasks(data: AiSolutionTaskQuery): Promise<Record<string, any>[]> {
+  return request.post('/api/ai/solution/tasks/list', data)
+}
+
+export function getSolutionTask(id: string): Promise<Record<string, any>> {
+  return request.get(`/api/ai/solution/tasks/${id}`)
+}
+
+export function getSolutionTaskSources(id: string): Promise<Record<string, any>[]> {
+  return request.get(`/api/ai/solution/tasks/${id}/sources`)
 }

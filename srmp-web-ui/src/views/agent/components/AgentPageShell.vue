@@ -7,7 +7,10 @@
       <nav>
         <router-link to="/gis/one-map">GIS 一张图</router-link>
         <router-link to="/agent/chat">AI 问答</router-link>
+        <router-link to="/agent/ai-traces">AI 调用监控</router-link>
         <router-link to="/agent/solution-templates">方案模板</router-link>
+        <router-link to="/agent/solution-generate">方案生成</router-link>
+        <router-link to="/agent/solution-tasks">方案任务</router-link>
         <router-link to="/agent/knowledge-documents">知识库文档</router-link>
         <router-link to="/agent/knowledge-search">知识库检索</router-link>
         <router-link to="/agent/outline-search">Outline 搜索</router-link>

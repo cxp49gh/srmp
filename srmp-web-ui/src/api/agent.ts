@@ -1,4 +1,4 @@
-import request from '../utils/request'
+import { aiRequest } from '../utils/request'
 
 export interface AgentChatRequest {
   message: string
@@ -7,5 +7,5 @@ export interface AgentChatRequest {
 }
 
 export function chat(data: AgentChatRequest): Promise<any> {
-  return request.post('/api/agent/chat', data)
+  return aiRequest.post('/api/agent/chat', data)
 }
