@@ -24,11 +24,12 @@
 import { reactive, watch } from 'vue'
 
 export interface LayerState {
-  roadRoute: boolean
-  roadSection: boolean
-  evaluationUnit: boolean
-  disease: boolean
-  assessment: boolean
+  roadRoute?: boolean
+  roadSection?: boolean
+  evaluationUnit?: boolean
+  disease?: boolean
+  assessment?: boolean
+  assessmentResult?: boolean
 }
 
 const props = defineProps<{

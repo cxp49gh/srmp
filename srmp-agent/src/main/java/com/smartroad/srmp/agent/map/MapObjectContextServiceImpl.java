@@ -22,19 +22,46 @@ public class MapObjectContextServiceImpl implements MapObjectContextService {
         if (context == null || context.isEmpty()) {
             return MapObjectContext.empty();
         }
-        Object mapObj = context.get("mapObject");
-        if (mapObj instanceof Map) {
-            return MapObjectContext.of((Map<String, Object>) mapObj);
+
+        Map raw = null;
+        Object mapObject = context.get("mapObject");
+        if (mapObject instanceof Map) {
+            raw = (Map) mapObject;
         }
-        Object selMapObj = context.get("selectedMapObject");
-        if (selMapObj instanceof Map) {
-            return MapObjectContext.of((Map<String, Object>) selMapObj);
+        if ((raw == null || raw.isEmpty()) && context.get("selectedMapObject") instanceof Map) {
+            raw = (Map) context.get("selectedMapObject");
         }
-        Object selected = context.get("selected");
-        if (selected instanceof Map) {
-            return MapObjectContext.of((Map<String, Object>) selected);
+        if ((raw == null || raw.isEmpty()) && context.get("selected") instanceof Map) {
+            raw = (Map) context.get("selected");
         }
-        return MapObjectContext.empty();
+        if (raw == null || raw.isEmpty()) {
+            return MapObjectContext.empty();
+        }
+
+        String objectType = firstString(raw, "objectType", "object_type", "type", "layerType");
+        String objectId = firstString(raw, "objectId", "object_id", "id");
+        String routeCode = firstString(raw, "routeCode", "route_code");
+        Integer year = firstInteger(raw, "year");
+
+        Map detail = getObjectDetail(objectType, objectId, routeCode, year);
+        Map merged = new LinkedHashMap();
+        merged.putAll(raw);
+        if (detail != null) {
+            merged.putAll(detail);
+        }
+        if (objectType != null) {
+            merged.put("objectType", normalizeType(objectType));
+        }
+        if (objectId != null) {
+            merged.put("objectId", objectId);
+        }
+        if (routeCode != null) {
+            merged.put("routeCode", routeCode);
+        }
+        if (year != null) {
+            merged.put("year", year);
+        }
+        return MapObjectContext.of(merged);
     }
 
     @Override
@@ -43,18 +70,21 @@ public class MapObjectContextServiceImpl implements MapObjectContextService {
         if (tenantId == null || tenantId.trim().isEmpty()) {
             tenantId = "default";
         }
-        String type = objectType == null ? "" : objectType.trim().toUpperCase().replace("-", "_");
+        String type = normalizeType(objectType);
         String id = objectId == null ? "" : objectId.trim();
         String rc = routeCode == null ? "" : routeCode.trim();
         Integer y = year == null ? 2026 : year;
-        if (type.isEmpty() && !rc.isEmpty()) {
+
+        if ((type == null || type.isEmpty()) && !rc.isEmpty()) {
             type = "ROAD_ROUTE";
         }
+
         MapSqlParameterSource p = new MapSqlParameterSource()
                 .addValue("tenantId", tenantId)
                 .addValue("id", id)
                 .addValue("routeCode", rc)
                 .addValue("year", y);
+
         if ("ROAD_ROUTE".equals(type) || "ROUTE".equals(type)) {
             return one("select 'ROAD_ROUTE' object_type,id,route_code,route_name,route_type,admin_grade,technical_grade,start_stake,end_stake,length_km,adcode,concat('路线 ',route_code,' ',coalesce(route_name,''),'，里程 ',coalesce(length_km,0),' km') context_summary from road_route where tenant_id=:tenantId and coalesce(deleted,false)=false and ((:id<>'' and id=:id) or (:routeCode<>'' and route_code=:routeCode)) order by route_code limit 1", p);
         }
@@ -76,5 +106,49 @@ public class MapObjectContextServiceImpl implements MapObjectContextService {
     private Map one(String sql, MapSqlParameterSource p) {
         List<Map<String, Object>> rows = namedParameterJdbcTemplate.queryForList(sql, p);
         return rows.isEmpty() ? new LinkedHashMap() : rows.get(0);
+    }
+
+    private String normalizeType(String objectType) {
+        if (objectType == null) {
+            return "";
+        }
+        String type = objectType.trim().toUpperCase().replace("-", "_");
+        if ("ASSESSMENT".equals(type)) {
+            return "ASSESSMENT_RESULT";
+        }
+        if ("DISEASE_RECORD".equals(type)) {
+            return "DISEASE";
+        }
+        return type;
+    }
+
+    private String firstString(Map map, String... keys) {
+        Object value = firstObject(map, keys);
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private Integer firstInteger(Map map, String... keys) {
+        Object value = firstObject(map, keys);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(String.valueOf(value));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Object firstObject(Map map, String... keys) {
+        if (map == null) {
+            return null;
+        }
+        for (String key : keys) {
+            Object value = map.get(key);
+            if (value != null && String.valueOf(value).trim().length() > 0) {
+                return value;
+            }
+        }
+        return null;
     }
 }
