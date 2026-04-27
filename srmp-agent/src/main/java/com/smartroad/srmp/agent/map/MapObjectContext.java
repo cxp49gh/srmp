@@ -9,12 +9,11 @@ import java.util.Map;
 public class MapObjectContext implements Serializable {
     private static final long serialVersionUID = 1L;
 
-    private String id;
+    private boolean present;
     private String objectId;
     private String objectType;
     private String routeCode;
     private Integer year;
-    private Double startStake;
-    private Double endStake;
-    private Map<String, Object> details;
+    private Map<String, Object> detail;
+    private String markdown;
 }

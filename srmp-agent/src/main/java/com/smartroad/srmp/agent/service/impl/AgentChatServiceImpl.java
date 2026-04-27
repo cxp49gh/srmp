@@ -33,6 +33,9 @@ public class AgentChatServiceImpl implements com.smartroad.srmp.agent.service.Ag
     @Resource
     private AiTraceService aiTraceService;
 
+    @Resource
+    private com.smartroad.srmp.agent.map.MapObjectContextService mapObjectContextService;
+
     @Override
     public AgentChatResponse chat(AgentChatRequest request) {
         String message = request == null ? "" : request.getMessage();
@@ -50,8 +53,24 @@ public class AgentChatServiceImpl implements com.smartroad.srmp.agent.service.Ag
 
             RagOptions options = RagOptions.autoByQuestion(message, request == null ? null : request.getOptions());
 
+            // Resolve map object context
+            com.smartroad.srmp.agent.map.MapObjectContext mapObjCtx = null;
+            String mapObjectContextMarkdown = "";
+            boolean mapObjectUsed = false;
+            try {
+                if (mapObjectContextService != null) {
+                    mapObjCtx = mapObjectContextService.resolve(buildContextMap(request));
+                    mapObjectUsed = mapObjCtx != null && mapObjCtx.isPresent();
+                    if (mapObjectUsed) {
+                        mapObjectContextMarkdown = mapObjCtx.getMarkdown();
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[AI-CHAT] map object context resolve failed: {}", e.getMessage());
+            }
+
             AgentAnalysisResponse analysis = null;
-            String businessMarkdown = "";
+            String businessMarkdown = mapObjectContextMarkdown;
 
             AiTraceContext.StepTimer businessTimer = trace.step("business_analysis", "业务数据分析");
             try {
@@ -65,6 +84,9 @@ public class AgentChatServiceImpl implements com.smartroad.srmp.agent.service.Ag
                         analysis = agentAnalysisService.analyzeRoute(analysisRequest);
                     }
                     businessMarkdown = analysis == null ? "" : analysis.getMarkdown();
+                    if (mapObjectUsed && mapObjCtx != null) {
+                        businessMarkdown = mapObjCtx.getMarkdown() + "\n" + businessMarkdown;
+                    }
                     businessTimer.success();
                 } else {
                     businessTimer.skipped();
@@ -147,23 +169,14 @@ public class AgentChatServiceImpl implements com.smartroad.srmp.agent.service.Ag
             data.put("usedKnowledge", rag.get("usedKnowledge"));
             data.put("usedOutline", rag.get("usedOutline"));
 
-            // Handle map object context - support both top-level and nested in context
-            Map<String, Object> mapObject = request == null ? null : request.getMapObject();
-            if ((mapObject == null || mapObject.isEmpty()) && request != null && request.getContext() != null) {
-                Object nestedMapObj = request.getContext().get("mapObject");
-                if (nestedMapObj instanceof Map) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> nested = (Map<String, Object>) nestedMapObj;
-                    mapObject = nested;
-                }
-            }
-            boolean mapObjectUsed = mapObject != null && !mapObject.isEmpty();
+            // Handle map object context
+            Map<String, Object> mapObjectForResponse = (mapObjCtx != null && mapObjCtx.isPresent()) ? mapObjCtx.getDetail() : null;
             response.setMapObjectUsed(mapObjectUsed);
-            response.setMapObject(mapObject);
-            response.setMapObjectContext(buildMapObjectContext(mapObject));
+            response.setMapObject(mapObjectForResponse);
+            response.setMapObjectContext(mapObjectUsed && mapObjCtx != null ? mapObjCtx.getMarkdown() : null);
             data.put("mapObjectUsed", mapObjectUsed);
-            data.put("mapObject", mapObject);
-            data.put("mapObjectContext", buildMapObjectContext(mapObject));
+            data.put("mapObject", mapObjectForResponse);
+            data.put("mapObjectContext", mapObjectUsed && mapObjCtx != null ? mapObjCtx.getMarkdown() : null);
 
             fillAnswerMeta(data, answerSource, llmSuccess, fallback, fallbackReason, mode);
             response.setData(data);
@@ -346,5 +359,18 @@ public class AgentChatServiceImpl implements com.smartroad.srmp.agent.service.Ag
             sb.append("- 程度：").append(severity).append("\n");
         }
         return sb.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> buildContextMap(AgentChatRequest request) {
+        if (request == null) return null;
+        Map<String, Object> ctx = new LinkedHashMap<>();
+        if (request.getContext() != null) {
+            ctx.putAll(request.getContext());
+        }
+        if (request.getMapObject() != null) {
+            ctx.put("mapObject", request.getMapObject());
+        }
+        return ctx;
     }
 }
