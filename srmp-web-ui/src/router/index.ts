@@ -10,6 +10,7 @@ import OutlineSyncPage from '../views/agent/OutlineSyncPage.vue'
 import SolutionTemplatesPage from '../views/agent/SolutionTemplatesPage.vue'
 import SolutionGeneratePage from '../views/agent/SolutionGeneratePage.vue'
 import SolutionTasksPage from '../views/agent/SolutionTasksPage.vue'
+import DemoDashboardPage from '../views/demo/DemoDashboardPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -23,6 +24,13 @@ const router = createRouter({
       component: OneMap,
       meta: {
         title: 'GIS 一张图'
+      }
+    },
+    {
+      path: '/demo/dashboard',
+      component: DemoDashboardPage,
+      meta: {
+        title: '演示数据联调看板'
       }
     },
     {
