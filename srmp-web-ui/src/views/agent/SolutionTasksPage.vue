@@ -1,5 +1,5 @@
 <template>
-  <AgentPageShell title="方案任务" description="查看 AI 方案生成历史、结果内容和引用来源。">
+  <AgentPageShell title="方案任务" description="查看 AI 方案生成历史、质量校验、结果内容和引用来源。">
     <div class="page-grid">
       <el-card class="left-card">
         <template #header>
@@ -41,7 +41,11 @@
         <template #header>
           <div class="card-header">
             <span>方案结果</span>
-            <el-button v-if="detail?.result_content" size="small" @click="copyResult">复制 Markdown</el-button>
+            <div>
+              <el-button v-if="detail?.id" size="small" :loading="checking" @click="runQualityCheck">质量校验</el-button>
+              <el-button v-if="detail?.id" size="small" @click="exportMarkdown">导出 Markdown</el-button>
+              <el-button v-if="detail?.result_content" size="small" @click="copyResult">复制</el-button>
+            </div>
           </div>
         </template>
         <el-empty v-if="!detail" description="请选择任务" />
@@ -52,6 +56,9 @@
             <el-descriptions-item label="标题">{{ detail.title }}</el-descriptions-item>
             <el-descriptions-item label="模板版本">{{ detail.template_version }}</el-descriptions-item>
           </el-descriptions>
+
+          <SolutionQualityPanel :quality="quality" />
+
           <pre>{{ detail.result_content }}</pre>
         </template>
       </el-card>
@@ -76,7 +83,15 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import AgentPageShell from './components/AgentPageShell.vue'
-import { getSolutionTask, getSolutionTaskSources, listSolutionTasks } from '../../api/solution'
+import SolutionQualityPanel from './components/SolutionQualityPanel.vue'
+import {
+  checkSolutionQuality,
+  getSolutionMarkdownExportUrl,
+  getSolutionQualityResult,
+  getSolutionTask,
+  getSolutionTaskSources,
+  listSolutionTasks
+} from '../../api/solution'
 
 const query = reactive({
   routeCode: 'G210',
@@ -88,6 +103,8 @@ const tasks = ref<Record<string, any>[]>([])
 const selected = ref<Record<string, any> | null>(null)
 const detail = ref<Record<string, any> | null>(null)
 const sources = ref<Record<string, any>[]>([])
+const quality = ref<Record<string, any> | null>(null)
+const checking = ref(false)
 
 onMounted(loadTasks)
 
@@ -99,11 +116,29 @@ async function selectTask(item: Record<string, any>) {
   selected.value = item
   detail.value = await getSolutionTask(item.id)
   sources.value = await getSolutionTaskSources(item.id)
+  quality.value = await getSolutionQualityResult(item.id)
+}
+
+async function runQualityCheck() {
+  if (!detail.value?.id) return
+  checking.value = true
+  try {
+    quality.value = await checkSolutionQuality(detail.value.id)
+    detail.value = await getSolutionTask(detail.value.id)
+    ElMessage.success('质量校验完成')
+  } finally {
+    checking.value = false
+  }
 }
 
 async function copyResult() {
   await navigator.clipboard.writeText(detail.value?.result_content || '')
   ElMessage.success('已复制')
+}
+
+function exportMarkdown() {
+  if (!detail.value?.id) return
+  window.open(getSolutionMarkdownExportUrl(detail.value.id), '_blank')
 }
 </script>
 
@@ -169,7 +204,7 @@ pre {
   border-radius: 12px;
   padding: 14px;
   line-height: 1.6;
-  max-height: calc(100vh - 250px);
+  max-height: calc(100vh - 360px);
   overflow: auto;
 }
 </style>

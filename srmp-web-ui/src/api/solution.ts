@@ -83,3 +83,16 @@ export function getSolutionTask(id: string): Promise<Record<string, any>> {
 export function getSolutionTaskSources(id: string): Promise<Record<string, any>[]> {
   return request.get(`/api/ai/solution/tasks/${id}/sources`)
 }
+
+export function checkSolutionQuality(id: string): Promise<Record<string, any>> {
+  return request.post(`/api/ai/solution/tasks/${id}/quality-check`)
+}
+
+export function getSolutionQualityResult(id: string): Promise<Record<string, any>> {
+  return request.get(`/api/ai/solution/tasks/${id}/quality-result`)
+}
+
+export function getSolutionMarkdownExportUrl(id: string): string {
+  const base = import.meta.env.VITE_API_BASE_URL || ''
+  return `${base}/api/ai/solution/tasks/${id}/export/markdown`
+}
