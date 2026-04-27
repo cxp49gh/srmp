@@ -168,6 +168,8 @@ npm run dev
 | 阶段二十 | AI方案模板管理 | ✅ 已完成（ai_solution_template表、模板变量解析、CRUD接口、前端模板管理页面） |
 | 阶段二十一 | AI方案生成 | ✅ 已完成（方案模板→业务数据→知识库检索→模板填充→大模型润色→任务保存→来源记录） |
 | 阶段二十二 | AI调用监控 | ✅ 已完成（ai_trace_log/step表、try-catch-finally链路追踪、response.data.trace始终返回、来源溯源answerSource、AnswerSourceAlert组件、GET /api/ai/traces接口、前端监控页面） |
+| 阶段二十三 | AI方案质量检查与导出 | ✅ 已完成（POST /api/ai/solution/tasks/{id}/quality-check、GET quality-result、GET export/markdown、SolutionQualityPanel组件） |
+| 阶段二十四 | 演示数据接入与GIS/AI联调收口 | ✅ 已完成（GET /api/demo/status|dashboard|routes|questions、演示驾驶舱页面、tenant自动探测、availableTenants、check-demo-*.sh验收脚本） |
 
 ---
 
@@ -191,6 +193,31 @@ X-Tenant-Id: default
 
 ```http
 GET /api/ai/traces/{traceId}/steps
+X-Tenant-Id: default
+```
+
+---
+
+## 演示数据联调接口
+
+### 数据状态
+
+```http
+GET /api/demo/status?tenantId=default&year=2026
+X-Tenant-Id: default
+```
+
+### 驾驶舱数据
+
+```http
+GET /api/demo/dashboard?tenantId=default&year=2026
+X-Tenant-Id: default
+```
+
+### 路线列表
+
+```http
+GET /api/demo/routes?tenantId=default&year=2026
 X-Tenant-Id: default
 ```
 
