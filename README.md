@@ -170,6 +170,7 @@ npm run dev
 | 阶段二十二 | AI调用监控 | ✅ 已完成（ai_trace_log/step表、try-catch-finally链路追踪、response.data.trace始终返回、来源溯源answerSource、AnswerSourceAlert组件、GET /api/ai/traces接口、前端监控页面） |
 | 阶段二十三 | AI方案质量检查与导出 | ✅ 已完成（POST /api/ai/solution/tasks/{id}/quality-check、GET quality-result、GET export/markdown、SolutionQualityPanel组件） |
 | 阶段二十四 | 演示数据接入与GIS/AI联调收口 | ✅ 已完成（GET /api/demo/status|dashboard|routes|questions、演示驾驶舱页面、tenant自动探测、availableTenants、check-demo-*.sh验收脚本） |
+| 阶段二十五 | GIS真实数据适配器 | ✅ 已完成（GeoJSON直接映射PostGIS、JdbcGeoJsonHelper、GisMapController重构、/api/gis/road-routes|sections|units|diseases|results、check-gis-layers.sh） |
 
 ---
 
@@ -218,6 +219,45 @@ X-Tenant-Id: default
 
 ```http
 GET /api/demo/routes?tenantId=default&year=2026
+X-Tenant-Id: default
+```
+
+---
+
+## GIS 图层数据接口
+
+### 获取路线
+
+```http
+GET /api/gis/road-routes?tenantId=default&routeCode=G210
+X-Tenant-Id: default
+```
+
+### 获取路段
+
+```http
+GET /api/gis/road-sections?tenantId=default&routeCode=G210
+X-Tenant-Id: default
+```
+
+### 获取评定单元
+
+```http
+GET /api/gis/evaluation-units?tenantId=default&routeCode=G210
+X-Tenant-Id: default
+```
+
+### 获取病害
+
+```http
+GET /api/gis/diseases?tenantId=default&routeCode=G210
+X-Tenant-Id: default
+```
+
+### 获取评定结果
+
+```http
+GET /api/gis/assessment-results?tenantId=default&routeCode=G210&year=2026
 X-Tenant-Id: default
 ```
 
