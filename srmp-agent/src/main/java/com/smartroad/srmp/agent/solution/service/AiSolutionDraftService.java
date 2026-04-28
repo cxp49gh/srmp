@@ -10,6 +10,8 @@ import java.util.Map;
 public interface AiSolutionDraftService {
     Map<String, Object> saveMapObjectDraft(AiSolutionDraftSaveRequest request);
 
+    Map<String, Object> saveMapRegionDraft(AiSolutionDraftSaveRequest request);
+
     Map<String, Object> updateDraft(String taskId, AiSolutionDraftUpdateRequest request);
 
     Map<String, Object> updateDraftStatus(String taskId, AiSolutionDraftStatusUpdateRequest request);

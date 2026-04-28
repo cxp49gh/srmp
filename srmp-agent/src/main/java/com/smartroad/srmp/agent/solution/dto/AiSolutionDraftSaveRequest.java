@@ -12,9 +12,14 @@ public class AiSolutionDraftSaveRequest {
     private String markdown;
     private String routeCode;
     private Integer year;
+    private String originType;
+    private String objectType;
+    private String objectId;
     private Map<String, Object> mapObject;
     private Map<String, Object> objectSummary;
+    private Map<String, Object> regionSummary;
     private Map<String, Object> qualityCheck;
+    private Map<String, Object> trace;
     private List<AiSolutionSourceSummaryRequest> sourceSummaries;
     private String templateId;
     private String templateVersion;

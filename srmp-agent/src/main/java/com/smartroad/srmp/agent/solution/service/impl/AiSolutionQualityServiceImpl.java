@@ -40,6 +40,11 @@ public class AiSolutionQualityServiceImpl implements AiSolutionQualityService {
             saveQualityResult(taskId, result);
             return result;
         }
+        if ("MAP_REGION".equals(asString(task.get("origin_type")))) {
+            Map<String, Object> result = checkMapRegionTask(task, sources, content);
+            saveQualityResult(taskId, result);
+            return result;
+        }
 
         List<Map<String, Object>> items = new ArrayList<>();
         int score = 100;
@@ -114,6 +119,11 @@ public class AiSolutionQualityServiceImpl implements AiSolutionQualityService {
             md.append("| 来源类型 | 地图对象 |\n");
             md.append("| 对象类型 | ").append(asString(task.get("object_type"))).append(" |\n");
             md.append("| 对象ID | ").append(asString(task.get("object_id"))).append(" |\n");
+            md.append("| 草稿状态 | ").append(asString(task.get("draft_status"))).append(" |\n");
+        } else if ("MAP_REGION".equals(asString(task.get("origin_type")))) {
+            md.append("| 来源类型 | 地图区域 |\n");
+            md.append("| 对象类型 | ").append(asString(task.get("object_type"))).append(" |\n");
+            md.append("| Trace | ").append(asString(task.get("object_id"))).append(" |\n");
             md.append("| 草稿状态 | ").append(asString(task.get("draft_status"))).append(" |\n");
         }
         md.append("| 生成时间 | ").append(asString(task.get("created_at"))).append(" |\n\n");
@@ -237,6 +247,33 @@ public class AiSolutionQualityServiceImpl implements AiSolutionQualityService {
         result.put("items", items);
         result.put("summary", "地图对象方案质量校验" + (passed ? "通过" : "未通过") + "，评分 " + score + "。");
         result.put("originType", "MAP_OBJECT");
+        result.put("checkedAt", new Date());
+        return result;
+    }
+
+    private Map<String, Object> checkMapRegionTask(Map<String, Object> task, List<Map<String, Object>> sources, String content) {
+        List<Map<String, Object>> items = new ArrayList<>();
+        int score = 100;
+
+        score -= addQualityItem(items, !asString(task.get("object_summary")).isEmpty(), "REGION_STATISTICS", "区域统计", 20);
+        score -= addQualityItem(items, containsAny(content, "热点", "重点"), "REGION_HOTSPOT", "热点分析", 15);
+        score -= addQualityItem(items, containsAny(content, "养护", "处置", "策略"), "REGION_STRATEGY", "养护策略", 20);
+        score -= addQualityItem(items, containsAny(content, "优先", "P1", "P2", "近期"), "REGION_PRIORITY", "优先级", 15);
+        score -= addQualityItem(items, sources.stream().anyMatch(s -> "MAP_REGION".equals(asString(s.get("source_type")))), "REGION_SOURCE", "区域来源", 10);
+        score -= addQualityItem(items, containsAny(content, "人工审核", "复核", "草稿"), "REGION_REVIEW_NOTICE", "人工审核提示", 10);
+
+        if (score < 0) {
+            score = 0;
+        }
+        boolean passed = score >= 80 && items.stream().noneMatch(i -> "ERROR".equals(i.get("level")));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("passed", passed);
+        result.put("score", score);
+        result.put("level", score >= 90 ? "A" : score >= 80 ? "B" : score >= 60 ? "C" : "D");
+        result.put("items", items);
+        result.put("summary", "区域方案质量校验" + (passed ? "通过" : "未通过") + "，评分 " + score + "。");
+        result.put("originType", "MAP_REGION");
         result.put("checkedAt", new Date());
         return result;
     }

@@ -1,6 +1,8 @@
 package com.smartroad.srmp.gis.controller;
 
 import com.smartroad.srmp.common.core.R;
+import com.smartroad.srmp.agent.solution.dto.AiSolutionDraftSaveRequest;
+import com.smartroad.srmp.agent.solution.service.AiSolutionDraftService;
 import com.smartroad.srmp.gis.dto.MapRegionAnalysisRequest;
 import com.smartroad.srmp.gis.dto.MapRegionSolutionRequest;
 import com.smartroad.srmp.gis.dto.MapRegionSolutionResponse;
@@ -24,6 +26,9 @@ public class GisMapRegionController {
     @Resource
     private MapRegionSolutionService mapRegionSolutionService;
 
+    @Resource
+    private AiSolutionDraftService aiSolutionDraftService;
+
     @PostMapping("/analysis")
     public R<Map<String, Object>> analysis(@RequestBody MapRegionAnalysisRequest request) {
         return R.ok(mapRegionAnalysisService.analyze(request));
@@ -32,5 +37,10 @@ public class GisMapRegionController {
     @PostMapping("/solution")
     public R<MapRegionSolutionResponse> solution(@RequestBody MapRegionSolutionRequest request) {
         return R.ok(mapRegionSolutionService.generate(request));
+    }
+
+    @PostMapping("/drafts")
+    public R<Map<String, Object>> saveDraft(@RequestBody AiSolutionDraftSaveRequest request) {
+        return R.ok(aiSolutionDraftService.saveMapRegionDraft(request));
     }
 }

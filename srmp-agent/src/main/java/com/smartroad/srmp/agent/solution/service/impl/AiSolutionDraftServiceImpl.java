@@ -26,13 +26,27 @@ public class AiSolutionDraftServiceImpl implements AiSolutionDraftService {
     @Override
     @Transactional
     public Map<String, Object> saveMapObjectDraft(AiSolutionDraftSaveRequest request) {
-        validateSave(request);
+        return saveDraft(request, "MAP_OBJECT");
+    }
+
+    @Override
+    @Transactional
+    public Map<String, Object> saveMapRegionDraft(AiSolutionDraftSaveRequest request) {
+        return saveDraft(request, "MAP_REGION");
+    }
+
+    private Map<String, Object> saveDraft(AiSolutionDraftSaveRequest request, String originType) {
+        validateSave(request, originType);
 
         String tenantId = TenantContextHolder.getTenantId();
         String taskId = uuid();
         Map<String, Object> mapObject = request.getMapObject() == null ? new LinkedHashMap<>() : request.getMapObject();
-        Map<String, Object> objectSummary = request.getObjectSummary() == null ? new LinkedHashMap<>() : request.getObjectSummary();
-        Map<String, Object> quality = normalizeMapObjectQuality(request.getQualityCheck());
+        Map<String, Object> objectSummary = request.getRegionSummary() != null
+                ? request.getRegionSummary()
+                : (request.getObjectSummary() == null ? new LinkedHashMap<>() : request.getObjectSummary());
+        Map<String, Object> quality = "MAP_REGION".equals(originType)
+                ? normalizeRegionQuality(request.getQualityCheck())
+                : normalizeMapObjectQuality(request.getQualityCheck());
         List<Map<String, Object>> sourceSnapshot = buildSourceSnapshot(request);
 
         MapSqlParameterSource params = new MapSqlParameterSource()
@@ -48,9 +62,9 @@ public class AiSolutionDraftServiceImpl implements AiSolutionDraftService {
                 .addValue("requestJson", toJson(buildRequestJson(request), "{}"))
                 .addValue("resultContent", request.getMarkdown())
                 .addValue("qualityResult", toJson(quality, "{}"))
-                .addValue("originType", "MAP_OBJECT")
-                .addValue("objectType", firstString(objectSummary, mapObject, "objectType", "object_type", "type", "layerType", "assessment_object_type"))
-                .addValue("objectId", firstString(objectSummary, mapObject, "objectId", "object_id", "id"))
+                .addValue("originType", originType)
+                .addValue("objectType", "MAP_REGION".equals(originType) ? "MAP_REGION" : firstString(objectSummary, mapObject, "objectType", "object_type", "type", "layerType", "assessment_object_type"))
+                .addValue("objectId", "MAP_REGION".equals(originType) ? firstString(request.getTrace(), mapObject, "traceId", "id") : firstString(objectSummary, mapObject, "objectId", "object_id", "id"))
                 .addValue("mapObject", toJson(mapObject, "{}"))
                 .addValue("objectSummary", toJson(objectSummary, "{}"))
                 .addValue("draftStatus", "DRAFT")
@@ -163,7 +177,7 @@ public class AiSolutionDraftServiceImpl implements AiSolutionDraftService {
         );
     }
 
-    private void validateSave(AiSolutionDraftSaveRequest request) {
+    private void validateSave(AiSolutionDraftSaveRequest request, String originType) {
         if (request == null) {
             throw new IllegalArgumentException("请求不能为空");
         }
@@ -178,6 +192,9 @@ public class AiSolutionDraftServiceImpl implements AiSolutionDraftService {
         }
         if (request.getMapObject() == null || request.getMapObject().isEmpty()) {
             throw new IllegalArgumentException("mapObject 不能为空");
+        }
+        if ("MAP_REGION".equals(originType) && (request.getRegionSummary() == null || request.getRegionSummary().isEmpty())) {
+            throw new IllegalArgumentException("regionSummary 不能为空");
         }
     }
 
@@ -225,6 +242,26 @@ public class AiSolutionDraftServiceImpl implements AiSolutionDraftService {
         result.put("summary", "地图对象方案质量校验" + (passed ? "通过" : "需复核") + "，评分 " + score + "。");
         result.put("items", items);
         result.put("originType", "MAP_OBJECT");
+        result.put("raw", qualityCheck == null ? new LinkedHashMap<>() : qualityCheck);
+        result.put("checkedAt", new Date());
+        return result;
+    }
+
+    private Map<String, Object> normalizeRegionQuality(Map<String, Object> qualityCheck) {
+        if (qualityCheck != null && qualityCheck.get("score") != null && qualityCheck.get("items") instanceof List) {
+            Map<String, Object> result = new LinkedHashMap<>(qualityCheck);
+            result.put("originType", "MAP_REGION");
+            return result;
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        List<Map<String, Object>> items = new ArrayList<>();
+        items.add(item("WARN", "REGION_QUALITY_IMPORTED", "保存时未收到完整区域质量结果，需重新校验", 10));
+        result.put("passed", false);
+        result.put("score", 70);
+        result.put("level", "C");
+        result.put("summary", "区域方案质量结果不完整，建议重新校验。");
+        result.put("items", items);
+        result.put("originType", "MAP_REGION");
         result.put("raw", qualityCheck == null ? new LinkedHashMap<>() : qualityCheck);
         result.put("checkedAt", new Date());
         return result;
@@ -292,6 +329,11 @@ public class AiSolutionDraftServiceImpl implements AiSolutionDraftService {
         json.put("solutionType", request.getSolutionType());
         json.put("routeCode", request.getRouteCode());
         json.put("year", request.getYear());
+        json.put("originType", request.getOriginType());
+        json.put("objectType", request.getObjectType());
+        json.put("objectId", request.getObjectId());
+        json.put("regionSummary", request.getRegionSummary() == null ? new LinkedHashMap<>() : request.getRegionSummary());
+        json.put("trace", request.getTrace() == null ? new LinkedHashMap<>() : request.getTrace());
         json.put("templateId", request.getTemplateId());
         json.put("templateVersion", request.getTemplateVersion());
         json.put("templateName", request.getTemplateName());
