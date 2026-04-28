@@ -74,7 +74,28 @@ ADD COLUMN IF NOT EXISTS object_summary JSONB,
 ADD COLUMN IF NOT EXISTS current_version_no INTEGER DEFAULT 1;
 ```
 
-The existing `quality_result` column stores the Phase 32 quality check result when a generated map-object draft is saved.
+The existing `quality_result` column stores a normalized quality result. For map-object drafts, Phase 32 `qualityCheck` must be converted to the same shape used by `SolutionQualityPanel.vue`:
+
+```json
+{
+  "passed": true,
+  "score": 100,
+  "level": "A",
+  "summary": "地图对象方案质量校验通过，警告 0 项。",
+  "items": [
+    {
+      "level": "OK",
+      "code": "MAP_OBJECT_POSITION",
+      "message": "已包含：对象位置",
+      "penalty": 0
+    }
+  ],
+  "originType": "MAP_OBJECT",
+  "raw": {}
+}
+```
+
+`raw` stores the original Phase 32 `qualityCheck` for traceability. Existing route-level solution tasks continue using the Phase 23 quality structure.
 
 Add `ai_solution_task_version`:
 
@@ -139,14 +160,47 @@ Responsibilities:
 - list versions;
 - update draft status with allowed transition checks.
 - save quality check result, map-object payload, and source summaries in the task/version/source records.
+- normalize map-object quality results so existing quality panels and exports can render them.
+- keep task/version/source writes transactional.
 
 Add request DTOs:
 
 ```text
 AiSolutionDraftSaveRequest
 AiSolutionDraftUpdateRequest
-AiSolutionStatusUpdateRequest
+AiSolutionDraftStatusUpdateRequest
 ```
+
+`AiSolutionDraftSaveRequest` fields:
+
+```text
+solutionType        required
+title               required
+markdown            required
+routeCode           optional
+year                optional
+mapObject           required
+objectSummary       optional
+qualityCheck        optional, raw Phase 32 qualityCheck
+sourceSummaries     optional list of source summaries
+templateId          optional
+templateVersion     optional
+templateName        optional
+options             optional generation options
+requestContext      optional frontend context snapshot
+```
+
+`sourceSummaries` items use the existing source vocabulary where possible:
+
+```text
+sourceType      MAP_OBJECT / TEMPLATE / KNOWLEDGE / OUTLINE / BUSINESS_DATA
+sourceTitle     display title
+sourceId        source identifier
+sourceUrl       source URL
+contentExcerpt  summary excerpt
+```
+
+The service must always create a `MAP_OBJECT` source row from `mapObject`/`objectSummary`. It should create `TEMPLATE`, `KNOWLEDGE`, `OUTLINE`, or `BUSINESS_DATA` rows only when those summaries are supplied by the save request; Phase 33 should not invent missing provenance.
 
 New APIs:
 
@@ -160,20 +214,33 @@ Creates a task with:
 - `status = SUCCESS`;
 - `draft_status = DRAFT`;
 - `result_content = markdown`;
-- `quality_result` from Phase 32 response;
+- `quality_result` normalized from the Phase 32 response and compatible with `SolutionQualityPanel.vue`;
 - `map_object` from the selected map object;
 - `object_summary` from Phase 32 response;
+- `request_json` containing solution type, options, request context, template metadata, and source summaries;
 - source rows in `ai_solution_source`:
   - `MAP_OBJECT` for the selected map object summary;
   - `TEMPLATE` when template metadata is present;
   - `KNOWLEDGE` or `OUTLINE` rows when source summaries are present;
 - first row in `ai_solution_task_version`, including `quality_result`, `map_object`, `object_summary`, and `source_snapshot`.
 
+The save operation must run in one transaction, with the public service method annotated by `@Transactional`. If inserting the task, version, or sources fails, none of the records should be committed.
+
 ```http
 PUT /api/ai/solution/tasks/{id}
 ```
 
 Updates title/content and writes a new version.
+
+Only tasks with `draft_status = DRAFT` are editable. `CONFIRMED` and `ARCHIVED` tasks reject content edits. Future phases may add "create revision from confirmed draft", but Phase 33 keeps the rule simple:
+
+```text
+DRAFT      editable
+CONFIRMED  status-only or export-only
+ARCHIVED   read-only
+```
+
+Updating a draft must also run in a `@Transactional` service method. It must increment `current_version_no` atomically and insert exactly one matching version row. Use a transactional row lock such as `select ... for update` before incrementing, or an equivalent PostgreSQL `update ... returning current_version_no` strategy. The unique `(tenant_id, task_id, version_no)` index remains the final guard against duplicate versions.
 
 ```http
 GET /api/ai/solution/tasks/{id}/versions
@@ -188,6 +255,8 @@ POST /api/ai/solution/tasks/{id}/draft-status
 Accepts `DRAFT`, `CONFIRMED`, or `ARCHIVED` and rejects invalid transitions.
 
 Existing task detail/list APIs should include the new metadata columns when present. `AiSolutionTaskQuery.status` continues to mean execution status, and Phase 33 adds `draftStatus` when the UI needs to filter draft lifecycle state.
+
+`AiSolutionQualityServiceImpl` needs an `origin_type = MAP_OBJECT` branch. For map-object tasks, quality checks should use map-object criteria and must not apply the route-report required sections from Phase 23. Saving and re-checking a map-object draft should keep the normalized quality result shape.
 
 The Phase 32 generation API remains:
 
@@ -229,9 +298,11 @@ Update `SolutionTasksPage.vue`:
 ## Error Handling
 
 - Saving without title or markdown returns a validation error.
-- Save requests preserve the Phase 32 quality check result and use it as the initial `quality_result`.
-- Save requests preserve the selected map object and source summaries so future reviewers can trace what was used to generate the draft.
+- Save requests normalize the Phase 32 quality check result and use it as the initial `quality_result`.
+- Save requests preserve the selected map object and supplied source summaries so future reviewers can trace what was used to generate the draft.
+- Save/update operations are transactional; partial task/version/source writes are treated as failures.
 - Updating or changing draft status for a missing task returns a clear not-found error.
+- Updating title/content is allowed only when `draft_status = DRAFT`.
 - Invalid draft status transitions return an `IllegalArgumentException` message.
 - Frontend surfaces errors with `ElMessage.error`.
 - Save action is idempotent only from the user's perspective: repeated saves create distinct task records unless an existing `taskId` is explicitly updated later.
@@ -253,6 +324,8 @@ It should verify:
 - draft status update endpoint exists;
 - frontend save API exists;
 - save API is under `src/api/solution.ts`, not `src/api/agent.ts`;
+- map-object quality is normalized to the existing quality panel shape;
+- save/update service methods are transactional;
 - preview dialog calls save;
 - task page references versions and draft status.
 
