@@ -1,0 +1,369 @@
+package com.smartroad.srmp.gis.service.impl;
+
+import com.smartroad.srmp.agent.knowledge.dto.KnowledgeSearchRequest;
+import com.smartroad.srmp.agent.knowledge.service.KnowledgeService;
+import com.smartroad.srmp.agent.knowledge.vo.KnowledgeSearchResult;
+import com.smartroad.srmp.agent.llm.LlmClient;
+import com.smartroad.srmp.agent.outline.service.OutlineService;
+import com.smartroad.srmp.agent.outline.vo.OutlineSearchResult;
+import com.smartroad.srmp.agent.rag.RagOptions;
+import com.smartroad.srmp.agent.trace.AiTraceContext;
+import com.smartroad.srmp.agent.trace.service.AiTraceService;
+import com.smartroad.srmp.gis.dto.MapRegionAnalysisRequest;
+import com.smartroad.srmp.gis.dto.MapRegionSolutionRequest;
+import com.smartroad.srmp.gis.dto.MapRegionSolutionResponse;
+import com.smartroad.srmp.gis.service.MapRegionAnalysisService;
+import com.smartroad.srmp.gis.service.MapRegionSolutionService;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+import javax.annotation.Resource;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+@Slf4j
+@Service
+public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
+
+    @Resource
+    private MapRegionAnalysisService mapRegionAnalysisService;
+
+    @Resource
+    private KnowledgeService knowledgeService;
+
+    @Resource
+    private OutlineService outlineService;
+
+    @Resource
+    private LlmClient llmClient;
+
+    @Resource
+    private AiTraceService aiTraceService;
+
+    @Override
+    public MapRegionSolutionResponse generate(MapRegionSolutionRequest request) {
+        AiTraceContext trace = AiTraceContext.start("MAP_REGION_SOLUTION", buildTraceMessage(request));
+        MapRegionSolutionResponse response = new MapRegionSolutionResponse();
+        response.setSolutionType(safe(request == null ? null : request.getSolutionType()).isEmpty()
+                ? "REGION_MAINTENANCE_SUGGESTION"
+                : safe(request.getSolutionType()));
+        try {
+            MapRegionAnalysisRequest analysisRequest = toAnalysisRequest(request);
+            Map<String, Object> regionSummary = runRegionAnalysis(trace, analysisRequest);
+            List<Map<String, Object>> hotspots = runHotspotStep(trace, regionSummary);
+            String businessMarkdown = runBusinessAnalysis(trace, request, regionSummary, hotspots);
+            Map<String, Object> sources = runKnowledgeRetrieve(trace, request, businessMarkdown);
+            String markdown = runSolutionGenerate(trace, regionSummary, businessMarkdown, sources);
+            Map<String, Object> quality = runQualityCheck(trace, regionSummary, markdown);
+
+            response.setTitle(buildTitle(request, regionSummary));
+            response.setMarkdown(markdown);
+            response.setRegionSummary(regionSummary);
+            response.setQualityCheck(quality);
+            response.setSourceSummaries(buildSourceSummaries(regionSummary, sources, trace));
+            trace.setMode(Boolean.TRUE.equals(sources.get("llmSuccess")) ? "MAP_REGION_LLM" : "MAP_REGION_FALLBACK");
+            trace.setStatus("SUCCESS");
+            trace.setFallback(!Boolean.TRUE.equals(sources.get("llmSuccess")));
+            return response;
+        } catch (Exception e) {
+            trace.setMode("FAILED");
+            trace.setStatus("FAILED");
+            trace.setFallback(true);
+            trace.setError(e.getMessage());
+            throw e;
+        } finally {
+            trace.finish();
+            response.setTrace(trace.toMap());
+            try {
+                aiTraceService.save(trace);
+            } catch (Exception saveError) {
+                log.warn("[MAP-REGION] save trace failed traceId={} error={}", trace.getTraceId(), saveError.getMessage(), saveError);
+            }
+        }
+    }
+
+    private Map<String, Object> runRegionAnalysis(AiTraceContext trace, MapRegionAnalysisRequest request) {
+        AiTraceContext.StepTimer geometryTimer = trace.step("region_geometry_parse", "解析框选范围");
+        try {
+            ensurePolygonRequest(request);
+            geometryTimer.success(1);
+        } catch (RuntimeException e) {
+            geometryTimer.failed(e);
+            throw e;
+        }
+
+        AiTraceContext.StepTimer spatialTimer = trace.step("region_spatial_query", "查询区域内对象");
+        try {
+            Map<String, Object> summary = mapRegionAnalysisService.analyze(request);
+            int objectCount = intValue(summary.get("routeCount")) + intValue(summary.get("sectionCount")) + intValue(summary.get("unitCount"));
+            Map<String, Object> disease = mapValue(summary.get("diseaseSummary"));
+            objectCount += intValue(disease.get("disease_count"));
+            spatialTimer.success(objectCount);
+
+            AiTraceContext.StepTimer statisticsTimer = trace.step("region_statistics", "区域统计");
+            statisticsTimer.success(objectCount);
+            return summary;
+        } catch (RuntimeException e) {
+            spatialTimer.failed(e);
+            throw e;
+        }
+    }
+
+    private List<Map<String, Object>> runHotspotStep(AiTraceContext trace, Map<String, Object> regionSummary) {
+        AiTraceContext.StepTimer timer = trace.step("region_hotspot_detect", "热点识别");
+        Object raw = regionSummary.get("hotspots");
+        List<Map<String, Object>> hotspots = raw instanceof List ? (List<Map<String, Object>>) raw : new ArrayList<>();
+        timer.success(hotspots.size());
+        return hotspots;
+    }
+
+    private String runBusinessAnalysis(AiTraceContext trace, MapRegionSolutionRequest request, Map<String, Object> summary, List<Map<String, Object>> hotspots) {
+        AiTraceContext.StepTimer timer = trace.step("region_business_analysis", "业务分析");
+        String markdown = buildBusinessMarkdown(request, summary, hotspots);
+        timer.success(1);
+        return markdown;
+    }
+
+    private Map<String, Object> runKnowledgeRetrieve(AiTraceContext trace, MapRegionSolutionRequest request, String businessMarkdown) {
+        AiTraceContext.StepTimer timer = trace.step("region_knowledge_retrieve", "知识库检索");
+        Map<String, Object> result = new LinkedHashMap<>();
+        List<KnowledgeSearchResult> knowledgeSources = new ArrayList<>();
+        List<OutlineSearchResult> outlineSources = new ArrayList<>();
+        result.put("knowledgeSources", knowledgeSources);
+        result.put("outlineSources", outlineSources);
+        result.put("llmSuccess", false);
+
+        RagOptions options = RagOptions.autoByQuestion("区域养护建议", request == null ? null : request.getOptions());
+        if (!options.isUseKnowledge() && !options.isUseOutline()) {
+            timer.skipped();
+            return result;
+        }
+        try {
+            if (options.isUseKnowledge()) {
+                KnowledgeSearchRequest searchRequest = new KnowledgeSearchRequest();
+                searchRequest.setQuery(buildKnowledgeQuery(request, businessMarkdown));
+                searchRequest.setTopK(options.getTopK());
+                knowledgeSources = knowledgeService.search(searchRequest);
+            }
+            if (options.isUseOutline()) {
+                outlineSources = outlineService.search(buildKnowledgeQuery(request, businessMarkdown), options.getTopK());
+            }
+            result.put("knowledgeSources", knowledgeSources);
+            result.put("outlineSources", outlineSources);
+            timer.success(knowledgeSources.size() + outlineSources.size());
+        } catch (RuntimeException e) {
+            result.put("knowledgeError", e.getMessage());
+            timer.failed(e);
+        }
+        return result;
+    }
+
+    private String runSolutionGenerate(AiTraceContext trace, Map<String, Object> summary, String businessMarkdown, Map<String, Object> sources) {
+        AiTraceContext.StepTimer timer = trace.step("region_solution_generate", "生成区域养护建议");
+        try {
+            String prompt = buildPrompt(summary, businessMarkdown, sources);
+            String answer = llmClient.chat("你是智路养护平台区域养护方案生成助手。资料不足时必须说明，输出 Markdown 草稿。", prompt);
+            boolean success = answer != null && answer.trim().length() > 0;
+            sources.put("llmSuccess", success);
+            timer.success(success ? 1 : 0);
+            return success ? sanitize(answer) : businessMarkdown;
+        } catch (RuntimeException e) {
+            sources.put("llmSuccess", false);
+            sources.put("llmError", e.getMessage());
+            timer.failed(e);
+            return businessMarkdown;
+        }
+    }
+
+    private Map<String, Object> runQualityCheck(AiTraceContext trace, Map<String, Object> summary, String markdown) {
+        AiTraceContext.StepTimer timer = trace.step("region_quality_check", "质量检查");
+        List<Map<String, Object>> items = new ArrayList<>();
+        int score = 100;
+        score -= qualityItem(items, summary.get("geometry") != null, "REGION_GEOMETRY", "已包含区域范围", 20);
+        score -= qualityItem(items, !mapValue(summary.get("diseaseSummary")).isEmpty(), "REGION_STATISTICS", "已包含区域统计", 20);
+        score -= qualityItem(items, containsAny(markdown, "热点", "重点"), "REGION_HOTSPOT", "已包含热点识别", 15);
+        score -= qualityItem(items, containsAny(markdown, "养护", "处置", "策略"), "REGION_STRATEGY", "已包含养护策略", 20);
+        score -= qualityItem(items, containsAny(markdown, "优先", "近期", "P1", "P2"), "REGION_PRIORITY", "已包含优先级建议", 15);
+        score -= qualityItem(items, containsAny(markdown, "人工审核", "复核", "草稿"), "REGION_REVIEW_NOTICE", "已包含人工审核提示", 10);
+        if (score < 0) {
+            score = 0;
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("passed", score >= 80 && items.stream().noneMatch(i -> "ERROR".equals(i.get("level"))));
+        result.put("score", score);
+        result.put("level", score >= 90 ? "A" : score >= 80 ? "B" : score >= 60 ? "C" : "D");
+        result.put("summary", "区域方案质量校验" + (Boolean.TRUE.equals(result.get("passed")) ? "通过" : "需复核") + "，评分 " + score + "。");
+        result.put("items", items);
+        result.put("originType", "MAP_REGION");
+        result.put("checkedAt", new Date());
+        timer.success(items.size());
+        return result;
+    }
+
+    private int qualityItem(List<Map<String, Object>> items, boolean passed, String code, String message, int penalty) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("level", passed ? "OK" : (penalty >= 20 ? "ERROR" : "WARN"));
+        item.put("code", code);
+        item.put("message", passed ? message : "缺少或需补充：" + message);
+        item.put("penalty", passed ? 0 : penalty);
+        items.add(item);
+        return passed ? 0 : penalty;
+    }
+
+    private MapRegionAnalysisRequest toAnalysisRequest(MapRegionSolutionRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("请求不能为空");
+        }
+        MapRegionAnalysisRequest analysis = new MapRegionAnalysisRequest();
+        analysis.setGeometry(request.getGeometry());
+        analysis.setQuery(request.getQuery());
+        analysis.setLayers(request.getLayers());
+        analysis.setOptions(request.getOptions());
+        return analysis;
+    }
+
+    private void ensurePolygonRequest(MapRegionAnalysisRequest request) {
+        Map<String, Object> geometry = request == null ? null : request.getGeometry();
+        if (geometry == null || !"Polygon".equals(String.valueOf(geometry.get("type")))) {
+            throw new IllegalArgumentException("geometry 只支持 GeoJSON Polygon");
+        }
+    }
+
+    private String buildTraceMessage(MapRegionSolutionRequest request) {
+        Map<String, Object> query = request == null || request.getQuery() == null ? new LinkedHashMap<>() : request.getQuery();
+        return "区域养护建议 " + safe(query.get("routeCode")) + " " + safe(query.get("year"));
+    }
+
+    private String buildTitle(MapRegionSolutionRequest request, Map<String, Object> summary) {
+        Map<String, Object> query = request == null || request.getQuery() == null ? new LinkedHashMap<>() : request.getQuery();
+        String route = safe(query.get("routeCode")).isEmpty() ? "选区" : safe(query.get("routeCode"));
+        return route + " 区域养护建议草稿";
+    }
+
+    private String buildBusinessMarkdown(MapRegionSolutionRequest request, Map<String, Object> summary, List<Map<String, Object>> hotspots) {
+        Map<String, Object> disease = mapValue(summary.get("diseaseSummary"));
+        Map<String, Object> assessment = mapValue(summary.get("assessmentSummary"));
+        StringBuilder sb = new StringBuilder();
+        sb.append("# ").append(buildTitle(request, summary)).append("\n\n");
+        sb.append("## 一、区域概况\n\n");
+        sb.append("- 选区面积：").append(safe(summary.get("areaKm2"))).append(" km2\n");
+        sb.append("- 涉及路线：").append(safe(summary.get("routeCount"))).append(" 条\n");
+        sb.append("- 涉及路段：").append(safe(summary.get("sectionCount"))).append(" 个\n");
+        sb.append("- 评定单元：").append(safe(summary.get("unitCount"))).append(" 个\n\n");
+        sb.append("## 二、区域统计\n\n");
+        sb.append("- 病害数量：").append(safe(disease.get("disease_count"))).append("\n");
+        sb.append("- 重度病害：").append(safe(disease.get("heavy_count"))).append("\n");
+        sb.append("- 平均 MQI：").append(safe(assessment.get("avg_mqi"))).append("\n");
+        sb.append("- 平均 PQI：").append(safe(assessment.get("avg_pqi"))).append("\n");
+        sb.append("- 平均 PCI：").append(safe(assessment.get("avg_pci"))).append("\n\n");
+        sb.append("## 三、热点识别\n\n");
+        if (hotspots.isEmpty()) {
+            sb.append("当前选区未识别到明显病害热点。\n\n");
+        } else {
+            for (int i = 0; i < hotspots.size(); i++) {
+                Map<String, Object> item = hotspots.get(i);
+                sb.append(i + 1).append(". ").append(safe(item.get("route_code")))
+                        .append("，病害 ").append(safe(item.get("disease_count")))
+                        .append("，重度 ").append(safe(item.get("heavy_count"))).append("\n");
+            }
+            sb.append("\n");
+        }
+        sb.append("## 四、养护策略\n\n");
+        sb.append("建议优先复核重度病害集中、PCI 或 MQI 偏低的局部区域，按病害集中程度安排近期处置和预防性养护。\n\n");
+        sb.append("## 五、优先级建议\n\n");
+        sb.append("P1：重度病害集中或低 PCI 区域；P2：中度病害集中区域；P3：轻度病害和常规巡查区域。\n\n");
+        sb.append("## 六、风险提示\n\n");
+        sb.append("本建议为 AI 生成草稿，需由养护技术人员结合现场复核、预算和交通组织条件人工审核。\n");
+        return sb.toString();
+    }
+
+    private String buildKnowledgeQuery(MapRegionSolutionRequest request, String businessMarkdown) {
+        return "区域养护建议 " + buildTraceMessage(request) + " " + shortText(businessMarkdown, 300);
+    }
+
+    private String buildPrompt(Map<String, Object> summary, String businessMarkdown, Map<String, Object> sources) {
+        return "请基于区域统计、热点和知识库来源生成区域养护建议草稿。\n\n【区域统计】\n" + summary +
+                "\n\n【业务分析】\n" + businessMarkdown +
+                "\n\n【来源】\n" + sources;
+    }
+
+    private List<Map<String, Object>> buildSourceSummaries(Map<String, Object> summary, Map<String, Object> sources, AiTraceContext trace) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        result.add(source("MAP_REGION", "地图框选区域", trace.getTraceId(), "", "区域面积 " + safe(summary.get("areaKm2")) + " km2"));
+        result.add(source("BUSINESS_DATA", "区域业务统计", trace.getTraceId(), "", "病害、评定和热点聚合统计"));
+
+        Object knowledgeRaw = sources.get("knowledgeSources");
+        if (knowledgeRaw instanceof List) {
+            for (Object raw : (List<?>) knowledgeRaw) {
+                if (raw instanceof KnowledgeSearchResult) {
+                    KnowledgeSearchResult item = (KnowledgeSearchResult) raw;
+                    result.add(source("KNOWLEDGE", item.getTitle(), item.getDocumentId(), item.getSourceUrl(), shortText(item.getContent(), 500)));
+                }
+            }
+        }
+        Object outlineRaw = sources.get("outlineSources");
+        if (outlineRaw instanceof List) {
+            for (Object raw : (List<?>) outlineRaw) {
+                if (raw instanceof OutlineSearchResult) {
+                    OutlineSearchResult item = (OutlineSearchResult) raw;
+                    result.add(source("OUTLINE", item.getTitle(), item.getId(), item.getUrl(), shortText(item.getText(), 500)));
+                }
+            }
+        }
+        result.add(source("TRACE", "AI Trace", trace.getTraceId(), "", trace.getTraceId()));
+        return result;
+    }
+
+    private Map<String, Object> source(String type, String title, String id, String url, String excerpt) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("sourceType", type);
+        item.put("sourceTitle", safe(title).isEmpty() ? type : title);
+        item.put("sourceId", safe(id));
+        item.put("sourceUrl", safe(url));
+        item.put("contentExcerpt", safe(excerpt));
+        return item;
+    }
+
+    private Map<String, Object> mapValue(Object value) {
+        return value instanceof Map ? (Map<String, Object>) value : new LinkedHashMap<>();
+    }
+
+    private int intValue(Object value) {
+        if (value == null) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private boolean containsAny(String text, String... words) {
+        String value = text == null ? "" : text;
+        for (String word : words) {
+            if (value.contains(word)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String shortText(String text, int max) {
+        if (text == null) {
+            return "";
+        }
+        return text.length() <= max ? text : text.substring(0, max);
+    }
+
+    private String sanitize(String text) {
+        return text == null ? "" : text.replaceAll("(?is)<think>.*?</think>", "").trim();
+    }
+
+    private String safe(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+}
