@@ -1,7 +1,7 @@
 <template>
   <div class="layer-drawer srmp-card" :class="{ collapsed }">
     <div class="drawer-header">
-      <span>图层控制</span>
+      <span>{{ collapsed ? '图' : '图层控制' }}</span>
       <button type="button" class="collapse-btn" @click="collapsed = !collapsed">
         {{ collapsed ? '›' : '‹' }}
       </button>
