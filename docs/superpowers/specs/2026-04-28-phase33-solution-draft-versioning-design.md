@@ -50,7 +50,7 @@ Use the existing `ai_solution_task` table as the canonical draft record. Add map
 
 - `ai_solution_task` remains the current latest draft.
 - `ai_solution_task_version` stores immutable snapshots.
-- `ai_solution_source` can continue to store provenance.
+- `ai_solution_source` continues to store provenance, including map object, template, and knowledge source summaries.
 
 This keeps task listing, quality checks, and markdown export reusable, while avoiding duplicate task pages and duplicate quality/export logic.
 
@@ -69,9 +69,12 @@ ALTER TABLE ai_solution_task
 ADD COLUMN IF NOT EXISTS origin_type VARCHAR(50),
 ADD COLUMN IF NOT EXISTS object_type VARCHAR(100),
 ADD COLUMN IF NOT EXISTS object_id VARCHAR(100),
+ADD COLUMN IF NOT EXISTS map_object JSONB,
 ADD COLUMN IF NOT EXISTS object_summary JSONB,
 ADD COLUMN IF NOT EXISTS current_version_no INTEGER DEFAULT 1;
 ```
+
+The existing `quality_result` column stores the Phase 32 quality check result when a generated map-object draft is saved.
 
 Add `ai_solution_task_version`:
 
@@ -83,7 +86,10 @@ CREATE TABLE IF NOT EXISTS ai_solution_task_version (
     version_no      INTEGER NOT NULL,
     title           VARCHAR(300),
     result_content  TEXT,
+    quality_result  JSONB,
+    map_object      JSONB,
     object_summary  JSONB,
+    source_snapshot JSONB,
     change_note     VARCHAR(500),
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -132,6 +138,7 @@ Responsibilities:
 - update draft title/content and append a new version;
 - list versions;
 - update draft status with allowed transition checks.
+- save quality check result, map-object payload, and source summaries in the task/version/source records.
 
 Add request DTOs:
 
@@ -144,7 +151,7 @@ AiSolutionStatusUpdateRequest
 New APIs:
 
 ```http
-POST /api/agent/map-object/solution/drafts
+POST /api/ai/solution/tasks/map-object-drafts
 ```
 
 Creates a task with:
@@ -153,8 +160,14 @@ Creates a task with:
 - `status = SUCCESS`;
 - `draft_status = DRAFT`;
 - `result_content = markdown`;
+- `quality_result` from Phase 32 response;
+- `map_object` from the selected map object;
 - `object_summary` from Phase 32 response;
-- first row in `ai_solution_task_version`.
+- source rows in `ai_solution_source`:
+  - `MAP_OBJECT` for the selected map object summary;
+  - `TEMPLATE` when template metadata is present;
+  - `KNOWLEDGE` or `OUTLINE` rows when source summaries are present;
+- first row in `ai_solution_task_version`, including `quality_result`, `map_object`, `object_summary`, and `source_snapshot`.
 
 ```http
 PUT /api/ai/solution/tasks/{id}
@@ -176,6 +189,14 @@ Accepts `DRAFT`, `CONFIRMED`, or `ARCHIVED` and rejects invalid transitions.
 
 Existing task detail/list APIs should include the new metadata columns when present. `AiSolutionTaskQuery.status` continues to mean execution status, and Phase 33 adds `draftStatus` when the UI needs to filter draft lifecycle state.
 
+The Phase 32 generation API remains:
+
+```http
+POST /api/agent/map-object/solution
+```
+
+It only generates a preview. Durable save and later task management stay under `/api/ai/solution/tasks/**`.
+
 ## Frontend Design
 
 Update `SolutionPreviewDialog.vue`:
@@ -191,12 +212,9 @@ Update `AgentChatFloat.vue`:
 - pass current `mapObject`, `context`, and options for traceability;
 - show success/failure message without closing the preview.
 
-Update `src/api/agent.ts`:
-
-- add `saveMapObjectSolutionDraft()`.
-
 Update `src/api/solution.ts`:
 
+- add `saveMapObjectSolutionDraft()`.
 - add `updateSolutionTask()`;
 - add `updateSolutionTaskDraftStatus()`;
 - add `getSolutionTaskVersions()`.
@@ -211,6 +229,8 @@ Update `SolutionTasksPage.vue`:
 ## Error Handling
 
 - Saving without title or markdown returns a validation error.
+- Save requests preserve the Phase 32 quality check result and use it as the initial `quality_result`.
+- Save requests preserve the selected map object and source summaries so future reviewers can trace what was used to generate the draft.
 - Updating or changing draft status for a missing task returns a clear not-found error.
 - Invalid draft status transitions return an `IllegalArgumentException` message.
 - Frontend surfaces errors with `ElMessage.error`.
@@ -232,6 +252,7 @@ It should verify:
 - versions endpoint exists;
 - draft status update endpoint exists;
 - frontend save API exists;
+- save API is under `src/api/solution.ts`, not `src/api/agent.ts`;
 - preview dialog calls save;
 - task page references versions and draft status.
 
