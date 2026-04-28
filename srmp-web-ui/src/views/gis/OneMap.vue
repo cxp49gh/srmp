@@ -14,7 +14,6 @@
     <MapFloatTools
       class="float-tools"
       @toggle-layer="layerDrawerVisible = !layerDrawerVisible"
-      @toggle-legend="toggleLegend"
       @fit="handleFitAll"
     />
 
@@ -24,10 +23,7 @@
       @change="reloadLayers"
     />
 
-    <LegendPopover
-      v-if="!layerDrawerVisible"
-      v-model:visible="legendVisible"
-    />
+    <LegendPanel class="fixed-legend" />
 
     <ObjectDetailDrawer
       v-model:visible="detailVisible"
@@ -86,7 +82,7 @@ import { layerStyle } from '../../utils/leafletStyle'
 import type { GeoJsonFeatureCollection } from '../../types/geojson'
 import MapFloatTools from './components/MapFloatTools.vue'
 import LayerDrawer, { type LayerState } from './components/LayerDrawer.vue'
-import LegendPopover from './components/LegendPopover.vue'
+import LegendPanel from './components/LegendPanel.vue'
 import ObjectDetailDrawer from './components/ObjectDetailDrawer.vue'
 import MapStatisticsBar from './components/MapStatisticsBar.vue'
 import AgentChatFloat from './components/AgentChatFloat.vue'
@@ -111,7 +107,6 @@ const selectedDetail = ref<Record<string, any> | null>(null)
 const selectedFeatureProperties = ref<Record<string, any> | null>(null)
 const loading = ref(false)
 const layerDrawerVisible = ref(true)
-const legendVisible = ref(false)
 const detailVisible = ref(false)
 const agentVisible = ref(false)
 const pendingAiQuestion = ref('')
@@ -216,17 +211,6 @@ async function handleReset() {
   query.indexCode = 'MQI'
   query.grade = ''
   await handleSearch()
-}
-
-function toggleLegend() {
-  if (layerDrawerVisible.value) {
-    layerDrawerVisible.value = false
-    nextTick(() => {
-      legendVisible.value = !legendVisible.value
-    })
-    return
-  }
-  legendVisible.value = !legendVisible.value
 }
 
 async function reloadLayers() {
@@ -427,6 +411,13 @@ function handleFitAll() {
   top: 156px;
   right: 18px;
   z-index: 935;
+}
+
+.fixed-legend {
+  position: absolute;
+  bottom: 16px;
+  left: 18px;
+  z-index: 920;
 }
 
 .ai-float-button {

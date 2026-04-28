@@ -18,12 +18,6 @@
       <el-checkbox v-model="localLayers.assessment" @change="emitChange">评定专题</el-checkbox>
 
       <el-divider />
-
-      <div class="group-title">路况等级</div>
-      <div v-for="item in legends" :key="item.code" class="legend-row">
-        <span class="legend-color" :style="{ background: item.color }" />
-        <span>{{ item.name }}</span>
-      </div>
     </div>
   </transition>
 </template>
@@ -52,14 +46,6 @@ const emit = defineEmits<{
 }>()
 
 const localLayers = reactive<LayerState>({ ...props.layers })
-
-const legends = [
-  { code: 'EXCELLENT', name: '优', color: '#16a34a' },
-  { code: 'GOOD', name: '良', color: '#2563eb' },
-  { code: 'MEDIUM', name: '中', color: '#eab308' },
-  { code: 'POOR', name: '次', color: '#f97316' },
-  { code: 'BAD', name: '差', color: '#dc2626' }
-]
 
 watch(
   () => props.layers,
@@ -110,22 +96,6 @@ function emitChange() {
   font-size: 12px;
   font-weight: 700;
   color: #475569;
-}
-
-.legend-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 24px;
-  color: #334155;
-  font-size: 12px;
-}
-
-.legend-color {
-  display: inline-block;
-  width: 24px;
-  height: 4px;
-  border-radius: 999px;
 }
 
 :deep(.el-checkbox) {
