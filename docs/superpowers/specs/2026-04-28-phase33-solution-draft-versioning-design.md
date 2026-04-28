@@ -22,7 +22,7 @@ The chosen approach is to reuse this path rather than introduce a separate map-o
 
 1. Save a Phase 32 map-object solution preview as a durable solution task.
 2. Keep version history whenever saved draft content is created or updated.
-3. Support a simple status flow for saved drafts:
+3. Support a simple draft status flow for saved drafts:
 
 ```text
 DRAFT -> CONFIRMED -> ARCHIVED
@@ -99,7 +99,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_ai_solution_task_version_no
 ON ai_solution_task_version(tenant_id, task_id, version_no);
 ```
 
-Existing `SUCCESS` tasks remain valid. Map-object saved drafts use `DRAFT`, `CONFIRMED`, and `ARCHIVED`.
+Keep the existing `ai_solution_task.status` column as the generation execution status. Current code writes values such as `SUCCESS`, and task queries already filter on that column, so Phase 33 must not reuse it for draft business state.
+
+Add a separate draft lifecycle column:
+
+```sql
+ALTER TABLE ai_solution_task
+ADD COLUMN IF NOT EXISTS draft_status VARCHAR(30);
+```
+
+Existing tasks remain valid with `draft_status = null`. Saved map-object drafts set:
+
+```text
+status = SUCCESS
+draft_status = DRAFT
+```
+
+The draft lifecycle uses `DRAFT`, `CONFIRMED`, and `ARCHIVED`.
 
 ## Backend Design
 
@@ -115,7 +131,7 @@ Responsibilities:
 - create a saved draft from a Phase 32 response;
 - update draft title/content and append a new version;
 - list versions;
-- update status with allowed transition checks.
+- update draft status with allowed transition checks.
 
 Add request DTOs:
 
@@ -134,7 +150,8 @@ POST /api/agent/map-object/solution/drafts
 Creates a task with:
 
 - `origin_type = MAP_OBJECT`;
-- `status = DRAFT`;
+- `status = SUCCESS`;
+- `draft_status = DRAFT`;
 - `result_content = markdown`;
 - `object_summary` from Phase 32 response;
 - first row in `ai_solution_task_version`.
@@ -152,12 +169,12 @@ GET /api/ai/solution/tasks/{id}/versions
 Returns version snapshots ordered by `version_no desc`.
 
 ```http
-POST /api/ai/solution/tasks/{id}/status
+POST /api/ai/solution/tasks/{id}/draft-status
 ```
 
 Accepts `DRAFT`, `CONFIRMED`, or `ARCHIVED` and rejects invalid transitions.
 
-Existing task detail/list APIs should include the new metadata columns when present.
+Existing task detail/list APIs should include the new metadata columns when present. `AiSolutionTaskQuery.status` continues to mean execution status, and Phase 33 adds `draftStatus` when the UI needs to filter draft lifecycle state.
 
 ## Frontend Design
 
@@ -166,7 +183,7 @@ Update `SolutionPreviewDialog.vue`:
 - enable the existing "save draft" button;
 - emit a save action to the parent;
 - show save loading state;
-- after save succeeds, show the saved task id/status.
+- after save succeeds, show the saved task id and draft status.
 
 Update `AgentChatFloat.vue`:
 
@@ -181,21 +198,21 @@ Update `src/api/agent.ts`:
 Update `src/api/solution.ts`:
 
 - add `updateSolutionTask()`;
-- add `updateSolutionTaskStatus()`;
+- add `updateSolutionTaskDraftStatus()`;
 - add `getSolutionTaskVersions()`.
 
 Update `SolutionTasksPage.vue`:
 
 - list saved map-object drafts using existing task list;
 - display origin/object metadata when present;
-- add status actions for valid next states;
+- add draft status actions for valid next states;
 - add a version history drawer/table.
 
 ## Error Handling
 
 - Saving without title or markdown returns a validation error.
-- Updating or changing status for a missing task returns a clear not-found error.
-- Invalid status transitions return an `IllegalArgumentException` message.
+- Updating or changing draft status for a missing task returns a clear not-found error.
+- Invalid draft status transitions return an `IllegalArgumentException` message.
 - Frontend surfaces errors with `ElMessage.error`.
 - Save action is idempotent only from the user's perspective: repeated saves create distinct task records unless an existing `taskId` is explicitly updated later.
 
@@ -213,10 +230,10 @@ It should verify:
 - draft service and DTOs exist;
 - draft save endpoint exists;
 - versions endpoint exists;
-- status update endpoint exists;
+- draft status update endpoint exists;
 - frontend save API exists;
 - preview dialog calls save;
-- task page references versions/status.
+- task page references versions and draft status.
 
 Run verification:
 
@@ -229,7 +246,7 @@ git diff --check
 
 ## Rollout
 
-1. Apply database migration before using save/status endpoints.
+1. Apply database migration before using save/draft-status endpoints.
 2. Phase 32 behavior remains available if saving fails.
 3. Existing `ai_solution_task` rows stay readable because new columns are nullable/defaulted.
 4. The implementation branch should not include local environment config changes.
@@ -237,6 +254,6 @@ git diff --check
 ## Self Review
 
 - No placeholders or TODO items remain.
-- Scope is limited to durable draft save, version history, and simple status flow.
+- Scope is limited to durable draft save, version history, and simple draft status flow.
 - Approval and work-order conversion are explicitly out of scope.
 - The design reuses existing task, quality, and export paths to reduce duplicate maintenance.
