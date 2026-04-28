@@ -13,12 +13,10 @@
 
     <MapFloatTools
       class="float-tools"
-      @toggle-layer="layerDrawerVisible = !layerDrawerVisible"
       @fit="handleFitAll"
     />
 
     <LayerDrawer
-      v-model:visible="layerDrawerVisible"
       v-model:layers="layers"
       @change="reloadLayers"
     />
@@ -106,7 +104,6 @@ const statistics = ref<Record<string, any>>({})
 const selectedDetail = ref<Record<string, any> | null>(null)
 const selectedFeatureProperties = ref<Record<string, any> | null>(null)
 const loading = ref(false)
-const layerDrawerVisible = ref(true)
 const detailVisible = ref(false)
 const agentVisible = ref(false)
 const pendingAiQuestion = ref('')

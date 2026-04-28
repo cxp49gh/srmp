@@ -1,25 +1,20 @@
 <template>
-  <transition name="slide">
-    <div v-if="visible" class="layer-drawer srmp-card">
-      <div class="drawer-header">
-        <span>图层控制</span>
-        <button type="button" @click="$emit('update:visible', false)">×</button>
-      </div>
-
-      <div class="group-title">道路资产</div>
-      <el-checkbox v-model="localLayers.roadRoute" @change="emitChange">路线</el-checkbox>
-      <el-checkbox v-model="localLayers.roadSection" @change="emitChange">路段</el-checkbox>
-      <el-checkbox v-model="localLayers.evaluationUnit" @change="emitChange">评定单元</el-checkbox>
-
-      <el-divider />
-
-      <div class="group-title">业务图层</div>
-      <el-checkbox v-model="localLayers.disease" @change="emitChange">病害</el-checkbox>
-      <el-checkbox v-model="localLayers.assessment" @change="emitChange">评定专题</el-checkbox>
-
-      <el-divider />
+  <div class="layer-drawer srmp-card">
+    <div class="drawer-header">
+      <span>图层控制</span>
     </div>
-  </transition>
+
+    <div class="group-title">道路资产</div>
+    <el-checkbox v-model="localLayers.roadRoute" @change="emitChange">路线</el-checkbox>
+    <el-checkbox v-model="localLayers.roadSection" @change="emitChange">路段</el-checkbox>
+    <el-checkbox v-model="localLayers.evaluationUnit" @change="emitChange">评定单元</el-checkbox>
+
+    <el-divider />
+
+    <div class="group-title">业务图层</div>
+    <el-checkbox v-model="localLayers.disease" @change="emitChange">病害</el-checkbox>
+    <el-checkbox v-model="localLayers.assessment" @change="emitChange">评定专题</el-checkbox>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -35,12 +30,10 @@ export interface LayerState {
 }
 
 const props = defineProps<{
-  visible: boolean
   layers: LayerState
 }>()
 
 const emit = defineEmits<{
-  (e: 'update:visible', value: boolean): void
   (e: 'update:layers', value: LayerState): void
   (e: 'change', value: LayerState): void
 }>()
@@ -83,14 +76,6 @@ function emitChange() {
   font-weight: 700;
 }
 
-.drawer-header button {
-  border: none;
-  background: transparent;
-  font-size: 22px;
-  cursor: pointer;
-  color: #64748b;
-}
-
 .group-title {
   margin: 10px 0 8px;
   font-size: 12px;
@@ -106,16 +91,5 @@ function emitChange() {
 
 :deep(.el-divider--horizontal) {
   margin: 12px 0;
-}
-
-.slide-enter-active,
-.slide-leave-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
-}
-
-.slide-enter-from,
-.slide-leave-to {
-  opacity: 0;
-  transform: translateX(-8px);
 }
 </style>

@@ -1,16 +1,14 @@
-<template>
-  <div class="map-float-tools">
-    <button type="button" title="图层" @click="$emit('toggle-layer')">层</button>
-    <button type="button" title="全图" @click="$emit('fit')">全</button>
-  </div>
-</template>
-
 <script setup lang="ts">
 defineEmits<{
-  (e: 'toggle-layer'): void
   (e: 'fit'): void
 }>()
 </script>
+
+<template>
+  <div class="map-float-tools">
+    <button type="button" title="全图" @click="$emit('fit')">全</button>
+  </div>
+</template>
 
 <style scoped>
 .map-float-tools {
