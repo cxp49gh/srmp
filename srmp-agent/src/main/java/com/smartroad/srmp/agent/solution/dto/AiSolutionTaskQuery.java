@@ -8,5 +8,6 @@ public class AiSolutionTaskQuery {
     private String routeCode;
     private Integer year;
     private String status;
+    private String draftStatus;
     private Integer limit;
 }
