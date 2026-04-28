@@ -101,7 +101,8 @@ public class AiSolutionGenerateServiceImpl implements AiSolutionGenerateService 
 
         List<Map<String, Object>> list = namedParameterJdbcTemplate.queryForList(
                 "select id, tenant_id, solution_type, title, route_code, year, template_id, template_version, status, " +
-                        "request_json, result_content, quality_result, created_at, updated_at " +
+                        "request_json, result_content, quality_result, created_at, updated_at, " +
+                        "origin_type, object_type, object_id, map_object, object_summary, draft_status, current_version_no " +
                         "from ai_solution_task where tenant_id=:tenantId and id=:id",
                 params
         );
@@ -124,16 +125,19 @@ public class AiSolutionGenerateServiceImpl implements AiSolutionGenerateService 
                 .addValue("routeCode", safe(query == null ? null : query.getRouteCode()))
                 .addValue("year", query != null && query.getYear() != null ? query.getYear() : -1)
                 .addValue("status", safe(query == null ? null : query.getStatus()))
+                .addValue("draftStatus", safe(query == null ? null : query.getDraftStatus()))
                 .addValue("limit", limit);
 
         return namedParameterJdbcTemplate.queryForList(
-                "select id, tenant_id, solution_type, title, route_code, year, template_id, template_version, status, created_at, updated_at " +
+                "select id, tenant_id, solution_type, title, route_code, year, template_id, template_version, status, created_at, updated_at, " +
+                        "origin_type, object_type, object_id, draft_status, current_version_no " +
                         "from ai_solution_task " +
                         "where tenant_id=:tenantId " +
                         "and (:solutionType='' or solution_type=:solutionType) " +
                         "and (:routeCode='' or route_code=:routeCode) " +
                         "and (:year=-1 or year=:year) " +
                         "and (:status='' or status=:status) " +
+                        "and (:draftStatus='' or draft_status=:draftStatus) " +
                         "order by created_at desc limit :limit",
                 params
         );
