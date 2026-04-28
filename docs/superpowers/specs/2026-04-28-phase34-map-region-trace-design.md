@@ -155,12 +155,24 @@ All AI result surfaces should use these components when a trace is available:
 
 ## Backend Design
 
+Region-specific backend code lives in `srmp-gis`. The GIS module owns region drawing contracts, spatial aggregation, region solution endpoints, and region draft proxy endpoints. It may reuse shared AI capabilities from `srmp-agent` such as `LlmClient`, `KnowledgeService`, `OutlineService`, `AiTraceService`, and the Phase 33 solution draft service, but it should not create a parallel map-region package under `srmp-agent`.
+
+### Region Analysis Endpoint
+
+Add a GIS-owned endpoint for the bottom region summary panel:
+
+```http
+POST /api/gis/map-region/analysis
+```
+
+It accepts the same `geometry`, `query`, `layers`, and `options` shape as region solution generation, returns the required aggregation output below, and does not call the LLM. `OneMap.vue` should call this endpoint immediately after a rectangle or polygon is completed so the bottom panel shows real region statistics before the user clicks "生成区域养护建议".
+
 ### Region Solution Endpoint
 
 Add a dedicated endpoint:
 
 ```http
-POST /api/agent/map-region/solution
+POST /api/gis/map-region/solution
 ```
 
 Request:
@@ -330,7 +342,7 @@ The following backend calls must return a `trace` map in response data:
 - `/api/agent/analyze/disease`
 - `/api/agent/analyze/assessment`
 - `/api/agent/report/assessment`
-- `/api/agent/map-region/solution`
+- `/api/gis/map-region/solution`
 
 Existing chat already returns `data.trace`. The other endpoints should follow the same convention:
 
@@ -401,6 +413,14 @@ Suggested region modes:
 ## Draft Persistence
 
 Region solution drafts should reuse Phase 33 persistence.
+
+The region draft save API should live under GIS as a thin endpoint:
+
+```http
+POST /api/gis/map-region/drafts
+```
+
+It delegates to the existing Phase 33 solution draft service and stores `origin_type = MAP_REGION`.
 
 For saved region drafts:
 
