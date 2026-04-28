@@ -20,8 +20,10 @@ const list = [
 <style scoped>
 .legend {
   padding: 10px 12px;
-  background: transparent;
+  border: 1px solid rgba(226, 232, 240, 0.88);
+  background: rgba(255, 255, 255, 0.94);
   border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
 }
 .title {
   font-weight: 700;

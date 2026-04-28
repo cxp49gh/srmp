@@ -127,4 +127,16 @@ function emitChange() {
 :deep(.el-divider--horizontal) {
   margin: 12px 0;
 }
+
+@media (max-width: 640px) {
+  .layer-drawer {
+    top: 132px;
+    left: 10px;
+    width: min(236px, calc(100vw - 20px));
+  }
+
+  .layer-drawer.collapsed {
+    width: 56px;
+  }
+}
 </style>

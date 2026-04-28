@@ -88,7 +88,7 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
         if ("DISEASE".equals(type)) {
             return queryOne("select id, route_code, disease_type, disease_name, severity, start_stake, end_stake, quantity, measure_unit, status, verified from disease_record where tenant_id=:tenantId and id=:id and deleted=false", params);
         }
-        if ("ASSESSMENT".equals(type)) {
+        if ("ASSESSMENT".equals(type) || "ASSESSMENT_RESULT".equals(type)) {
             return queryOne("select id, route_code, unit_id, start_stake, end_stake, year, mqi, pqi, pci, rqi, rdi, grade from assessment_result where tenant_id=:tenantId and id=:id and deleted=false", params);
         }
         return Collections.emptyMap();
