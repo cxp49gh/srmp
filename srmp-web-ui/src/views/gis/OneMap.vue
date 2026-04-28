@@ -11,11 +11,6 @@
       />
     </div>
 
-    <MapFloatTools
-      class="float-tools"
-      @fit="handleFitAll"
-    />
-
     <LayerDrawer
       v-model:layers="layers"
       @change="reloadLayers"
@@ -78,7 +73,6 @@ import {
 } from '../../api/gis'
 import { layerStyle } from '../../utils/leafletStyle'
 import type { GeoJsonFeatureCollection } from '../../types/geojson'
-import MapFloatTools from './components/MapFloatTools.vue'
 import LayerDrawer, { type LayerState } from './components/LayerDrawer.vue'
 import LegendPanel from './components/LegendPanel.vue'
 import ObjectDetailDrawer from './components/ObjectDetailDrawer.vue'
@@ -403,13 +397,6 @@ function handleFitAll() {
   z-index: 930;
 }
 
-.float-tools {
-  position: absolute;
-  top: 156px;
-  right: 18px;
-  z-index: 935;
-}
-
 .fixed-legend {
   position: absolute;
   bottom: 16px;
@@ -472,9 +459,5 @@ function handleFitAll() {
     right: 10px;
   }
 
-  .float-tools {
-    top: 122px;
-    right: 12px;
   }
-}
 </style>

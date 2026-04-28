@@ -1,24 +1,29 @@
 <template>
-  <div class="layer-drawer srmp-card">
+  <div class="layer-drawer srmp-card" :class="{ collapsed }">
     <div class="drawer-header">
       <span>图层控制</span>
+      <button type="button" class="collapse-btn" @click="collapsed = !collapsed">
+        {{ collapsed ? '›' : '‹' }}
+      </button>
     </div>
 
-    <div class="group-title">道路资产</div>
-    <el-checkbox v-model="localLayers.roadRoute" @change="emitChange">路线</el-checkbox>
-    <el-checkbox v-model="localLayers.roadSection" @change="emitChange">路段</el-checkbox>
-    <el-checkbox v-model="localLayers.evaluationUnit" @change="emitChange">评定单元</el-checkbox>
+    <div v-show="!collapsed" class="drawer-content">
+      <div class="group-title">道路资产</div>
+      <el-checkbox v-model="localLayers.roadRoute" @change="emitChange">路线</el-checkbox>
+      <el-checkbox v-model="localLayers.roadSection" @change="emitChange">路段</el-checkbox>
+      <el-checkbox v-model="localLayers.evaluationUnit" @change="emitChange">评定单元</el-checkbox>
 
-    <el-divider />
+      <el-divider />
 
-    <div class="group-title">业务图层</div>
-    <el-checkbox v-model="localLayers.disease" @change="emitChange">病害</el-checkbox>
-    <el-checkbox v-model="localLayers.assessment" @change="emitChange">评定专题</el-checkbox>
+      <div class="group-title">业务图层</div>
+      <el-checkbox v-model="localLayers.disease" @change="emitChange">病害</el-checkbox>
+      <el-checkbox v-model="localLayers.assessment" @change="emitChange">评定专题</el-checkbox>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
+import { reactive, ref, watch } from 'vue'
 
 export interface LayerState {
   roadRoute?: boolean
@@ -38,6 +43,7 @@ const emit = defineEmits<{
   (e: 'change', value: LayerState): void
 }>()
 
+const collapsed = ref(false)
 const localLayers = reactive<LayerState>({ ...props.layers })
 
 watch(
@@ -60,12 +66,16 @@ function emitChange() {
   left: 18px;
   z-index: 920;
   width: 236px;
-  max-height: calc(100vh - 170px);
   padding: 14px;
-  overflow: auto;
   border: 1px solid rgba(226, 232, 240, 0.9);
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 16px 36px rgba(15, 23, 42, 0.14);
+  transition: width 0.18s ease;
+  overflow: hidden;
+}
+
+.layer-drawer.collapsed {
+  width: 100px;
 }
 
 .drawer-header {
@@ -74,6 +84,25 @@ function emitChange() {
   justify-content: space-between;
   margin-bottom: 12px;
   font-weight: 700;
+}
+
+.drawer-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.collapse-btn {
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  cursor: pointer;
+  color: #64748b;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.collapse-btn:hover {
+  color: #2563eb;
 }
 
 .group-title {
