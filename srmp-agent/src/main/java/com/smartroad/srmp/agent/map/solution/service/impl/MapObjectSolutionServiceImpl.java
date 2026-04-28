@@ -7,12 +7,16 @@ import com.smartroad.srmp.agent.map.solution.dto.MapObjectSolutionResponse;
 import com.smartroad.srmp.agent.map.solution.dto.MapObjectSolutionType;
 import com.smartroad.srmp.agent.map.solution.service.MapObjectSolutionQualityChecker;
 import com.smartroad.srmp.agent.map.solution.service.MapObjectSolutionService;
+import com.smartroad.srmp.agent.trace.AiTraceContext;
+import com.smartroad.srmp.agent.trace.service.AiTraceService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+@Slf4j
 @Service
 public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
 
@@ -22,17 +26,50 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
     @Resource
     private MapObjectSolutionQualityChecker qualityChecker;
 
+    @Resource
+    private AiTraceService aiTraceService;
+
     @Override
     public MapObjectSolutionResponse generate(MapObjectSolutionRequest request) {
-        if (request == null) {
-            throw new IllegalArgumentException("请求不能为空");
-        }
+        AiTraceContext trace = AiTraceContext.start("MAP_OBJECT_SOLUTION", stringValue(request == null ? null : request.getSolutionType(), ""));
+        try {
+            if (request == null) {
+                throw new IllegalArgumentException("请求不能为空");
+            }
 
-        MapObjectContext ctx = resolveContext(request);
-        if (ctx == null || !ctx.isPresent()) {
-            throw new IllegalArgumentException("未识别到可生成方案的地图对象");
-        }
+            AiTraceContext.StepTimer contextTimer = trace.step("map_object_context", "地图对象上下文");
+            MapObjectContext ctx = resolveContext(request);
+            contextTimer.success(ctx != null && ctx.isPresent() ? 1 : 0);
+            if (ctx == null || !ctx.isPresent()) {
+                throw new IllegalArgumentException("未识别到可生成方案的地图对象");
+            }
 
+            AiTraceContext.StepTimer solutionTimer = trace.step("map_object_solution_generate", "生成对象方案");
+            MapObjectSolutionResponse response = buildResponse(request, ctx);
+            solutionTimer.success(1);
+
+            AiTraceContext.StepTimer qualityTimer = trace.step("map_object_quality_check", "质量检查");
+            qualityTimer.success(response.getQualityCheck() == null || response.getQualityCheck().getItems() == null ? 0 : response.getQualityCheck().getItems().size());
+
+            trace.setMode("MAP_OBJECT_LOCAL");
+            trace.setStatus("SUCCESS");
+            trace.setFallback(true);
+            trace.finish();
+            response.setTrace(trace.toMap());
+            saveTrace(trace);
+            return response;
+        } catch (RuntimeException e) {
+            trace.setMode("FAILED");
+            trace.setStatus("FAILED");
+            trace.setFallback(true);
+            trace.setError(e.getMessage());
+            trace.finish();
+            saveTrace(trace);
+            throw e;
+        }
+    }
+
+    private MapObjectSolutionResponse buildResponse(MapObjectSolutionRequest request, MapObjectContext ctx) {
         Map detail = ctx.getDetail() == null ? new LinkedHashMap() : ctx.getDetail();
         String objectType = normalizeType(firstString(detail, "objectType", "object_type", "type", "layerType", "assessment_object_type"));
         if (objectType == null || objectType.length() == 0) {
@@ -50,6 +87,14 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
         response.setObjectSummary(summary);
         response.setQualityCheck(qualityChecker.check(solutionType, objectType, summary, markdown));
         return response;
+    }
+
+    private void saveTrace(AiTraceContext trace) {
+        try {
+            aiTraceService.save(trace);
+        } catch (Exception e) {
+            log.warn("[MAP-OBJECT] save trace failed traceId={} error={}", trace.getTraceId(), e.getMessage(), e);
+        }
     }
 
     private MapObjectContext resolveContext(MapObjectSolutionRequest request) {

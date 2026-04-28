@@ -12,4 +12,5 @@ public class AgentAnalysisResponse {
     private String markdown;
     private String mode;
     private Map<String, Object> data = new HashMap<>();
+    private Map<String, Object> trace;
 }

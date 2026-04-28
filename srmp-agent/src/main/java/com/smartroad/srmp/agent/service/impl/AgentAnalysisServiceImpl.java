@@ -5,13 +5,18 @@ import com.smartroad.srmp.agent.dto.AgentMapQueryRequest;
 import com.smartroad.srmp.agent.llm.LlmClient;
 import com.smartroad.srmp.agent.service.AgentAnalysisService;
 import com.smartroad.srmp.agent.service.AgentDataQueryService;
+import com.smartroad.srmp.agent.trace.AiTraceContext;
+import com.smartroad.srmp.agent.trace.service.AiTraceService;
 import com.smartroad.srmp.agent.vo.AgentAnalysisResponse;
 import com.smartroad.srmp.agent.vo.AgentMapQueryResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import java.util.*;
+import java.util.function.Supplier;
 
+@Slf4j
 @Service
 public class AgentAnalysisServiceImpl implements AgentAnalysisService {
 
@@ -21,8 +26,15 @@ public class AgentAnalysisServiceImpl implements AgentAnalysisService {
     @Resource
     private LlmClient llmClient;
 
+    @Resource
+    private AiTraceService aiTraceService;
+
     @Override
     public AgentAnalysisResponse analyzeRoute(AgentAnalysisRequest request) {
+        return traced("ROUTE_ANALYSIS", traceMessage("路线分析", request), () -> analyzeRouteInternal(request));
+    }
+
+    private AgentAnalysisResponse analyzeRouteInternal(AgentAnalysisRequest request) {
         Map<String, Object> route = dataQueryService.routeSummary(request);
         Map<String, Object> disease = dataQueryService.diseaseSummary(request);
         Map<String, Object> assessment = dataQueryService.assessmentSummary(request);
@@ -42,6 +54,10 @@ public class AgentAnalysisServiceImpl implements AgentAnalysisService {
 
     @Override
     public AgentAnalysisResponse analyzeDisease(AgentAnalysisRequest request) {
+        return traced("DISEASE_ANALYSIS", traceMessage("病害分析", request), () -> analyzeDiseaseInternal(request));
+    }
+
+    private AgentAnalysisResponse analyzeDiseaseInternal(AgentAnalysisRequest request) {
         Map<String, Object> disease = dataQueryService.diseaseSummary(request);
         List<Map<String, Object>> top = dataQueryService.topDiseaseUnits(request, 10);
 
@@ -57,6 +73,10 @@ public class AgentAnalysisServiceImpl implements AgentAnalysisService {
 
     @Override
     public AgentAnalysisResponse analyzeAssessment(AgentAnalysisRequest request) {
+        return traced("ASSESSMENT_ANALYSIS", traceMessage("评定分析", request), () -> analyzeAssessmentInternal(request));
+    }
+
+    private AgentAnalysisResponse analyzeAssessmentInternal(AgentAnalysisRequest request) {
         Map<String, Object> assessment = dataQueryService.assessmentSummary(request);
         List<Map<String, Object>> poor = dataQueryService.poorAssessmentResults(request, 10);
 
@@ -100,9 +120,13 @@ public class AgentAnalysisServiceImpl implements AgentAnalysisService {
 
     @Override
     public AgentAnalysisResponse generateAssessmentReport(AgentAnalysisRequest request) {
-        AgentAnalysisResponse route = analyzeRoute(request);
-        AgentAnalysisResponse disease = analyzeDisease(request);
-        AgentAnalysisResponse assessment = analyzeAssessment(request);
+        return traced("ASSESSMENT_REPORT", traceMessage("评定报告", request), () -> generateAssessmentReportInternal(request));
+    }
+
+    private AgentAnalysisResponse generateAssessmentReportInternal(AgentAnalysisRequest request) {
+        AgentAnalysisResponse route = analyzeRouteInternal(request);
+        AgentAnalysisResponse disease = analyzeDiseaseInternal(request);
+        AgentAnalysisResponse assessment = analyzeAssessmentInternal(request);
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("route", route.getData());
@@ -122,6 +146,42 @@ public class AgentAnalysisServiceImpl implements AgentAnalysisService {
 
         String llm = callLlm("你是公路养护报告编写专家，请生成结构化 Markdown 报告草稿。", fallback, data);
         return response("评定分析报告草稿", llm, fallback, data);
+    }
+
+    private AgentAnalysisResponse traced(String requestType, String message, Supplier<AgentAnalysisResponse> supplier) {
+        AiTraceContext trace = AiTraceContext.start(requestType, message);
+        try {
+            AgentAnalysisResponse response = supplier.get();
+            trace.setMode(response.getMode());
+            trace.setStatus("SUCCESS");
+            trace.setFallback(!"LLM".equals(response.getMode()));
+            trace.step("business_analysis", "业务数据分析").success(1);
+            trace.step("analysis_generate", "生成分析结果").success(1);
+            trace.finish();
+            response.setTrace(trace.toMap());
+            saveTrace(trace);
+            return response;
+        } catch (RuntimeException e) {
+            trace.setMode("FAILED");
+            trace.setStatus("FAILED");
+            trace.setFallback(true);
+            trace.setError(e.getMessage());
+            trace.finish();
+            saveTrace(trace);
+            throw e;
+        }
+    }
+
+    private void saveTrace(AiTraceContext trace) {
+        try {
+            aiTraceService.save(trace);
+        } catch (Exception e) {
+            log.warn("[AI-ANALYSIS] save trace failed traceId={} error={}", trace.getTraceId(), e.getMessage(), e);
+        }
+    }
+
+    private String traceMessage(String label, AgentAnalysisRequest request) {
+        return label + " " + nvl(request == null ? null : request.getRouteCode(), "全部路线") + " " + nvl(request == null ? null : request.getYear(), "全部年度");
     }
 
     private AgentAnalysisResponse response(String title, String llm, String fallback, Map<String, Object> data) {

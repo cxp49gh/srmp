@@ -11,4 +11,5 @@ public class MapObjectSolutionResponse {
     private String markdown;
     private Map<String, Object> objectSummary;
     private MapObjectSolutionQualityCheck qualityCheck;
+    private Map<String, Object> trace;
 }
