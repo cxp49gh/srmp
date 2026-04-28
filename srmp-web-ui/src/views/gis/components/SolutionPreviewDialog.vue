@@ -36,6 +36,15 @@
         </p>
       </section>
 
+      <el-alert
+        v-if="savedTask?.id"
+        class="saved-task"
+        type="success"
+        show-icon
+        :closable="false"
+        :title="`已保存：${savedTask.id} / ${savedTask.draft_status || 'DRAFT'}`"
+      />
+
       <article class="markdown-preview" v-html="renderedMarkdown" />
     </template>
     <el-empty v-else description="暂无方案草稿" />
@@ -43,7 +52,15 @@
     <template #footer>
       <el-button :disabled="!solution?.markdown" @click="copyMarkdown">复制</el-button>
       <el-button :disabled="!solution?.markdown" @click="downloadMarkdown">下载 Markdown</el-button>
-      <el-button type="primary" plain disabled>保存草稿</el-button>
+      <el-button
+        type="primary"
+        plain
+        :loading="saveLoading"
+        :disabled="!solution?.markdown"
+        @click="emit('save')"
+      >
+        保存草稿
+      </el-button>
     </template>
   </el-dialog>
 </template>
@@ -56,10 +73,13 @@ import type { MapObjectSolutionResponse } from '../../../api/agent'
 const props = defineProps<{
   visible: boolean
   solution: MapObjectSolutionResponse | null
+  saveLoading?: boolean
+  savedTask?: Record<string, any> | null
 }>()
 
 const emit = defineEmits<{
   (e: 'update:visible', value: boolean): void
+  (e: 'save'): void
 }>()
 
 const summaryLabels: Record<string, string> = {
@@ -202,6 +222,10 @@ function renderMarkdown(value: string) {
   border: 1px solid #bfdbfe;
   border-radius: 8px;
   background: #eff6ff;
+}
+
+.saved-task {
+  margin-bottom: 12px;
 }
 
 .quality-header,
