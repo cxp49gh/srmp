@@ -70,12 +70,13 @@ function emitChange() {
   border: 1px solid rgba(226, 232, 240, 0.9);
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 16px 36px rgba(15, 23, 42, 0.14);
-  transition: width 0.18s ease;
+  transition: width 0.18s ease, padding 0.18s ease;
   overflow: hidden;
 }
 
 .layer-drawer.collapsed {
-  width: 100px;
+  width: 56px;
+  padding: 8px;
 }
 
 .drawer-header {
@@ -84,6 +85,11 @@ function emitChange() {
   justify-content: space-between;
   margin-bottom: 12px;
   font-weight: 700;
+}
+
+.layer-drawer.collapsed .drawer-header {
+  margin-bottom: 0;
+  justify-content: center;
 }
 
 .drawer-content {
