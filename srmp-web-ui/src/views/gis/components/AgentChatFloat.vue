@@ -21,6 +21,18 @@
           <el-button size="small" plain :loading="loading" @click="suggestForCurrentObject">
             处置建议
           </el-button>
+          <el-button
+            v-for="action in solutionActions"
+            :key="action.type"
+            size="small"
+            plain
+            :type="action.primary ? 'success' : undefined"
+            :loading="solutionLoading && activeSolutionType === action.type"
+            :disabled="solutionLoading || loading"
+            @click="generateSolutionDraft(action.type)"
+          >
+            {{ action.label }}
+          </el-button>
         </div>
       </div>
 
@@ -63,12 +75,19 @@
       </div>
     </div>
   </transition>
+  <SolutionPreviewDialog v-model:visible="solutionDialogVisible" :solution="solutionResult" />
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { chat } from '../../../api/agent'
+import {
+  chat,
+  generateMapObjectSolution,
+  type MapObjectSolutionResponse,
+  type MapObjectSolutionType
+} from '../../../api/agent'
+import SolutionPreviewDialog from './SolutionPreviewDialog.vue'
 
 interface MessageItem {
   role: 'user' | 'assistant'
@@ -92,6 +111,10 @@ const input = ref('')
 const loading = ref(false)
 const messages = ref<MessageItem[]>([])
 const sourceSummary = ref('')
+const solutionLoading = ref(false)
+const activeSolutionType = ref<MapObjectSolutionType | ''>('')
+const solutionDialogVisible = ref(false)
+const solutionResult = ref<MapObjectSolutionResponse | null>(null)
 
 const options = reactive({
   useBusinessData: true,
@@ -103,6 +126,33 @@ const options = reactive({
 const activeMapObject = computed(() => {
   return props.mapObject || props.context?.mapObject || props.context?.selectedMapObject || props.context?.selected || null
 })
+
+const solutionActions = computed(() => {
+  const type = normalizeObjectType(activeMapObject.value)
+  if (type === 'DISEASE' || type === 'DISEASE_RECORD') {
+    return [
+      { type: 'DISEASE_REVIEW' as MapObjectSolutionType, label: '生成复核意见', primary: false },
+      { type: 'DISEASE_TREATMENT' as MapObjectSolutionType, label: '生成处置建议', primary: true }
+    ]
+  }
+  if (type === 'ASSESSMENT' || type === 'ASSESSMENT_RESULT') {
+    return [{ type: 'LOW_SCORE_TREATMENT' as MapObjectSolutionType, label: '生成低分处置', primary: true }]
+  }
+  if (type === 'EVALUATION_UNIT') {
+    return [{ type: 'EVALUATION_UNIT_ADVICE' as MapObjectSolutionType, label: '生成单元建议', primary: true }]
+  }
+  if (type === 'ROAD_SECTION') {
+    return [{ type: 'SECTION_PLAN' as MapObjectSolutionType, label: '生成路段计划', primary: true }]
+  }
+  if (type === 'ROAD_ROUTE') {
+    return [{ type: 'ROUTE_REPORT' as MapObjectSolutionType, label: '生成路线报告', primary: true }]
+  }
+  return [{ type: 'GENERAL_ADVICE' as MapObjectSolutionType, label: '生成方案草稿', primary: true }]
+})
+
+function normalizeObjectType(obj: any) {
+  return String(obj?.objectType || obj?.object_type || obj?.type || obj?.layerType || '').toUpperCase()
+}
 
 function mapObjectTypeLabel(type: any) {
   const value = String(type || '').toUpperCase()
@@ -198,6 +248,38 @@ function suggestForCurrentObject() {
   quickAsk('基于当前地图选中对象，生成养护处置建议和优先级判断')
 }
 
+async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
+  const obj: any = activeMapObject.value
+  if (!obj) {
+    ElMessage.warning('请先在地图上选择一个对象')
+    return
+  }
+  if (solutionLoading.value) return
+
+  const query = props.context?.query || {}
+  solutionLoading.value = true
+  activeSolutionType.value = solutionType
+
+  try {
+    const res = await generateMapObjectSolution({
+      objectType: normalizeObjectType(obj),
+      objectId: String(obj.objectId || obj.object_id || obj.id || obj.featureId || ''),
+      routeCode: String(obj.routeCode || obj.route_code || query.routeCode || ''),
+      year: normalizeYear(obj.year || query.year),
+      solutionType,
+      mapObject: obj,
+      options: { ...options }
+    })
+    solutionResult.value = normalizeSolutionResponse(res)
+    solutionDialogVisible.value = true
+  } catch (error: any) {
+    ElMessage.error(error?.message || '生成方案草稿失败')
+  } finally {
+    solutionLoading.value = false
+    activeSolutionType.value = ''
+  }
+}
+
 async function send() {
   const text = input.value.trim()
   if (!text || loading.value) return
@@ -248,6 +330,16 @@ function normalizeResponse(res: any) {
   if (res?.answer || res?.data?.answerMeta || res?.data?.mapObjectUsed) return res
   if (res?.data?.answer || res?.data?.data) return res.data
   return res || {}
+}
+
+function normalizeSolutionResponse(res: any): MapObjectSolutionResponse {
+  if (res?.data?.markdown) return res.data
+  return res
+}
+
+function normalizeYear(value: any) {
+  const year = Number(value)
+  return Number.isFinite(year) ? year : undefined
 }
 
 function buildSourceSummary(data: Record<string, any>) {
@@ -359,6 +451,8 @@ function renderMarkdown(value: string) {
   display: flex;
   gap: 6px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .option-row {
