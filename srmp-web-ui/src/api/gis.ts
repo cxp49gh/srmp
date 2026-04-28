@@ -1,5 +1,6 @@
 import request from '../utils/request'
 import type { GeoJsonFeatureCollection } from '../types/geojson'
+import type { AiSolutionDraftSaveRequest } from './solution'
 
 export interface GisLayerQuery {
   routeCode?: string
@@ -13,6 +14,27 @@ export interface GisLayerQuery {
 
 export interface MapStatisticsQuery extends GisLayerQuery {
   bbox?: number[]
+}
+
+export interface MapRegionAnalysisRequest {
+  geometry: Record<string, any>
+  query?: Record<string, any>
+  layers?: string[]
+  options?: Record<string, any>
+}
+
+export interface MapRegionSolutionRequest extends MapRegionAnalysisRequest {
+  solutionType?: string
+}
+
+export interface MapRegionSolutionResponse {
+  solutionType: string
+  title: string
+  markdown: string
+  regionSummary?: Record<string, any>
+  qualityCheck?: Record<string, any>
+  sourceSummaries?: Record<string, any>[]
+  trace?: Record<string, any>
 }
 
 export function getLayers(): Promise<string[]> {
@@ -45,4 +67,20 @@ export function getObjectDetail(params: { objectType: string; id: string }): Pro
 
 export function getMapStatistics(data: MapStatisticsQuery): Promise<Record<string, any>> {
   return request.post('/api/gis/map-statistics', data)
+}
+
+export function spatialQuery(data: MapRegionAnalysisRequest): Promise<Record<string, any>> {
+  return request.post('/api/gis/spatial-query', data)
+}
+
+export function analyzeMapRegion(data: MapRegionAnalysisRequest): Promise<Record<string, any>> {
+  return request.post('/api/gis/map-region/analysis', data)
+}
+
+export function generateMapRegionSolution(data: MapRegionSolutionRequest): Promise<MapRegionSolutionResponse> {
+  return request.post('/api/gis/map-region/solution', data)
+}
+
+export function saveMapRegionSolutionDraft(data: AiSolutionDraftSaveRequest): Promise<Record<string, any>> {
+  return request.post('/api/gis/map-region/drafts', data)
 }

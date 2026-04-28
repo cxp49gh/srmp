@@ -31,6 +31,8 @@ export interface MapObjectSolutionQualityItem {
   name: string
   passed: boolean
   message?: string
+  level?: string
+  code?: string
 }
 
 export interface MapObjectSolutionQualityCheck {
@@ -45,6 +47,7 @@ export interface MapObjectSolutionResponse {
   markdown: string
   objectSummary?: Record<string, any>
   qualityCheck?: MapObjectSolutionQualityCheck
+  trace?: Record<string, any>
 }
 
 export function chat(data: AgentChatRequest): Promise<any> {

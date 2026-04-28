@@ -50,6 +50,7 @@
           <div v-for="(item, index) in messages" :key="index" :class="['message', item.role]">
             <div class="role">{{ item.role === 'user' ? '我' : 'AI' }}</div>
             <div class="content">{{ item.content }}</div>
+            <AiTraceButton v-if="item.role === 'assistant'" :trace="item.trace" class="trace-button" @open="openTrace" />
           </div>
         </div>
 
@@ -89,13 +90,22 @@
         </div>
       </el-card>
     </div>
+    <AiTraceDrawer v-model:visible="traceDrawerVisible" :trace="activeTrace" />
   </AgentPageShell>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
 import AgentPageShell from './components/AgentPageShell.vue'
+import AiTraceButton from './components/AiTraceButton.vue'
+import AiTraceDrawer from './components/AiTraceDrawer.vue'
 import { chat } from '../../api/agent'
+
+interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+  trace?: Record<string, any> | null
+}
 
 const context = ref<Record<string, any>>({
   routeCode: 'G210',
@@ -112,9 +122,11 @@ const options = ref<Record<string, any>>({
 
 const message = ref('')
 const loading = ref(false)
-const messages = ref<Array<{ role: 'user' | 'assistant'; content: string }>>([])
+const messages = ref<ChatMessage[]>([])
 const knowledgeSources = ref<any[]>([])
 const outlineSources = ref<any[]>([])
+const traceDrawerVisible = ref(false)
+const activeTrace = ref<Record<string, any> | null>(null)
 
 function quickAsk(text: string) {
   message.value = text
@@ -138,7 +150,8 @@ async function send() {
 
     messages.value.push({
       role: 'assistant',
-      content: result?.answer || JSON.stringify(result)
+      content: result?.answer || JSON.stringify(result),
+      trace: result?.data?.trace || result?.trace || null
     })
 
     knowledgeSources.value = result?.data?.knowledgeSources || []
@@ -151,6 +164,11 @@ async function send() {
   } finally {
     loading.value = false
   }
+}
+
+function openTrace(trace: Record<string, any>) {
+  activeTrace.value = trace
+  traceDrawerVisible.value = true
 }
 </script>
 
@@ -202,6 +220,10 @@ async function send() {
   padding: 10px;
   border-radius: 10px;
   line-height: 1.6;
+}
+
+.trace-button {
+  margin-top: 6px;
 }
 
 .message.user .content {

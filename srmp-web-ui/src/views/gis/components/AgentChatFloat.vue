@@ -58,6 +58,7 @@
             <el-tag v-if="item.meta.answerSourceLabel" size="small">{{ item.meta.answerSourceLabel }}</el-tag>
             <el-tag v-if="item.meta.fallback" size="small" type="warning">降级</el-tag>
           </div>
+          <AiTraceButton v-if="item.role === 'assistant'" :trace="item.trace" class="trace-button" @open="openTrace" />
         </div>
       </div>
 
@@ -78,10 +79,12 @@
   <SolutionPreviewDialog
     v-model:visible="solutionDialogVisible"
     :solution="solutionResult"
+    :trace="solutionResult?.trace || null"
     :save-loading="solutionSaveLoading"
     :saved-task="savedSolutionTask"
     @save="saveSolutionDraft"
   />
+  <AiTraceDrawer v-model:visible="traceDrawerVisible" :trace="activeTrace" />
 </template>
 
 <script setup lang="ts">
@@ -95,11 +98,14 @@ import {
 } from '../../../api/agent'
 import { saveMapObjectSolutionDraft } from '../../../api/solution'
 import SolutionPreviewDialog from './SolutionPreviewDialog.vue'
+import AiTraceButton from '../../agent/components/AiTraceButton.vue'
+import AiTraceDrawer from '../../agent/components/AiTraceDrawer.vue'
 
 interface MessageItem {
   role: 'user' | 'assistant'
   content: string
   meta?: Record<string, any>
+  trace?: Record<string, any> | null
 }
 
 const props = defineProps<{
@@ -124,6 +130,8 @@ const solutionDialogVisible = ref(false)
 const solutionResult = ref<MapObjectSolutionResponse | null>(null)
 const solutionSaveLoading = ref(false)
 const savedSolutionTask = ref<Record<string, any> | null>(null)
+const traceDrawerVisible = ref(false)
+const activeTrace = ref<Record<string, any> | null>(null)
 
 const options = reactive({
   useBusinessData: true,
@@ -310,6 +318,7 @@ async function saveSolutionDraft() {
       mapObject: obj,
       objectSummary: solution.objectSummary || {},
       qualityCheck: solution.qualityCheck || {},
+      trace: solution.trace || {},
       sourceSummaries: [{
         sourceType: 'MAP_OBJECT',
         sourceTitle: mapContextLabel.value,
@@ -354,6 +363,7 @@ async function send() {
     messages.value.push({
       role: 'assistant',
       content: answer,
+      trace: payload.data?.trace || payload.trace || null,
       meta: {
         ...meta,
         mapObjectUsed: payload.data?.mapObjectUsed || payload.mapObjectUsed || meta?.mapObjectUsed
@@ -414,6 +424,11 @@ function renderMarkdown(value: string) {
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/^\- (.*)$/gm, '<div class="md-list">• $1</div>')
     .replace(/\n/g, '<br />')
+}
+
+function openTrace(trace: Record<string, any>) {
+  activeTrace.value = trace
+  traceDrawerVisible.value = true
 }
 </script>
 
@@ -586,6 +601,10 @@ function renderMarkdown(value: string) {
   gap: 6px;
   margin-top: 6px;
   flex-wrap: wrap;
+}
+
+.trace-button {
+  margin-top: 6px;
 }
 
 .source-summary {

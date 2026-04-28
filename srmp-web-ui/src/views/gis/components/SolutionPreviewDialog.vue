@@ -22,13 +22,13 @@
             {{ solution.qualityCheck.passed ? '通过' : '需复核' }}
           </el-tag>
         </div>
-        <div v-if="solution.qualityCheck.items?.length" class="quality-items">
+        <div v-if="qualityItems.length" class="quality-items">
           <span
-            v-for="item in solution.qualityCheck.items"
-            :key="item.name"
+            v-for="item in qualityItems"
+            :key="item.key"
             :class="['quality-item', { passed: item.passed }]"
           >
-            {{ item.name }}
+            {{ item.label }}
           </span>
         </div>
         <p v-if="solution.qualityCheck.warnings?.length" class="quality-warning">
@@ -50,6 +50,7 @@
     <el-empty v-else description="暂无方案草稿" />
 
     <template #footer>
+      <AiTraceButton :trace="activeTrace" @open="traceDrawerVisible = true" />
       <el-button :disabled="!solution?.markdown" @click="copyMarkdown">复制</el-button>
       <el-button :disabled="!solution?.markdown" @click="downloadMarkdown">下载 Markdown</el-button>
       <el-button
@@ -63,16 +64,23 @@
       </el-button>
     </template>
   </el-dialog>
+  <AiTraceDrawer v-model:visible="traceDrawerVisible" :trace="activeTrace" />
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { MapObjectSolutionResponse } from '../../../api/agent'
+import type { MapRegionSolutionResponse } from '../../../api/gis'
+import AiTraceButton from '../../agent/components/AiTraceButton.vue'
+import AiTraceDrawer from '../../agent/components/AiTraceDrawer.vue'
+
+type PreviewSolution = MapObjectSolutionResponse | MapRegionSolutionResponse
 
 const props = defineProps<{
   visible: boolean
-  solution: MapObjectSolutionResponse | null
+  solution: PreviewSolution | null
+  trace?: Record<string, any> | null
   saveLoading?: boolean
   savedTask?: Record<string, any> | null
 }>()
@@ -99,17 +107,47 @@ const summaryLabels: Record<string, string> = {
   mqi: 'MQI',
   pqi: 'PQI',
   pci: 'PCI',
-  grade: '等级'
+  grade: '等级',
+  areaKm2: '面积 km2',
+  routeCount: '路线',
+  sectionCount: '路段',
+  unitCount: '评定单元',
+  diseaseCount: '病害',
+  heavyCount: '重度病害',
+  avgMqi: '平均 MQI',
+  avgPci: '平均 PCI'
 }
 
 const summaryItems = computed(() => {
-  const summary = props.solution?.objectSummary || {}
+  const summary = (props.solution as any)?.objectSummary || (props.solution as any)?.regionSummary || {}
+  const disease = summary.diseaseSummary || {}
+  const assessment = summary.assessmentSummary || {}
+  const flat = {
+    ...summary,
+    diseaseCount: disease.disease_count || disease.diseaseCount,
+    heavyCount: disease.heavy_count || disease.heavyCount,
+    avgMqi: assessment.avg_mqi || assessment.avgMqi,
+    avgPci: assessment.avg_pci || assessment.avgPci
+  }
   return Object.keys(summaryLabels)
-    .map((key) => ({ key, label: summaryLabels[key], value: formatValue(summary[key]) }))
+    .map((key) => ({ key, label: summaryLabels[key], value: formatValue((flat as any)[key]) }))
     .filter((item) => item.value)
 })
 
 const renderedMarkdown = computed(() => renderMarkdown(props.solution?.markdown || ''))
+const traceDrawerVisible = ref(false)
+const activeTrace = computed(() => props.trace || (props.solution as any)?.trace || null)
+
+const qualityItems = computed(() => {
+  const items = (props.solution as any)?.qualityCheck?.items
+  return Array.isArray(items)
+    ? items.map((item: any, index: number) => ({
+        key: item.name || item.code || index,
+        label: item.name || item.code || item.message || '检查项',
+        passed: item.passed === true || item.level === 'OK'
+      }))
+    : []
+})
 
 function updateVisible(value: boolean) {
   emit('update:visible', value)

@@ -24,7 +24,19 @@
       @ai-analyze="openAiForSelected"
     />
 
+    <RegionSelectionPanel
+      :visible="!!regionGeometry"
+      :geometry-type="regionGeometryType"
+      :summary="regionSummary"
+      :trace="regionSolution?.trace || null"
+      :loading="regionLoading || regionSummaryLoading"
+      @generate="generateRegionSolution"
+      @trace="regionTraceDrawerVisible = true"
+      @clear="clearRegion"
+    />
+
     <MapStatisticsBar
+      v-if="!regionGeometry"
       v-model:collapsed="statisticsCollapsed"
       :value="statistics"
       :class="{ 'with-agent': agentVisible }"
@@ -48,6 +60,23 @@
       AI
     </button>
 
+    <div class="region-tool srmp-card">
+      <el-button size="small" :type="regionMode === 'RECTANGLE' ? 'primary' : undefined" @click="startRegionDraw('RECTANGLE')">矩形</el-button>
+      <el-button size="small" :type="regionMode === 'POLYGON' ? 'primary' : undefined" @click="startRegionDraw('POLYGON')">多边形</el-button>
+      <el-button size="small" @click="clearRegion">清除</el-button>
+    </div>
+
+    <SolutionPreviewDialog
+      v-model:visible="regionPreviewVisible"
+      :solution="regionSolution"
+      :trace="regionSolution?.trace || null"
+      :save-loading="regionDraftSaving"
+      :saved-task="regionSavedTask"
+      @save="saveRegionDraft"
+    />
+
+    <AiTraceDrawer v-model:visible="regionTraceDrawerVisible" :trace="regionSolution?.trace || null" />
+
     <div v-if="loading" class="loading-mask">
       <el-icon class="is-loading"><Loading /></el-icon>
       <span>图层加载中...</span>
@@ -62,6 +91,8 @@ import { ElMessage } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import MapToolbar from './components/MapToolbar.vue'
 import {
+  analyzeMapRegion,
+  generateMapRegionSolution,
   getAssessmentResults,
   getDiseases,
   getEvaluationUnits,
@@ -69,7 +100,9 @@ import {
   getObjectDetail,
   getRoadRoutes,
   getRoadSections,
-  type GisLayerQuery
+  saveMapRegionSolutionDraft,
+  type GisLayerQuery,
+  type MapRegionSolutionResponse
 } from '../../api/gis'
 import { layerStyle } from '../../utils/leafletStyle'
 import type { GeoJsonFeatureCollection } from '../../types/geojson'
@@ -78,6 +111,9 @@ import LegendPanel from './components/LegendPanel.vue'
 import ObjectDetailDrawer from './components/ObjectDetailDrawer.vue'
 import MapStatisticsBar from './components/MapStatisticsBar.vue'
 import AgentChatFloat from './components/AgentChatFloat.vue'
+import RegionSelectionPanel from './components/RegionSelectionPanel.vue'
+import SolutionPreviewDialog from './components/SolutionPreviewDialog.vue'
+import AiTraceDrawer from '../agent/components/AiTraceDrawer.vue'
 
 const query = reactive<GisLayerQuery>({
   routeCode: 'G210',
@@ -102,10 +138,24 @@ const detailVisible = ref(false)
 const agentVisible = ref(false)
 const pendingAiQuestion = ref('')
 const statisticsCollapsed = ref(false)
+const regionMode = ref<'NONE' | 'RECTANGLE' | 'POLYGON'>('NONE')
+const regionGeometryType = ref<'RECTANGLE' | 'POLYGON'>('RECTANGLE')
+const regionGeometry = ref<Record<string, any> | null>(null)
+const regionSummary = ref<Record<string, any> | null>(null)
+const regionSolution = ref<MapRegionSolutionResponse | null>(null)
+const regionLoading = ref(false)
+const regionSummaryLoading = ref(false)
+const regionPreviewVisible = ref(false)
+const regionTraceDrawerVisible = ref(false)
+const regionDraftSaving = ref(false)
+const regionSavedTask = ref<Record<string, any> | null>(null)
+const polygonPoints = ref<L.LatLng[]>([])
 
 let map: LeafletMap
 const layerMap = new Map<string, GeoJSON>()
 let selectedLayer: L.Layer | null = null
+let regionLayer: L.Layer | null = null
+let rectangleStart: L.LatLng | null = null
 
 function normalizeObjectType(rawType: any) {
   const type = String(rawType || '').toUpperCase()
@@ -178,6 +228,10 @@ onMounted(async () => {
   }).addTo(map)
 
   map.on('moveend', loadStatistics)
+  map.on('mousedown', handleRegionMouseDown)
+  map.on('mouseup', handleRegionMouseUp)
+  map.on('click', handleRegionClick)
+  map.on('dblclick', handleRegionDoubleClick)
 
   await nextTick()
   map.invalidateSize(true)
@@ -263,6 +317,7 @@ async function loadLayer(layerKey: string, loader: () => Promise<GeoJsonFeatureC
 }
 
 async function handleFeatureClick(layerKey: string, feature: any, layer: L.Layer) {
+  if (regionMode.value !== 'NONE') return
   const properties = {
     ...(feature?.properties || {}),
     layerKey,
@@ -344,6 +399,218 @@ function openAiForSelected() {
   pendingAiQuestion.value = '分析当前地图选中对象，说明主要问题、成因判断，并给出养护处置建议'
 }
 
+function startRegionDraw(mode: 'RECTANGLE' | 'POLYGON') {
+  clearRegion()
+  regionMode.value = mode
+  regionGeometryType.value = mode
+  detailVisible.value = false
+  selectedDetail.value = null
+  selectedFeatureProperties.value = null
+  polygonPoints.value = []
+  rectangleStart = null
+  if (map) {
+    if (mode === 'RECTANGLE') {
+      map.dragging.disable()
+      map.doubleClickZoom.enable()
+    } else {
+      map.dragging.enable()
+      map.doubleClickZoom.disable()
+    }
+  }
+  ElMessage.info(mode === 'RECTANGLE' ? '拖拽地图绘制矩形选区' : '点击地图绘制多边形，双击结束')
+}
+
+function clearRegion() {
+  if (regionLayer && map) {
+    map.removeLayer(regionLayer)
+    regionLayer = null
+  }
+  if (map) {
+    map.dragging.enable()
+    map.doubleClickZoom.enable()
+  }
+  regionMode.value = 'NONE'
+  regionGeometry.value = null
+  regionSummary.value = null
+  regionSolution.value = null
+  regionSavedTask.value = null
+  regionPreviewVisible.value = false
+  polygonPoints.value = []
+  rectangleStart = null
+}
+
+function setRegionLayer(layer: L.Layer, geometry: Record<string, any>, geometryType: 'RECTANGLE' | 'POLYGON') {
+  if (regionLayer && map) {
+    map.removeLayer(regionLayer)
+  }
+  regionLayer = layer
+  regionLayer.addTo(map)
+  regionGeometryType.value = geometryType
+  regionGeometry.value = geometry
+  regionSummary.value = buildClientRegionSummary(geometry)
+  regionSolution.value = null
+  regionSavedTask.value = null
+  regionMode.value = 'NONE'
+  map.dragging.enable()
+  map.doubleClickZoom.enable()
+  loadRegionSummary(geometry)
+}
+
+function handleRegionMouseDown(event: L.LeafletMouseEvent) {
+  if (regionMode.value !== 'RECTANGLE') return
+  rectangleStart = event.latlng
+}
+
+function handleRegionMouseUp(event: L.LeafletMouseEvent) {
+  if (regionMode.value !== 'RECTANGLE' || !rectangleStart) return
+  const bounds = L.latLngBounds(rectangleStart, event.latlng)
+  const layer = L.rectangle(bounds, { color: '#0ea5e9', weight: 2, fillOpacity: 0.12 })
+  setRegionLayer(layer, boundsToPolygon(bounds), 'RECTANGLE')
+  rectangleStart = null
+}
+
+function handleRegionClick(event: L.LeafletMouseEvent) {
+  if (regionMode.value !== 'POLYGON') return
+  polygonPoints.value.push(event.latlng)
+  if (regionLayer && map) {
+    map.removeLayer(regionLayer)
+  }
+  regionLayer = L.polyline(polygonPoints.value, { color: '#0ea5e9', weight: 2 })
+  regionLayer.addTo(map)
+}
+
+function handleRegionDoubleClick(event: L.LeafletMouseEvent) {
+  if (regionMode.value !== 'POLYGON') return
+  event.originalEvent.preventDefault()
+  if (polygonPoints.value.length < 3) {
+    ElMessage.warning('多边形至少需要 3 个点')
+    return
+  }
+  const layer = L.polygon(polygonPoints.value, { color: '#0ea5e9', weight: 2, fillOpacity: 0.12 })
+  setRegionLayer(layer, pointsToPolygon(polygonPoints.value), 'POLYGON')
+}
+
+function boundsToPolygon(bounds: L.LatLngBounds) {
+  const sw = bounds.getSouthWest()
+  const ne = bounds.getNorthEast()
+  const nw = L.latLng(ne.lat, sw.lng)
+  const se = L.latLng(sw.lat, ne.lng)
+  return pointsToPolygon([sw, se, ne, nw])
+}
+
+function pointsToPolygon(points: L.LatLng[]) {
+  const coords = points.map((p) => [Number(p.lng.toFixed(7)), Number(p.lat.toFixed(7))])
+  const first = coords[0]
+  const last = coords[coords.length - 1]
+  if (first[0] !== last[0] || first[1] !== last[1]) {
+    coords.push([first[0], first[1]])
+  }
+  return { type: 'Polygon', coordinates: [coords] }
+}
+
+function buildClientRegionSummary(geometry: Record<string, any>) {
+  return {
+    geometry,
+    areaKm2: '-',
+    routeCount: '-',
+    sectionCount: '-',
+    unitCount: '-',
+    diseaseSummary: {},
+    assessmentSummary: {},
+    hotspots: []
+  }
+}
+
+async function loadRegionSummary(geometry: Record<string, any>) {
+  regionSummaryLoading.value = true
+  try {
+    const result = await analyzeMapRegion({
+      geometry,
+      query: { ...query },
+      layers: activeLayerNames(),
+      options: { useBusinessData: true }
+    })
+    if (regionGeometry.value === geometry) {
+      regionSummary.value = result || buildClientRegionSummary(geometry)
+    }
+  } catch (error: any) {
+    if (regionGeometry.value === geometry) {
+      regionSummary.value = buildClientRegionSummary(geometry)
+    }
+    ElMessage.warning(error?.message || '区域统计摘要获取失败')
+  } finally {
+    regionSummaryLoading.value = false
+  }
+}
+
+async function generateRegionSolution() {
+  if (!regionGeometry.value) {
+    ElMessage.warning('请先绘制区域')
+    return
+  }
+  regionLoading.value = true
+  try {
+    const result = await generateMapRegionSolution({
+      solutionType: 'REGION_MAINTENANCE_SUGGESTION',
+      geometry: regionGeometry.value,
+      query: { ...query },
+      layers: activeLayerNames(),
+      options: { useBusinessData: true, useKnowledge: true, useOutline: false, topK: 5 }
+    })
+    regionSolution.value = result
+    regionSummary.value = result.regionSummary || regionSummary.value
+    regionSavedTask.value = null
+    regionPreviewVisible.value = true
+    ElMessage.success('区域养护建议已生成')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '生成区域养护建议失败')
+  } finally {
+    regionLoading.value = false
+  }
+}
+
+function activeLayerNames() {
+  const result: string[] = []
+  if (layers.roadSection) result.push('ROAD_SECTION')
+  if (layers.evaluationUnit) result.push('EVALUATION_UNIT')
+  if (layers.disease) result.push('DISEASE')
+  if (layers.assessment || layers.assessmentResult) result.push('ASSESSMENT_RESULT')
+  return result
+}
+
+async function saveRegionDraft() {
+  if (!regionSolution.value || !regionGeometry.value) return
+  regionDraftSaving.value = true
+  try {
+    const saved = await saveMapRegionSolutionDraft({
+      originType: 'MAP_REGION',
+      objectType: 'MAP_REGION',
+      objectId: regionSolution.value.trace?.traceId || '',
+      solutionType: regionSolution.value.solutionType,
+      title: regionSolution.value.title,
+      markdown: regionSolution.value.markdown,
+      routeCode: String(query.routeCode || ''),
+      year: Number(query.year) || undefined,
+      mapObject: {
+        objectType: 'MAP_REGION',
+        geometry: regionGeometry.value,
+        drawingMode: regionGeometryType.value
+      },
+      regionSummary: regionSolution.value.regionSummary || {},
+      qualityCheck: regionSolution.value.qualityCheck || {},
+      trace: regionSolution.value.trace || {},
+      sourceSummaries: regionSolution.value.sourceSummaries || [],
+      requestContext: { query: { ...query }, layers: activeLayerNames() }
+    })
+    regionSavedTask.value = saved
+    ElMessage.success('区域方案草稿已保存')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '保存区域方案草稿失败')
+  } finally {
+    regionDraftSaving.value = false
+  }
+}
+
 async function loadStatistics() {
   try {
     statistics.value = await getMapStatistics(layerQuery())
@@ -419,6 +686,18 @@ function handleFitAll() {
   background: linear-gradient(135deg, #2563eb, #1d4ed8);
   box-shadow: 0 16px 32px rgba(37, 99, 235, 0.34);
   cursor: pointer;
+}
+
+.region-tool {
+  position: absolute;
+  right: 96px;
+  bottom: 44px;
+  z-index: 940;
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: rgba(255, 255, 255, 0.96);
 }
 
 .loading-mask {

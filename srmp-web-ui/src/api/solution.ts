@@ -59,9 +59,14 @@ export interface AiSolutionDraftSaveRequest {
   markdown: string
   routeCode?: string
   year?: number
+  originType?: string
+  objectType?: string
+  objectId?: string
   mapObject: Record<string, any>
   objectSummary?: Record<string, any>
+  regionSummary?: Record<string, any>
   qualityCheck?: Record<string, any>
+  trace?: Record<string, any>
   sourceSummaries?: AiSolutionSourceSummaryRequest[]
   templateId?: string
   templateVersion?: string
