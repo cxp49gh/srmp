@@ -38,6 +38,12 @@
 
 <dependency>
     <groupId>com.smartroad</groupId>
+    <artifactId>srmp-agent</artifactId>
+    <version>${project.version}</version>
+</dependency>
+
+<dependency>
+    <groupId>com.smartroad</groupId>
     <artifactId>srmp-disease</artifactId>
     <version>${project.version}</version>
 </dependency>

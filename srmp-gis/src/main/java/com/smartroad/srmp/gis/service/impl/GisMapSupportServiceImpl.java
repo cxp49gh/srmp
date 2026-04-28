@@ -1,6 +1,8 @@
 package com.smartroad.srmp.gis.service.impl;
 
+import com.smartroad.srmp.gis.dto.MapRegionAnalysisRequest;
 import com.smartroad.srmp.gis.service.GisMapSupportService;
+import com.smartroad.srmp.gis.service.MapRegionAnalysisService;
 import com.smartroad.srmp.gis.vo.GeoJsonFeatureCollectionVO;
 import com.smartroad.srmp.tenant.context.TenantContextHolder;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -20,6 +22,9 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
 
     @Resource
     private NamedParameterJdbcTemplate namedParameterJdbcTemplate;
+
+    @Resource
+    private MapRegionAnalysisService mapRegionAnalysisService;
 
     @Override
     public Map<String, Object> mapStatistics(Map<String, Object> request) {
@@ -95,8 +100,14 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public GeoJsonFeatureCollectionVO spatialQuery(Map<String, Object> query) {
-        // 阶段一演示版：空间查询接口保持可用，后续可根据 GeoJSON 多边形实现 ST_Intersects 聚合查询。
+        MapRegionAnalysisRequest request = new MapRegionAnalysisRequest();
+        request.setGeometry(query == null ? null : (Map<String, Object>) query.get("geometry"));
+        request.setQuery(query == null ? null : (Map<String, Object>) query.get("query"));
+        request.setLayers(query == null ? null : (List<String>) query.get("layers"));
+        request.setOptions(query == null ? null : (Map<String, Object>) query.get("options"));
+        mapRegionAnalysisService.analyze(request);
         return new GeoJsonFeatureCollectionVO();
     }
 
