@@ -75,7 +75,13 @@
       </div>
     </div>
   </transition>
-  <SolutionPreviewDialog v-model:visible="solutionDialogVisible" :solution="solutionResult" />
+  <SolutionPreviewDialog
+    v-model:visible="solutionDialogVisible"
+    :solution="solutionResult"
+    :save-loading="solutionSaveLoading"
+    :saved-task="savedSolutionTask"
+    @save="saveSolutionDraft"
+  />
 </template>
 
 <script setup lang="ts">
@@ -87,6 +93,7 @@ import {
   type MapObjectSolutionResponse,
   type MapObjectSolutionType
 } from '../../../api/agent'
+import { saveMapObjectSolutionDraft } from '../../../api/solution'
 import SolutionPreviewDialog from './SolutionPreviewDialog.vue'
 
 interface MessageItem {
@@ -115,6 +122,8 @@ const solutionLoading = ref(false)
 const activeSolutionType = ref<MapObjectSolutionType | ''>('')
 const solutionDialogVisible = ref(false)
 const solutionResult = ref<MapObjectSolutionResponse | null>(null)
+const solutionSaveLoading = ref(false)
+const savedSolutionTask = ref<Record<string, any> | null>(null)
 
 const options = reactive({
   useBusinessData: true,
@@ -261,6 +270,7 @@ async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
   activeSolutionType.value = solutionType
 
   try {
+    savedSolutionTask.value = null
     const res = await generateMapObjectSolution({
       objectType: normalizeObjectType(obj),
       objectId: String(obj.objectId || obj.object_id || obj.id || obj.featureId || ''),
@@ -277,6 +287,43 @@ async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
   } finally {
     solutionLoading.value = false
     activeSolutionType.value = ''
+  }
+}
+
+async function saveSolutionDraft() {
+  const solution = solutionResult.value
+  const obj: any = activeMapObject.value
+  if (!solution?.markdown || !obj) {
+    ElMessage.warning('暂无可保存的方案草稿')
+    return
+  }
+
+  const query = props.context?.query || {}
+  solutionSaveLoading.value = true
+  try {
+    savedSolutionTask.value = await saveMapObjectSolutionDraft({
+      solutionType: solution.solutionType,
+      title: solution.title,
+      markdown: solution.markdown,
+      routeCode: String(obj.routeCode || obj.route_code || query.routeCode || ''),
+      year: normalizeYear(obj.year || query.year),
+      mapObject: obj,
+      objectSummary: solution.objectSummary || {},
+      qualityCheck: solution.qualityCheck || {},
+      sourceSummaries: [{
+        sourceType: 'MAP_OBJECT',
+        sourceTitle: mapContextLabel.value,
+        sourceId: String(obj.objectId || obj.object_id || obj.id || obj.featureId || ''),
+        contentExcerpt: mapContextLabel.value
+      }],
+      options: { ...options },
+      requestContext: props.context || {}
+    })
+    ElMessage.success('方案草稿已保存')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '保存方案草稿失败')
+  } finally {
+    solutionSaveLoading.value = false
   }
 }
 

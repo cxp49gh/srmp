@@ -17,6 +17,13 @@
             <el-input-number v-model="query.year" :min="2000" :max="2100" />
           </el-form-item>
           <el-form-item>
+            <el-select v-model="query.draftStatus" clearable placeholder="草稿状态" style="width: 120px">
+              <el-option label="草稿" value="DRAFT" />
+              <el-option label="已确认" value="CONFIRMED" />
+              <el-option label="已归档" value="ARCHIVED" />
+            </el-select>
+          </el-form-item>
+          <el-form-item>
             <el-button type="primary" @click="loadTasks">查询</el-button>
           </el-form-item>
         </el-form>
@@ -30,10 +37,13 @@
         >
           <div class="row">
             <strong>{{ item.title }}</strong>
-            <el-tag size="small">{{ item.status }}</el-tag>
+            <el-tag v-if="item.draft_status" size="small" type="warning">{{ item.draft_status }}</el-tag>
+            <el-tag v-else size="small">{{ item.status }}</el-tag>
           </div>
           <p>{{ item.id }}</p>
-          <div class="meta">{{ item.route_code }} / {{ item.year }} / {{ item.solution_type }}</div>
+          <div class="meta">
+            {{ item.route_code || item.object_type || '-' }} / {{ item.year || item.object_id || '-' }} / {{ item.solution_type }}
+          </div>
         </div>
       </el-card>
 
@@ -41,7 +51,24 @@
         <template #header>
           <div class="card-header">
             <span>方案结果</span>
-            <div>
+            <div class="card-actions">
+              <el-button v-if="detail?.id" size="small" @click="openVersions">版本历史</el-button>
+              <el-button
+                v-if="detail?.draft_status === 'DRAFT'"
+                size="small"
+                :loading="statusUpdating"
+                @click="changeDraftStatus('CONFIRMED')"
+              >
+                确认
+              </el-button>
+              <el-button
+                v-if="detail?.draft_status === 'DRAFT' || detail?.draft_status === 'CONFIRMED'"
+                size="small"
+                :loading="statusUpdating"
+                @click="changeDraftStatus('ARCHIVED')"
+              >
+                归档
+              </el-button>
               <el-button v-if="detail?.id" size="small" :loading="checking" @click="runQualityCheck">质量校验</el-button>
               <el-button v-if="detail?.id" size="small" @click="exportMarkdown">导出 Markdown</el-button>
               <el-button v-if="detail?.result_content" size="small" @click="copyResult">复制</el-button>
@@ -55,6 +82,10 @@
             <el-descriptions-item label="状态">{{ detail.status }}</el-descriptions-item>
             <el-descriptions-item label="标题">{{ detail.title }}</el-descriptions-item>
             <el-descriptions-item label="模板版本">{{ detail.template_version }}</el-descriptions-item>
+            <el-descriptions-item label="草稿状态">{{ detail.draft_status || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="对象类型">{{ detail.object_type || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="对象ID">{{ detail.object_id || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="当前版本">{{ detail.current_version_no || '-' }}</el-descriptions-item>
           </el-descriptions>
 
           <SolutionQualityPanel :quality="quality" />
@@ -76,6 +107,15 @@
         </div>
       </el-card>
     </div>
+
+    <el-drawer v-model="versionDrawerVisible" title="版本历史" size="520px">
+      <el-empty v-if="versions.length === 0" description="暂无版本" />
+      <div v-for="item in versions" :key="item.id" class="version-item">
+        <strong>v{{ item.version_no }} {{ item.title }}</strong>
+        <p>{{ item.change_note || '版本快照' }}</p>
+        <div class="meta">{{ item.created_at }}</div>
+      </div>
+    </el-drawer>
   </AgentPageShell>
 </template>
 
@@ -90,12 +130,15 @@ import {
   getSolutionQualityResult,
   getSolutionTask,
   getSolutionTaskSources,
-  listSolutionTasks
+  getSolutionTaskVersions,
+  listSolutionTasks,
+  updateSolutionTaskDraftStatus
 } from '../../api/solution'
 
 const query = reactive({
   routeCode: 'G210',
   year: 2026,
+  draftStatus: '',
   limit: 50
 })
 
@@ -104,7 +147,10 @@ const selected = ref<Record<string, any> | null>(null)
 const detail = ref<Record<string, any> | null>(null)
 const sources = ref<Record<string, any>[]>([])
 const quality = ref<Record<string, any> | null>(null)
+const versions = ref<Record<string, any>[]>([])
 const checking = ref(false)
+const versionDrawerVisible = ref(false)
+const statusUpdating = ref(false)
 
 onMounted(loadTasks)
 
@@ -117,6 +163,7 @@ async function selectTask(item: Record<string, any>) {
   detail.value = await getSolutionTask(item.id)
   sources.value = await getSolutionTaskSources(item.id)
   quality.value = await getSolutionQualityResult(item.id)
+  versions.value = []
 }
 
 async function runQualityCheck() {
@@ -140,6 +187,24 @@ function exportMarkdown() {
   if (!detail.value?.id) return
   window.open(getSolutionMarkdownExportUrl(detail.value.id), '_blank')
 }
+
+async function openVersions() {
+  if (!detail.value?.id) return
+  versions.value = await getSolutionTaskVersions(detail.value.id)
+  versionDrawerVisible.value = true
+}
+
+async function changeDraftStatus(next: string) {
+  if (!detail.value?.id) return
+  statusUpdating.value = true
+  try {
+    detail.value = await updateSolutionTaskDraftStatus(detail.value.id, next)
+    await loadTasks()
+    ElMessage.success('草稿状态已更新')
+  } finally {
+    statusUpdating.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -161,6 +226,13 @@ function exportMarkdown() {
   display: flex;
   justify-content: space-between;
   gap: 8px;
+}
+
+.card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .query-form {
@@ -191,6 +263,19 @@ function exportMarkdown() {
 .meta {
   color: #64748b;
   font-size: 12px;
+}
+
+.version-item {
+  padding: 12px;
+  margin-bottom: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.version-item p {
+  margin: 6px 0;
+  color: #475569;
 }
 
 .mb {
