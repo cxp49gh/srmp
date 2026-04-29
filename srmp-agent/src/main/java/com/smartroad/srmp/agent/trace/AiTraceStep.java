@@ -1,4 +1,5 @@
 package com.smartroad.srmp.agent.trace;
+import java.util.Map;
 import lombok.Data;
 @Data
 public class AiTraceStep {
@@ -8,4 +9,5 @@ public class AiTraceStep {
     private Long costMs;
     private Integer count;
     private String error;
+    private Map<String, Object> data;
 }
