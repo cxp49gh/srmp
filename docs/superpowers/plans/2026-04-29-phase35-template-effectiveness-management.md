@@ -178,7 +178,12 @@ ON ai_solution_template(tenant_id, origin_type, object_type, solution_type, stat
 WHERE deleted = false;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uk_ai_solution_template_default
-ON ai_solution_template(tenant_id, origin_type, object_type, solution_type)
+ON ai_solution_template(
+    tenant_id,
+    COALESCE(origin_type, ''),
+    COALESCE(object_type, ''),
+    solution_type
+)
 WHERE is_default = true AND deleted = false;
 
 CREATE INDEX IF NOT EXISTS idx_ai_solution_task_template
