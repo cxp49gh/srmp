@@ -19,7 +19,7 @@
       <div v-if="hotspots.length" class="hotspots">
         <strong>热点</strong>
         <span v-for="(item, index) in hotspots" :key="index">
-          {{ item.route_code || item.routeCode || '区域' }}：病害 {{ item.disease_count || item.diseaseCount || 0 }}
+          {{ pick(item, 'route_code', 'routeCode') || '区域' }}：病害 {{ format(pick(item, 'disease_count', 'diseaseCount')) }}
         </span>
       </div>
 
@@ -52,25 +52,42 @@ defineEmits<{
 const geometryTypeLabel = computed(() => props.geometryType === 'RECTANGLE' ? '矩形' : '多边形')
 
 const displayItems = computed(() => {
-  const summary = props.summary || {}
-  const disease = summary.diseaseSummary || {}
-  const assessment = summary.assessmentSummary || {}
+  const summary = unwrapSummary(props.summary)
+  const disease = pick(summary, 'diseaseSummary', 'disease_summary') || {}
+  const assessment = pick(summary, 'assessmentSummary', 'assessment_summary') || {}
   return [
-    { key: 'areaKm2', label: '面积 km2', value: format(summary.areaKm2) },
-    { key: 'routeCount', label: '路线', value: format(summary.routeCount) },
-    { key: 'sectionCount', label: '路段', value: format(summary.sectionCount) },
-    { key: 'unitCount', label: '评定单元', value: format(summary.unitCount) },
-    { key: 'diseaseCount', label: '病害', value: format(disease.disease_count || disease.diseaseCount) },
-    { key: 'heavyCount', label: '重度病害', value: format(disease.heavy_count || disease.heavyCount) },
-    { key: 'avgMqi', label: '平均 MQI', value: format(assessment.avg_mqi || assessment.avgMqi) },
-    { key: 'avgPci', label: '平均 PCI', value: format(assessment.avg_pci || assessment.avgPci) }
+    { key: 'areaKm2', label: '面积 km2', value: format(pick(summary, 'areaKm2', 'area_km2')) },
+    { key: 'routeCount', label: '路线', value: format(pick(summary, 'routeCount', 'route_count')) },
+    { key: 'sectionCount', label: '路段', value: format(pick(summary, 'sectionCount', 'section_count')) },
+    { key: 'unitCount', label: '评定单元', value: format(pick(summary, 'unitCount', 'unit_count')) },
+    { key: 'diseaseCount', label: '病害', value: format(pick(disease, 'disease_count', 'diseaseCount')) },
+    { key: 'heavyCount', label: '重度病害', value: format(pick(disease, 'heavy_count', 'heavyCount')) },
+    { key: 'avgMqi', label: '平均 MQI', value: format(pick(assessment, 'avg_mqi', 'avgMqi')) },
+    { key: 'avgPci', label: '平均 PCI', value: format(pick(assessment, 'avg_pci', 'avgPci')) }
   ]
 })
 
 const hotspots = computed(() => {
-  const value = props.summary?.hotspots
+  const value = pick(unwrapSummary(props.summary), 'hotspots', 'hot_spots')
   return Array.isArray(value) ? value.slice(0, 3) : []
 })
+
+function unwrapSummary(value: any) {
+  if (value && typeof value === 'object' && typeof value.code !== 'undefined' && 'data' in value) {
+    return value.data || {}
+  }
+  return value || {}
+}
+
+function pick(source: any, ...keys: string[]) {
+  if (!source || typeof source !== 'object') return undefined
+  for (const key of keys) {
+    if (source[key] !== undefined && source[key] !== null && source[key] !== '') {
+      return source[key]
+    }
+  }
+  return undefined
+}
 
 function format(value: any) {
   return value === null || value === undefined || value === '' ? '-' : value

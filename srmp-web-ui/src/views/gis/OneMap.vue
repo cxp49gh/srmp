@@ -156,6 +156,7 @@ const layerMap = new Map<string, GeoJSON>()
 let selectedLayer: L.Layer | null = null
 let regionLayer: L.Layer | null = null
 let rectangleStart: L.LatLng | null = null
+let regionSummaryRequestSeq = 0
 
 function normalizeObjectType(rawType: any) {
   const type = String(rawType || '').toUpperCase()
@@ -421,6 +422,7 @@ function startRegionDraw(mode: 'RECTANGLE' | 'POLYGON') {
 }
 
 function clearRegion() {
+  regionSummaryRequestSeq += 1
   if (regionLayer && map) {
     map.removeLayer(regionLayer)
     regionLayer = null
@@ -433,6 +435,7 @@ function clearRegion() {
   regionGeometry.value = null
   regionSummary.value = null
   regionSolution.value = null
+  regionSummaryLoading.value = false
   regionSavedTask.value = null
   regionPreviewVisible.value = false
   polygonPoints.value = []
@@ -521,7 +524,30 @@ function buildClientRegionSummary(geometry: Record<string, any>) {
   }
 }
 
+function unwrapApiPayload(value: any) {
+  if (value && typeof value === 'object' && typeof value.code !== 'undefined' && 'data' in value) {
+    return value.data
+  }
+  return value
+}
+
+function normalizeRegionSummary(value: any, geometry: Record<string, any>) {
+  const summary = unwrapApiPayload(value)
+  if (!summary || typeof summary !== 'object') {
+    return buildClientRegionSummary(geometry)
+  }
+  return {
+    ...buildClientRegionSummary(geometry),
+    ...summary,
+    geometry: summary.geometry || geometry,
+    diseaseSummary: summary.diseaseSummary || summary.disease_summary || {},
+    assessmentSummary: summary.assessmentSummary || summary.assessment_summary || {},
+    hotspots: Array.isArray(summary.hotspots) ? summary.hotspots : []
+  }
+}
+
 async function loadRegionSummary(geometry: Record<string, any>) {
+  const requestSeq = ++regionSummaryRequestSeq
   regionSummaryLoading.value = true
   try {
     const result = await analyzeMapRegion({
@@ -530,16 +556,18 @@ async function loadRegionSummary(geometry: Record<string, any>) {
       layers: activeLayerNames(),
       options: { useBusinessData: true }
     })
-    if (regionGeometry.value === geometry) {
-      regionSummary.value = result || buildClientRegionSummary(geometry)
+    if (requestSeq === regionSummaryRequestSeq && regionGeometry.value) {
+      regionSummary.value = normalizeRegionSummary(result, geometry)
     }
   } catch (error: any) {
-    if (regionGeometry.value === geometry) {
+    if (requestSeq === regionSummaryRequestSeq && regionGeometry.value) {
       regionSummary.value = buildClientRegionSummary(geometry)
     }
     ElMessage.warning(error?.message || '区域统计摘要获取失败')
   } finally {
-    regionSummaryLoading.value = false
+    if (requestSeq === regionSummaryRequestSeq) {
+      regionSummaryLoading.value = false
+    }
   }
 }
 
@@ -550,15 +578,17 @@ async function generateRegionSolution() {
   }
   regionLoading.value = true
   try {
-    const result = await generateMapRegionSolution({
+    const result = unwrapApiPayload(await generateMapRegionSolution({
       solutionType: 'REGION_MAINTENANCE_SUGGESTION',
       geometry: regionGeometry.value,
       query: { ...query },
       layers: activeLayerNames(),
       options: { useBusinessData: true, useKnowledge: true, useOutline: false, topK: 5 }
-    })
+    })) as MapRegionSolutionResponse
     regionSolution.value = result
-    regionSummary.value = result.regionSummary || regionSummary.value
+    if (result.regionSummary) {
+      regionSummary.value = normalizeRegionSummary(result.regionSummary, regionGeometry.value)
+    }
     regionSavedTask.value = null
     regionPreviewVisible.value = true
     ElMessage.success('区域养护建议已生成')
