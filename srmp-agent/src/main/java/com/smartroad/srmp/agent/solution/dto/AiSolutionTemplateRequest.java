@@ -13,4 +13,9 @@ public class AiSolutionTemplateRequest {
     private String version;
     private String content;
     private String sourceUrl;
+    private String originType;
+    private String objectType;
+    private Boolean isDefault;
+    private Integer priority;
+    private String changeNote;
 }

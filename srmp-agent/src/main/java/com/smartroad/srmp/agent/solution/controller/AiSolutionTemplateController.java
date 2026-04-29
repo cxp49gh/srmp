@@ -1,8 +1,12 @@
 package com.smartroad.srmp.agent.solution.controller;
 
 import com.smartroad.srmp.agent.solution.dto.AiSolutionTemplateImportRequest;
+import com.smartroad.srmp.agent.solution.dto.AiSolutionTemplateMatchPreviewRequest;
 import com.smartroad.srmp.agent.solution.dto.AiSolutionTemplateQuery;
+import com.smartroad.srmp.agent.solution.dto.AiSolutionTemplateRenderPreviewRequest;
 import com.smartroad.srmp.agent.solution.dto.AiSolutionTemplateRequest;
+import com.smartroad.srmp.agent.solution.dto.AiSolutionTemplateStatusRequest;
+import com.smartroad.srmp.agent.solution.dto.AiSolutionTemplateVersionRequest;
 import com.smartroad.srmp.agent.solution.service.AiSolutionTemplateService;
 import com.smartroad.srmp.common.core.R;
 import org.springframework.web.bind.annotation.*;
@@ -46,5 +50,33 @@ public class AiSolutionTemplateController {
     @PostMapping("/{id}/disable")
     public R<Map<String, Object>> disable(@PathVariable String id) {
         return R.ok(aiSolutionTemplateService.disable(id));
+    }
+
+    @PostMapping("/match-preview")
+    public R<Map<String, Object>> matchPreview(@RequestBody AiSolutionTemplateMatchPreviewRequest request) {
+        return R.ok(aiSolutionTemplateService.matchPreview(request));
+    }
+
+    @PostMapping("/{id}/render-preview")
+    public R<Map<String, Object>> renderPreview(@PathVariable String id,
+                                                @RequestBody AiSolutionTemplateRenderPreviewRequest request) {
+        return R.ok(aiSolutionTemplateService.renderPreview(id, request));
+    }
+
+    @PostMapping("/{id}/status")
+    public R<Map<String, Object>> updateStatus(@PathVariable String id,
+                                               @RequestBody AiSolutionTemplateStatusRequest request) {
+        return R.ok(aiSolutionTemplateService.updateStatus(id, request));
+    }
+
+    @PostMapping("/{id}/default")
+    public R<Map<String, Object>> setDefault(@PathVariable String id) {
+        return R.ok(aiSolutionTemplateService.setDefault(id));
+    }
+
+    @PostMapping("/{id}/versions")
+    public R<Map<String, Object>> createVersion(@PathVariable String id,
+                                                @RequestBody AiSolutionTemplateVersionRequest request) {
+        return R.ok(aiSolutionTemplateService.createVersion(id, request));
     }
 }
