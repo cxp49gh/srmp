@@ -7,6 +7,9 @@ import com.smartroad.srmp.agent.map.solution.dto.MapObjectSolutionResponse;
 import com.smartroad.srmp.agent.map.solution.dto.MapObjectSolutionType;
 import com.smartroad.srmp.agent.map.solution.service.MapObjectSolutionQualityChecker;
 import com.smartroad.srmp.agent.map.solution.service.MapObjectSolutionService;
+import com.smartroad.srmp.agent.solution.service.AiSolutionTemplatePipelineService;
+import com.smartroad.srmp.agent.solution.template.SolutionTemplateContext;
+import com.smartroad.srmp.agent.solution.template.TemplatePipelineResult;
 import com.smartroad.srmp.agent.trace.AiTraceContext;
 import com.smartroad.srmp.agent.trace.service.AiTraceService;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +32,9 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
     @Resource
     private AiTraceService aiTraceService;
 
+    @Resource
+    private AiSolutionTemplatePipelineService templatePipelineService;
+
     @Override
     public MapObjectSolutionResponse generate(MapObjectSolutionRequest request) {
         AiTraceContext trace = AiTraceContext.start("MAP_OBJECT_SOLUTION", stringValue(request == null ? null : request.getSolutionType(), ""));
@@ -45,15 +51,16 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
             }
 
             AiTraceContext.StepTimer solutionTimer = trace.step("map_object_solution_generate", "生成对象方案");
-            MapObjectSolutionResponse response = buildResponse(request, ctx);
+            MapObjectSolutionResponse response = buildResponse(request, ctx, trace);
             solutionTimer.success(1);
 
             AiTraceContext.StepTimer qualityTimer = trace.step("map_object_quality_check", "质量检查");
             qualityTimer.success(response.getQualityCheck() == null || response.getQualityCheck().getItems() == null ? 0 : response.getQualityCheck().getItems().size());
 
-            trace.setMode("MAP_OBJECT_LOCAL");
+            boolean fallback = templateFallback(response);
+            trace.setMode(fallback ? "MAP_OBJECT_FALLBACK" : "MAP_OBJECT_TEMPLATE");
             trace.setStatus("SUCCESS");
-            trace.setFallback(true);
+            trace.setFallback(fallback);
             trace.finish();
             response.setTrace(trace.toMap());
             saveTrace(trace);
@@ -69,7 +76,7 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
         }
     }
 
-    private MapObjectSolutionResponse buildResponse(MapObjectSolutionRequest request, MapObjectContext ctx) {
+    private MapObjectSolutionResponse buildResponse(MapObjectSolutionRequest request, MapObjectContext ctx, AiTraceContext trace) {
         Map detail = ctx.getDetail() == null ? new LinkedHashMap() : ctx.getDetail();
         String objectType = normalizeType(firstString(detail, "objectType", "object_type", "type", "layerType", "assessment_object_type"));
         if (objectType == null || objectType.length() == 0) {
@@ -78,7 +85,9 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
         MapObjectSolutionType solutionType = MapObjectSolutionType.of(request.getSolutionType(), objectType);
         Map<String, Object> summary = buildObjectSummary(ctx, detail, objectType);
         String title = buildTitle(solutionType, summary);
-        String markdown = buildMarkdown(solutionType, objectType, summary);
+        String fallbackMarkdown = buildMarkdown(solutionType, objectType, summary);
+        TemplatePipelineResult pipelineResult = templatePipelineService.generate(buildTemplateContext(request, ctx, detail, objectType, solutionType, summary, title, fallbackMarkdown, trace));
+        String markdown = pipelineResult.getMarkdown();
 
         MapObjectSolutionResponse response = new MapObjectSolutionResponse();
         response.setSolutionType(solutionType.name());
@@ -86,7 +95,67 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
         response.setMarkdown(markdown);
         response.setObjectSummary(summary);
         response.setQualityCheck(qualityChecker.check(solutionType, objectType, summary, markdown));
+        response.setTemplateMeta(pipelineResult.getTemplateMeta());
+        response.setSourceSummaries(pipelineResult.getSourceSummaries());
         return response;
+    }
+
+    private boolean templateFallback(MapObjectSolutionResponse response) {
+        Map<String, Object> templateMeta = response == null ? null : response.getTemplateMeta();
+        Object fallback = templateMeta == null ? null : templateMeta.get("fallback");
+        if (fallback instanceof Boolean) {
+            return (Boolean) fallback;
+        }
+        return fallback == null || Boolean.parseBoolean(String.valueOf(fallback));
+    }
+
+    private SolutionTemplateContext buildTemplateContext(MapObjectSolutionRequest request,
+                                                         MapObjectContext ctx,
+                                                         Map detail,
+                                                         String objectType,
+                                                         MapObjectSolutionType solutionType,
+                                                         Map<String, Object> summary,
+                                                         String title,
+                                                         String fallbackMarkdown,
+                                                         AiTraceContext trace) {
+        SolutionTemplateContext context = new SolutionTemplateContext();
+        context.setTenantId(request.getTenantId());
+        context.setOriginType("MAP_OBJECT");
+        context.setObjectType(objectType);
+        context.setSolutionType(solutionType.name());
+        context.setRouteCode(firstNonEmpty(request.getRouteCode(), stringValue(summary.get("routeCode"), "")));
+        context.setYear(request.getYear() == null ? intObject(summary.get("year")) : request.getYear());
+        context.setTitle(title);
+        context.setMapObject(mapObjectVariables(request, detail));
+        context.setObjectSummary(summary);
+        context.setFallbackMarkdown(fallbackMarkdown);
+        context.setTrace(trace);
+        if (request.getOptions() != null) {
+            context.setOptions(request.getOptions());
+        }
+        Map<String, Object> businessData = new LinkedHashMap<>();
+        businessData.put("fallbackMarkdown", fallbackMarkdown);
+        businessData.put("contextPresent", ctx != null && ctx.isPresent());
+        businessData.put("objectSummary", summary);
+        context.setBusinessData(businessData);
+        return context;
+    }
+
+    private Map<String, Object> mapObjectVariables(MapObjectSolutionRequest request, Map detail) {
+        Map<String, Object> mapObject = new LinkedHashMap<>();
+        if (detail != null) {
+            mapObject.putAll(detail);
+        }
+        if (request.getMapObject() != null) {
+            mapObject.putAll(request.getMapObject());
+        }
+        putIfPresent(mapObject, "objectType", request.getObjectType());
+        putIfPresent(mapObject, "objectId", request.getObjectId());
+        putIfPresent(mapObject, "routeCode", request.getRouteCode());
+        if (request.getYear() != null) {
+            mapObject.put("year", request.getYear());
+        }
+        return mapObject;
     }
 
     private void saveTrace(AiTraceContext trace) {
@@ -430,5 +499,23 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
             return fallback;
         }
         return String.valueOf(value).trim();
+    }
+
+    private String firstNonEmpty(String first, String second) {
+        return stringValue(first, "").length() > 0 ? stringValue(first, "") : stringValue(second, "");
+    }
+
+    private Integer intObject(Object value) {
+        if (value == null || String.valueOf(value).trim().length() == 0) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        try {
+            return Integer.valueOf(String.valueOf(value).trim());
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

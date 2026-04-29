@@ -7,6 +7,9 @@ import com.smartroad.srmp.agent.llm.LlmClient;
 import com.smartroad.srmp.agent.outline.service.OutlineService;
 import com.smartroad.srmp.agent.outline.vo.OutlineSearchResult;
 import com.smartroad.srmp.agent.rag.RagOptions;
+import com.smartroad.srmp.agent.solution.service.AiSolutionTemplatePipelineService;
+import com.smartroad.srmp.agent.solution.template.SolutionTemplateContext;
+import com.smartroad.srmp.agent.solution.template.TemplatePipelineResult;
 import com.smartroad.srmp.agent.trace.AiTraceContext;
 import com.smartroad.srmp.agent.trace.service.AiTraceService;
 import com.smartroad.srmp.gis.dto.MapRegionAnalysisRequest;
@@ -43,6 +46,9 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
     @Resource
     private AiTraceService aiTraceService;
 
+    @Resource
+    private AiSolutionTemplatePipelineService templatePipelineService;
+
     @Override
     public MapRegionSolutionResponse generate(MapRegionSolutionRequest request) {
         AiTraceContext trace = AiTraceContext.start("MAP_REGION_SOLUTION", buildTraceMessage(request));
@@ -56,14 +62,17 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
             List<Map<String, Object>> hotspots = runHotspotStep(trace, regionSummary);
             String businessMarkdown = runBusinessAnalysis(trace, request, regionSummary, hotspots);
             Map<String, Object> sources = runKnowledgeRetrieve(trace, request, businessMarkdown);
-            String markdown = runSolutionGenerate(trace, regionSummary, businessMarkdown, sources);
+            String llmMarkdown = runSolutionGenerate(trace, regionSummary, businessMarkdown, sources);
+            TemplatePipelineResult pipelineResult = runTemplatePipeline(trace, request, regionSummary, hotspots, businessMarkdown, llmMarkdown, sources);
+            String markdown = pipelineResult.getMarkdown();
             Map<String, Object> quality = runQualityCheck(trace, regionSummary, markdown);
 
             response.setTitle(buildTitle(request, regionSummary));
             response.setMarkdown(markdown);
             response.setRegionSummary(regionSummary);
             response.setQualityCheck(quality);
-            response.setSourceSummaries(buildSourceSummaries(regionSummary, sources, trace));
+            response.setTemplateMeta(pipelineResult.getTemplateMeta());
+            response.setSourceSummaries(mergeSources(buildSourceSummaries(regionSummary, sources, trace), pipelineResult.getSourceSummaries()));
             trace.setMode(Boolean.TRUE.equals(sources.get("llmSuccess")) ? "MAP_REGION_LLM" : "MAP_REGION_FALLBACK");
             trace.setStatus("SUCCESS");
             trace.setFallback(!Boolean.TRUE.equals(sources.get("llmSuccess")));
@@ -203,6 +212,55 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
         return result;
     }
 
+    private TemplatePipelineResult runTemplatePipeline(AiTraceContext trace,
+                                                       MapRegionSolutionRequest request,
+                                                       Map<String, Object> regionSummary,
+                                                       List<Map<String, Object>> hotspots,
+                                                       String businessMarkdown,
+                                                       String llmMarkdown,
+                                                       Map<String, Object> sources) {
+        SolutionTemplateContext context = new SolutionTemplateContext();
+        context.setOriginType("MAP_REGION");
+        context.setObjectType("MAP_REGION");
+        context.setSolutionType(safe(request == null ? null : request.getSolutionType()).isEmpty()
+                ? "REGION_MAINTENANCE_SUGGESTION"
+                : safe(request.getSolutionType()));
+        context.setRouteCode(queryValue(request, "routeCode"));
+        context.setYear(intObject(queryValue(request, "year")));
+        context.setTitle(buildTitle(request, regionSummary));
+        context.setRegionSummary(regionSummary);
+        context.setBusinessData(regionBusinessData(businessMarkdown, llmMarkdown, hotspots, sources));
+        context.setKnowledgeSources(knowledgeSourceMaps(sources));
+        context.setOutlineSources(outlineSourceMaps(sources));
+        context.setFallbackMarkdown(safe(llmMarkdown).isEmpty() ? businessMarkdown : llmMarkdown);
+        context.setTrace(trace);
+        return templatePipelineService.generate(context);
+    }
+
+    private Map<String, Object> regionBusinessData(String businessMarkdown,
+                                                   String llmMarkdown,
+                                                   List<Map<String, Object>> hotspots,
+                                                   Map<String, Object> sources) {
+        Map<String, Object> businessData = new LinkedHashMap<>();
+        businessData.put("businessMarkdown", businessMarkdown);
+        businessData.put("llmMarkdown", llmMarkdown);
+        businessData.put("hotspots", hotspots == null ? new ArrayList<>() : hotspots);
+        businessData.put("sourcePrecision", sourcePrecision(sources));
+        return businessData;
+    }
+
+    private Map<String, Object> sourcePrecision(Map<String, Object> sources) {
+        Map<String, Object> precision = new LinkedHashMap<>();
+        Object knowledgeRaw = sources == null ? null : sources.get("knowledgeSources");
+        Object outlineRaw = sources == null ? null : sources.get("outlineSources");
+        precision.put("knowledgeCount", knowledgeRaw instanceof List ? ((List<?>) knowledgeRaw).size() : 0);
+        precision.put("outlineCount", outlineRaw instanceof List ? ((List<?>) outlineRaw).size() : 0);
+        precision.put("llmSuccess", sources != null && Boolean.TRUE.equals(sources.get("llmSuccess")));
+        precision.put("knowledgeError", sources == null ? "" : safe(sources.get("knowledgeError")));
+        precision.put("llmError", sources == null ? "" : safe(sources.get("llmError")));
+        return precision;
+    }
+
     private int qualityItem(List<Map<String, Object>> items, boolean passed, String code, String message, int penalty) {
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("level", passed ? "OK" : (penalty >= 20 ? "ERROR" : "WARN"));
@@ -325,6 +383,61 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
         item.put("sourceUrl", safe(url));
         item.put("contentExcerpt", safe(excerpt));
         return item;
+    }
+
+    private List<Map<String, Object>> mergeSources(List<Map<String, Object>> original, List<Map<String, Object>> pipelineSources) {
+        List<Map<String, Object>> merged = new ArrayList<>();
+        if (original != null) {
+            merged.addAll(original);
+        }
+        if (pipelineSources != null) {
+            merged.addAll(pipelineSources);
+        }
+        return merged;
+    }
+
+    private List<Map<String, Object>> knowledgeSourceMaps(Map<String, Object> sources) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        Object raw = sources == null ? null : sources.get("knowledgeSources");
+        if (raw instanceof List) {
+            for (Object item : (List<?>) raw) {
+                if (item instanceof KnowledgeSearchResult) {
+                    KnowledgeSearchResult source = (KnowledgeSearchResult) item;
+                    result.add(source("KNOWLEDGE", source.getTitle(), source.getDocumentId(), source.getSourceUrl(), shortText(source.getContent(), 500)));
+                }
+            }
+        }
+        return result;
+    }
+
+    private List<Map<String, Object>> outlineSourceMaps(Map<String, Object> sources) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        Object raw = sources == null ? null : sources.get("outlineSources");
+        if (raw instanceof List) {
+            for (Object item : (List<?>) raw) {
+                if (item instanceof OutlineSearchResult) {
+                    OutlineSearchResult source = (OutlineSearchResult) item;
+                    result.add(source("OUTLINE", source.getTitle(), source.getId(), source.getUrl(), shortText(source.getText(), 500)));
+                }
+            }
+        }
+        return result;
+    }
+
+    private String queryValue(MapRegionSolutionRequest request, String key) {
+        Map<String, Object> query = request == null || request.getQuery() == null ? new LinkedHashMap<>() : request.getQuery();
+        return safe(query.get(key));
+    }
+
+    private Integer intObject(String value) {
+        if (safe(value).isEmpty()) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(value);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private Map<String, Object> mapValue(Object value) {

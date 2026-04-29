@@ -10,7 +10,9 @@ import com.smartroad.srmp.agent.service.AgentAnalysisService;
 import com.smartroad.srmp.agent.solution.dto.AiSolutionGenerateRequest;
 import com.smartroad.srmp.agent.solution.dto.AiSolutionTaskQuery;
 import com.smartroad.srmp.agent.solution.service.AiSolutionGenerateService;
-import com.smartroad.srmp.agent.solution.template.MarkdownTemplateRenderer;
+import com.smartroad.srmp.agent.solution.service.AiSolutionTemplatePipelineService;
+import com.smartroad.srmp.agent.solution.template.SolutionTemplateContext;
+import com.smartroad.srmp.agent.solution.template.TemplatePipelineResult;
 import com.smartroad.srmp.tenant.context.TenantContextHolder;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -35,7 +37,7 @@ public class AiSolutionGenerateServiceImpl implements AiSolutionGenerateService 
     private LlmClient llmClient;
 
     @Resource
-    private MarkdownTemplateRenderer templateRenderer;
+    private AiSolutionTemplatePipelineService templatePipelineService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -44,14 +46,6 @@ public class AiSolutionGenerateServiceImpl implements AiSolutionGenerateService 
         validate(request);
 
         String tenantId = TenantContextHolder.getTenantId();
-        Map<String, Object> template = resolveTemplate(tenantId, request);
-        if (template.isEmpty()) {
-            throw new IllegalArgumentException("未找到可用方案模板，请先在方案模板页面创建模板");
-        }
-
-        String templateId = String.valueOf(template.get("id"));
-        String templateVersion = String.valueOf(template.get("current_version"));
-        String templateContent = String.valueOf(template.get("content"));
 
         AgentAnalysisRequest analysisRequest = new AgentAnalysisRequest();
         analysisRequest.setRouteCode(request.getRouteCode());
@@ -79,14 +73,14 @@ public class AiSolutionGenerateServiceImpl implements AiSolutionGenerateService 
         variables.put("maintenanceSuggestion", maintenanceSuggestion);
         variables.put("riskNotice", riskNotice);
 
-        String draft = templateRenderer.render(templateContent, variables);
-        String finalContent = polishWithLlm(draft, knowledgeSources);
+        String title = request.getRouteCode() + " " + request.getYear() + " 年" + readableSolutionType(request.getSolutionType());
+        TemplatePipelineResult pipelineResult = templatePipelineService.generate(buildTemplateContext(tenantId, request, title, variables, knowledgeSources));
+        String finalContent = polishWithLlm(pipelineResult.getMarkdown(), knowledgeSources);
 
         String taskId = uuid();
-        String title = request.getRouteCode() + " " + request.getYear() + " 年" + readableSolutionType(request.getSolutionType());
-
-        insertTask(tenantId, taskId, request, title, templateId, templateVersion, finalContent);
-        insertSources(tenantId, taskId, template, knowledgeSources, routeSummary, assessmentSummary, diseaseSummary);
+        Map<String, Object> templateMeta = pipelineResult.getTemplateMeta() == null ? new LinkedHashMap<>() : pipelineResult.getTemplateMeta();
+        insertTask(tenantId, taskId, request, title, safe(templateMeta.get("templateId")), safe(templateMeta.get("templateVersion")), templateMeta, finalContent);
+        insertSources(tenantId, taskId, pipelineResult.getSourceSummaries(), knowledgeSources, routeSummary, assessmentSummary, diseaseSummary);
 
         Map<String, Object> result = task(taskId);
         result.put("sources", sources(taskId));
@@ -102,7 +96,7 @@ public class AiSolutionGenerateServiceImpl implements AiSolutionGenerateService 
         List<Map<String, Object>> list = namedParameterJdbcTemplate.queryForList(
                 "select id, tenant_id, solution_type, title, route_code, year, template_id, template_version, status, " +
                         "request_json, result_content, quality_result, created_at, updated_at, " +
-                        "origin_type, object_type, object_id, map_object, object_summary, draft_status, current_version_no " +
+                        "origin_type, object_type, object_id, map_object, object_summary, template_meta, draft_status, current_version_no " +
                         "from ai_solution_task where tenant_id=:tenantId and id=:id",
                 params
         );
@@ -156,34 +150,6 @@ public class AiSolutionGenerateServiceImpl implements AiSolutionGenerateService 
         );
     }
 
-    private Map<String, Object> resolveTemplate(String tenantId, AiSolutionGenerateRequest request) {
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("tenantId", tenantId)
-                .addValue("templateId", safe(request.getTemplateId()))
-                .addValue("templateCode", safe(request.getTemplateCode()))
-                .addValue("solutionType", safe(request.getSolutionType()));
-
-        String sql =
-                "select t.id, t.tenant_id, t.template_code, t.template_name, t.solution_type, t.source_type, t.source_id, " +
-                        "t.category, t.current_version, t.status, v.content, v.variables, v.source_url " +
-                        "from ai_solution_template t " +
-                        "left join ai_solution_template_version v on v.tenant_id=t.tenant_id and v.template_id=t.id and v.version=t.current_version " +
-                        "where t.tenant_id=:tenantId and t.deleted=false and t.status='ENABLED' ";
-
-        if (!safe(request.getTemplateId()).isEmpty()) {
-            sql += "and t.id=:templateId ";
-        } else if (!safe(request.getTemplateCode()).isEmpty()) {
-            sql += "and t.template_code=:templateCode ";
-        } else {
-            sql += "and t.solution_type=:solutionType ";
-        }
-
-        sql += "order by t.updated_at desc limit 1";
-
-        List<Map<String, Object>> list = namedParameterJdbcTemplate.queryForList(sql, params);
-        return list.isEmpty() ? new LinkedHashMap<>() : list.get(0);
-    }
-
     private List<KnowledgeSearchResult> searchKnowledge(AiSolutionGenerateRequest request, String context) {
         if (!readBoolean(request.getOptions(), "useKnowledge", true)) {
             return Collections.emptyList();
@@ -228,6 +194,56 @@ public class AiSolutionGenerateServiceImpl implements AiSolutionGenerateService 
         return sb.toString();
     }
 
+    private SolutionTemplateContext buildTemplateContext(String tenantId,
+                                                         AiSolutionGenerateRequest request,
+                                                         String title,
+                                                         Map<String, Object> businessData,
+                                                         List<KnowledgeSearchResult> knowledgeSources) {
+        SolutionTemplateContext context = new SolutionTemplateContext();
+        context.setTenantId(tenantId);
+        context.setOriginType("ROUTE_REPORT");
+        context.setObjectType("ROAD_ROUTE");
+        context.setSolutionType(request.getSolutionType());
+        context.setRouteCode(request.getRouteCode());
+        context.setYear(request.getYear());
+        context.setTemplateId(request.getTemplateId());
+        context.setTemplateCode(request.getTemplateCode());
+        context.setTitle(title);
+        context.setBusinessData(businessData);
+        context.setKnowledgeSources(knowledgeSourceMaps(knowledgeSources));
+        context.setFallbackMarkdown(routeFallbackMarkdown(title, businessData));
+        return context;
+    }
+
+    private String routeFallbackMarkdown(String title, Map<String, Object> variables) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("# ").append(title).append("\n\n");
+        sb.append("## 1. 路线概况\n\n").append(safe(variables.get("routeSummary"))).append("\n\n");
+        sb.append("## 2. 技术状况评价\n\n").append(safe(variables.get("assessmentSummary"))).append("\n\n");
+        sb.append("## 3. 病害与低分区段\n\n").append(safe(variables.get("lowScoreSections"))).append("\n\n");
+        sb.append("## 4. 问题分析\n\n").append(safe(variables.get("problemAnalysis"))).append("\n\n");
+        sb.append("## 5. 养护建议\n\n").append(safe(variables.get("maintenanceSuggestion"))).append("\n\n");
+        sb.append("## 6. 风险提示\n\n").append(safe(variables.get("riskNotice"))).append("\n");
+        return sb.toString();
+    }
+
+    private List<Map<String, Object>> knowledgeSourceMaps(List<KnowledgeSearchResult> knowledgeSources) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        if (knowledgeSources == null) {
+            return result;
+        }
+        for (KnowledgeSearchResult item : knowledgeSources) {
+            Map<String, Object> source = new LinkedHashMap<>();
+            source.put("sourceType", "KNOWLEDGE");
+            source.put("sourceTitle", item.getTitle());
+            source.put("sourceId", item.getChunkId());
+            source.put("sourceUrl", item.getSourceUrl());
+            source.put("contentExcerpt", shortText(item.getContent(), 500));
+            result.add(source);
+        }
+        return result;
+    }
+
     private String polishWithLlm(String draft, List<KnowledgeSearchResult> knowledgeSources) {
         StringBuilder sources = new StringBuilder();
         for (int i = 0; i < Math.min(knowledgeSources.size(), 5); i++) {
@@ -247,6 +263,7 @@ public class AiSolutionGenerateServiceImpl implements AiSolutionGenerateService 
                             String title,
                             String templateId,
                             String templateVersion,
+                            Map<String, Object> templateMeta,
                             String content) {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("id", taskId)
@@ -260,13 +277,14 @@ public class AiSolutionGenerateServiceImpl implements AiSolutionGenerateService 
                 .addValue("status", "SUCCESS")
                 .addValue("requestJson", toJson(request))
                 .addValue("resultContent", content)
-                .addValue("qualityResult", "{\"passed\":true,\"warnings\":[]}");
+                .addValue("qualityResult", "{\"passed\":true,\"warnings\":[]}")
+                .addValue("templateMeta", toJson(templateMeta));
 
         namedParameterJdbcTemplate.update(
                 "insert into ai_solution_task(" +
-                        "id, tenant_id, solution_type, title, route_code, year, template_id, template_version, status, request_json, result_content, quality_result, created_at, updated_at" +
+                        "id, tenant_id, solution_type, title, route_code, year, template_id, template_version, status, request_json, result_content, quality_result, template_meta, created_at, updated_at" +
                         ") values (" +
-                        ":id, :tenantId, :solutionType, :title, :routeCode, :year, :templateId, :templateVersion, :status, cast(:requestJson as jsonb), :resultContent, cast(:qualityResult as jsonb), now(), now()" +
+                        ":id, :tenantId, :solutionType, :title, :routeCode, :year, :templateId, :templateVersion, :status, cast(:requestJson as jsonb), :resultContent, cast(:qualityResult as jsonb), cast(:templateMeta as jsonb), now(), now()" +
                         ")",
                 params
         );
@@ -274,12 +292,16 @@ public class AiSolutionGenerateServiceImpl implements AiSolutionGenerateService 
 
     private void insertSources(String tenantId,
                                String taskId,
-                               Map<String, Object> template,
+                               List<Map<String, Object>> pipelineSources,
                                List<KnowledgeSearchResult> knowledgeSources,
                                String routeSummary,
                                String assessmentSummary,
                                String diseaseSummary) {
-        insertSource(tenantId, taskId, "TEMPLATE", String.valueOf(template.get("template_name")), String.valueOf(template.get("id")), asString(template.get("source_url")), shortText(asString(template.get("content")), 500));
+        if (pipelineSources != null) {
+            for (Map<String, Object> source : pipelineSources) {
+                insertSource(tenantId, taskId, safe(source.get("sourceType")), safe(source.get("sourceTitle")), safe(source.get("sourceId")), safe(source.get("sourceUrl")), shortText(safe(source.get("contentExcerpt")), 500));
+            }
+        }
         insertSource(tenantId, taskId, "BUSINESS_DATA", "路线分析摘要", null, null, shortText(routeSummary, 500));
         insertSource(tenantId, taskId, "BUSINESS_DATA", "评定结果摘要", null, null, shortText(assessmentSummary, 500));
         insertSource(tenantId, taskId, "BUSINESS_DATA", "病害分析摘要", null, null, shortText(diseaseSummary, 500));
@@ -367,12 +389,8 @@ public class AiSolutionGenerateServiceImpl implements AiSolutionGenerateService 
         return text.length() <= max ? text : text.substring(0, max) + "...";
     }
 
-    private String safe(String value) {
-        return value == null ? "" : value.trim();
-    }
-
-    private String asString(Object value) {
-        return value == null ? null : String.valueOf(value);
+    private String safe(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
     }
 
     private String toJson(Object value) {

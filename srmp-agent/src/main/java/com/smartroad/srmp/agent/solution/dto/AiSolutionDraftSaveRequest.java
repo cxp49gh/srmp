@@ -24,6 +24,7 @@ public class AiSolutionDraftSaveRequest {
     private String templateId;
     private String templateVersion;
     private String templateName;
+    private Map<String, Object> templateMeta;
     private Map<String, Object> options;
     private Map<String, Object> requestContext;
 }

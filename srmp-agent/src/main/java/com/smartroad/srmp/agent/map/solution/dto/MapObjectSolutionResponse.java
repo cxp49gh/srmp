@@ -2,6 +2,7 @@ package com.smartroad.srmp.agent.map.solution.dto;
 
 import lombok.Data;
 
+import java.util.List;
 import java.util.Map;
 
 @Data
@@ -11,5 +12,7 @@ public class MapObjectSolutionResponse {
     private String markdown;
     private Map<String, Object> objectSummary;
     private MapObjectSolutionQualityCheck qualityCheck;
+    private Map<String, Object> templateMeta;
+    private List<Map<String, Object>> sourceSummaries;
     private Map<String, Object> trace;
 }

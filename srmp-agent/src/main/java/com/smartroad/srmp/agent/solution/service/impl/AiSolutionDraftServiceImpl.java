@@ -67,14 +67,15 @@ public class AiSolutionDraftServiceImpl implements AiSolutionDraftService {
                 .addValue("objectId", "MAP_REGION".equals(originType) ? firstString(request.getTrace(), mapObject, "traceId", "id") : firstString(objectSummary, mapObject, "objectId", "object_id", "id"))
                 .addValue("mapObject", toJson(mapObject, "{}"))
                 .addValue("objectSummary", toJson(objectSummary, "{}"))
+                .addValue("templateMeta", toJson(request.getTemplateMeta(), "{}"))
                 .addValue("draftStatus", "DRAFT")
                 .addValue("currentVersionNo", 1);
 
         namedParameterJdbcTemplate.update(
                 "insert into ai_solution_task(" +
-                        "id, tenant_id, solution_type, title, route_code, year, template_id, template_version, status, request_json, result_content, quality_result, created_at, updated_at, origin_type, object_type, object_id, map_object, object_summary, draft_status, current_version_no" +
+                        "id, tenant_id, solution_type, title, route_code, year, template_id, template_version, status, request_json, result_content, quality_result, created_at, updated_at, origin_type, object_type, object_id, map_object, object_summary, template_meta, draft_status, current_version_no" +
                         ") values (" +
-                        ":id, :tenantId, :solutionType, :title, :routeCode, :year, :templateId, :templateVersion, :status, cast(:requestJson as jsonb), :resultContent, cast(:qualityResult as jsonb), now(), now(), :originType, :objectType, :objectId, cast(:mapObject as jsonb), cast(:objectSummary as jsonb), :draftStatus, :currentVersionNo" +
+                        ":id, :tenantId, :solutionType, :title, :routeCode, :year, :templateId, :templateVersion, :status, cast(:requestJson as jsonb), :resultContent, cast(:qualityResult as jsonb), now(), now(), :originType, :objectType, :objectId, cast(:mapObject as jsonb), cast(:objectSummary as jsonb), cast(:templateMeta as jsonb), :draftStatus, :currentVersionNo" +
                         ")",
                 params
         );
@@ -126,7 +127,7 @@ public class AiSolutionDraftServiceImpl implements AiSolutionDraftService {
                 task.get("quality_result"),
                 task.get("map_object"),
                 task.get("object_summary"),
-                loadSources(tenantId, taskId),
+                sourceSnapshotWithTemplateMeta(loadSources(tenantId, taskId), task.get("template_meta")),
                 safe(request.getChangeNote()).isEmpty() ? "更新草稿" : safe(request.getChangeNote())
         );
         return loadTask(tenantId, taskId);
@@ -308,6 +309,16 @@ public class AiSolutionDraftServiceImpl implements AiSolutionDraftService {
             template.put("contentExcerpt", safe(request.getTemplateVersion()).isEmpty() ? "" : "模板版本：" + safe(request.getTemplateVersion()));
             sources.add(template);
         }
+        if (request.getTemplateMeta() != null && !request.getTemplateMeta().isEmpty()) {
+            Map<String, Object> meta = new LinkedHashMap<>();
+            meta.put("sourceType", "TEMPLATE_META");
+            meta.put("sourceTitle", "模板元信息");
+            meta.put("sourceId", safe(firstPresent(request.getTemplateMeta().get("templateId"), request.getTemplateId())));
+            meta.put("sourceUrl", "");
+            meta.put("contentExcerpt", shortText(toJson(request.getTemplateMeta(), "{}"), 500));
+            meta.put("templateMeta", request.getTemplateMeta());
+            sources.add(meta);
+        }
         return sources;
     }
 
@@ -337,6 +348,7 @@ public class AiSolutionDraftServiceImpl implements AiSolutionDraftService {
         json.put("templateId", request.getTemplateId());
         json.put("templateVersion", request.getTemplateVersion());
         json.put("templateName", request.getTemplateName());
+        json.put("templateMeta", request.getTemplateMeta() == null ? new LinkedHashMap<>() : request.getTemplateMeta());
         json.put("options", request.getOptions() == null ? new LinkedHashMap<>() : request.getOptions());
         json.put("requestContext", request.getRequestContext() == null ? new LinkedHashMap<>() : request.getRequestContext());
         json.put("sourceSummaries", buildSourceSnapshot(request));
@@ -397,7 +409,7 @@ public class AiSolutionDraftServiceImpl implements AiSolutionDraftService {
 
     private Map<String, Object> loadTask(String tenantId, String taskId) {
         List<Map<String, Object>> list = namedParameterJdbcTemplate.queryForList(
-                "select id, tenant_id, solution_type, title, route_code, year, template_id, template_version, status, request_json, result_content, quality_result, created_at, updated_at, origin_type, object_type, object_id, map_object, object_summary, draft_status, current_version_no " +
+                "select id, tenant_id, solution_type, title, route_code, year, template_id, template_version, status, request_json, result_content, quality_result, created_at, updated_at, origin_type, object_type, object_id, map_object, object_summary, template_meta, draft_status, current_version_no " +
                         "from ai_solution_task where tenant_id=:tenantId and id=:id",
                 new MapSqlParameterSource()
                         .addValue("tenantId", tenantId)
@@ -408,7 +420,7 @@ public class AiSolutionDraftServiceImpl implements AiSolutionDraftService {
 
     private Map<String, Object> lockTask(String tenantId, String taskId) {
         List<Map<String, Object>> rows = namedParameterJdbcTemplate.queryForList(
-                "select id, tenant_id, title, result_content, quality_result, map_object, object_summary, draft_status, current_version_no " +
+                "select id, tenant_id, title, result_content, quality_result, map_object, object_summary, template_meta, draft_status, current_version_no " +
                         "from ai_solution_task where tenant_id=:tenantId and id=:id for update",
                 new MapSqlParameterSource()
                         .addValue("tenantId", tenantId)
@@ -425,6 +437,45 @@ public class AiSolutionDraftServiceImpl implements AiSolutionDraftService {
                         .addValue("tenantId", tenantId)
                         .addValue("taskId", taskId)
         );
+    }
+
+    private List<Map<String, Object>> sourceSnapshotWithTemplateMeta(List<Map<String, Object>> sources, Object templateMetaRaw) {
+        List<Map<String, Object>> snapshot = new ArrayList<>();
+        if (sources != null) {
+            for (Map<String, Object> source : sources) {
+                if (!"TEMPLATE_META".equals(safe(firstPresent(source.get("sourceType"), source.get("source_type"))))) {
+                    snapshot.add(new LinkedHashMap<>(source));
+                }
+            }
+        }
+        Map<String, Object> templateMeta = objectMap(templateMetaRaw);
+        if (!templateMeta.isEmpty()) {
+            Map<String, Object> meta = new LinkedHashMap<>();
+            meta.put("sourceType", "TEMPLATE_META");
+            meta.put("sourceTitle", "模板元信息");
+            meta.put("sourceId", safe(templateMeta.get("templateId")));
+            meta.put("sourceUrl", "");
+            meta.put("contentExcerpt", shortText(toJson(templateMeta, "{}"), 500));
+            meta.put("templateMeta", templateMeta);
+            snapshot.add(meta);
+        }
+        return snapshot;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> objectMap(Object value) {
+        if (value instanceof Map) {
+            return new LinkedHashMap<>((Map<String, Object>) value);
+        }
+        String text = safe(value);
+        if (text.startsWith("{")) {
+            try {
+                return objectMapper.readValue(text, Map.class);
+            } catch (Exception ignored) {
+                return new LinkedHashMap<>();
+            }
+        }
+        return new LinkedHashMap<>();
     }
 
     private boolean canTransition(String current, String next) {
@@ -471,6 +522,18 @@ public class AiSolutionDraftServiceImpl implements AiSolutionDraftService {
             return (Boolean) value;
         }
         return Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    private Object firstPresent(Object... values) {
+        if (values == null) {
+            return null;
+        }
+        for (Object value : values) {
+            if (value != null && String.valueOf(value).trim().length() > 0) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private int intValue(Object value, int def) {

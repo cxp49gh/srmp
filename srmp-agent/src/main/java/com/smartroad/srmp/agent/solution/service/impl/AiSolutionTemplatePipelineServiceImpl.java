@@ -49,19 +49,7 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
                     .addValue("originType", safe(context.getOriginType()))
                     .addValue("objectType", safe(context.getObjectType()))
                     .addValue("solutionType", safe(context.getSolutionType()));
-            String sql = "select t.id,t.tenant_id,t.template_code,t.template_name,t.solution_type,t.origin_type,t.object_type,t.current_version,t.status,t.is_default,t.priority,v.content,v.variables,v.source_url " +
-                    "from ai_solution_template t " +
-                    "left join ai_solution_template_version v on v.tenant_id=t.tenant_id and v.template_id=t.id and v.version=t.current_version " +
-                    "where t.tenant_id=:tenantId and t.deleted=false and t.status='ENABLED' ";
-            if (!safe(context.getTemplateId()).isEmpty()) {
-                sql += "and t.id=:templateId ";
-            } else if (!safe(context.getTemplateCode()).isEmpty()) {
-                sql += "and t.template_code=:templateCode ";
-            } else {
-                sql += "and coalesce(t.origin_type,'')=:originType and coalesce(t.object_type,'')=:objectType and t.solution_type=:solutionType ";
-            }
-            sql += "order by coalesce(t.priority,0) desc, coalesce(t.is_default,false) desc, t.updated_at desc limit 1";
-            List<Map<String, Object>> rows = namedParameterJdbcTemplate.queryForList(sql, params);
+            List<Map<String, Object>> rows = queryMatchedTemplates(context, params);
             Map<String, Object> template;
             boolean fallback;
             if (rows.isEmpty()) {
@@ -87,6 +75,46 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
             }
             throw e;
         }
+    }
+
+    private List<Map<String, Object>> queryMatchedTemplates(SolutionTemplateContext context, MapSqlParameterSource params) {
+        String baseSql = "select t.id,t.tenant_id,t.template_code,t.template_name,t.solution_type,t.origin_type,t.object_type,t.current_version,t.status,t.is_default,t.priority,v.content,v.variables,v.source_url " +
+                "from ai_solution_template t " +
+                "left join ai_solution_template_version v on v.tenant_id=t.tenant_id and v.template_id=t.id and v.version=t.current_version " +
+                "where t.tenant_id=:tenantId and t.deleted=false and t.status='ENABLED' ";
+        String orderSql = "order by coalesce(t.priority,0) desc, coalesce(t.is_default,false) desc, t.updated_at desc limit 1";
+
+        if (!safe(context.getTemplateId()).isEmpty()) {
+            return namedParameterJdbcTemplate.queryForList(baseSql + "and t.id=:templateId " + orderSql, params);
+        }
+        if (!safe(context.getTemplateCode()).isEmpty()) {
+            return namedParameterJdbcTemplate.queryForList(baseSql + "and t.template_code=:templateCode " + orderSql, params);
+        }
+
+        List<Map<String, Object>> rows = namedParameterJdbcTemplate.queryForList(
+                baseSql + "and coalesce(t.origin_type,'')=:originType and coalesce(t.object_type,'')=:objectType and t.solution_type=:solutionType " + orderSql,
+                params
+        );
+        if (!rows.isEmpty() || !isLegacyRouteContext(context)) {
+            return rows;
+        }
+
+        rows = namedParameterJdbcTemplate.queryForList(
+                baseSql + "and coalesce(t.origin_type,'')='' and coalesce(t.object_type,'')='' and t.solution_type=:solutionType " + orderSql,
+                params
+        );
+        if (!rows.isEmpty()) {
+            Map<String, Object> legacy = new LinkedHashMap<String, Object>(rows.get(0));
+            legacy.put("matchReason", "按 legacy solutionType 兼容匹配路线模板，solutionType=" + safe(context.getSolutionType()));
+            rows = new ArrayList<Map<String, Object>>();
+            rows.add(legacy);
+        }
+        return rows;
+    }
+
+    private boolean isLegacyRouteContext(SolutionTemplateContext context) {
+        return "ROUTE_REPORT".equals(safe(context.getOriginType()))
+                && "ROAD_ROUTE".equals(safe(context.getObjectType()));
     }
 
     private Map<String, Object> buildVariables(AiTraceContext trace, SolutionTemplateContext context) {
@@ -206,12 +234,20 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
         meta.put("solutionType", safe(context.getSolutionType()));
         meta.put("objectType", safe(context.getObjectType()));
         meta.put("originType", safe(context.getOriginType()));
-        meta.put("matchReason", fallback ? "" : "按 originType + objectType + solutionType 匹配，priority=" + safe(template.get("priority")));
+        meta.put("matchReason", fallback ? "" : matchReason(template));
         meta.put("fallbackReason", safe(template.get("fallbackReason")));
         meta.put("missingVariables", rendered.getMissingVariables());
         meta.put("unusedVariables", rendered.getUnusedVariables());
         meta.put("warnings", rendered.getWarnings());
         return meta;
+    }
+
+    private String matchReason(Map<String, Object> template) {
+        String explicit = safe(template.get("matchReason"));
+        if (!explicit.isEmpty()) {
+            return explicit;
+        }
+        return "按 originType + objectType + solutionType 匹配，priority=" + safe(template.get("priority"));
     }
 
     private List<Map<String, Object>> sourceSummaries(Map<String, Object> template,
@@ -298,6 +334,7 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
         data.put("templateVersion", safe(template.get("current_version")));
         data.put("matched", !fallback);
         data.put("fallback", fallback);
+        data.put("matchReason", safe(template.get("matchReason")));
         data.put("fallbackReason", safe(template.get("fallbackReason")));
         data.put("matchedTemplateId", safe(template.get("matchedTemplateId")));
         data.put("matchedTemplateCode", safe(template.get("matchedTemplateCode")));
