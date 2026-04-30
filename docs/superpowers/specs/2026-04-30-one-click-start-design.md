@@ -17,6 +17,8 @@
 
 这会导致新环境或演示环境启动时需要人工记住执行顺序，也容易出现“后端已启动但数据库缺表 / 模板未初始化 / 样例数据不足”的问题。
 
+此外，当前 Docker Compose 只覆盖 PostGIS、Redis、MinIO，后端和前端仍依赖本机 Java、Maven、Node 进程启动。为了满足演示和部署一致性，本阶段需要把后端和前端也纳入 Docker 部署链路。
+
 ## 2. 目标
 
 提供一个默认安全的一键启动体系，让开发者或验收人员可以用一条命令完成：
@@ -24,15 +26,16 @@
 1. 启动 PostGIS、Redis、MinIO。
 2. 等待数据库可用。
 3. 初始化基础表结构、字典、管理员。
-4. 初始化业务样例数据。
-5. 按需初始化业务样例数据。
-6. 初始化 AI 知识库、Outline 同步表、Trace、方案任务、模板配置和 Phase35 样例模板。
-7. 构建并启动后端。
-8. 构建并启动前端。
-9. 执行启动后健康检查。
-10. 输出访问地址、日志路径、常见排查提示。
+4. 按需初始化业务样例数据。
+5. 初始化 AI 知识库、Outline 同步表、Trace、方案任务、模板配置和 Phase35 样例模板。
+6. 构建后端镜像和前端镜像。
+7. 启动后端和前端容器。
+8. 执行启动后健康检查。
+9. 输出访问地址、日志查看命令、常见排查提示。
 
 默认行为必须是安全幂等初始化：只补齐缺失内容和可重复 upsert 的样例配置，不主动清空用户已有业务数据。重置演示数据必须通过显式参数触发。
+
+默认部署模式必须是 Docker 模式：后端和前端均通过容器运行。本机 Java/Maven/Node 启动仅作为本地开发模式保留。
 
 ## 3. 非目标
 
@@ -40,10 +43,11 @@
 
 - 不引入 Flyway/Liquibase 等迁移框架。
 - 不重构现有 SQL 表结构。
-- 不替换现有 Docker Compose 服务。
+- 不删除现有 Docker Compose 基础依赖定义。
 - 不默认删除数据库卷。
 - 不默认覆盖用户本地配置文件。
 - 不把 Outline 服务纳入默认一键启动，Outline 仍通过现有 `scripts/start-outline.sh` 独立启动。
+- 不要求使用者本机安装 Java、Maven、Node 才能完成默认 Docker 启动。
 
 ## 4. 推荐入口
 
@@ -63,10 +67,10 @@ scripts/srmp-one-click-start.sh
 
 默认动作：
 
-- 启动基础依赖。
+- 启动 PostGIS、Redis、MinIO。
 - 初始化数据库和样例配置。
-- 构建后端、前端。
-- 启动后端、前端。
+- 构建后端和前端 Docker 镜像。
+- 启动后端和前端容器。
 - 运行 ready check。
 
 ### 4.2 数据初始化入口
@@ -81,8 +85,8 @@ scripts/srmp-init-demo.sh
 
 - 统一执行数据库结构和样例 SQL。
 - 自动选择 `psql` 执行方式。
-- 本机有 `psql` 时优先使用本机 `psql`。
-- 本机没有 `psql` 且 `srmp-postgres` 容器存在时，自动使用 `docker exec srmp-postgres psql`。
+- Docker 模式下优先使用 `docker exec srmp-postgres psql`。
+- 如果显式指定 `PSQL_BIN`，或处于 `--local-dev` 模式，可使用本机 `psql`。
 - 默认幂等执行。
 
 ### 4.3 启动检查入口
@@ -110,11 +114,12 @@ scripts/srmp-check-ready.sh
 
 ```text
 --reset-demo       显式重置演示业务数据，允许重刷 G210/2026 样例数据。
---skip-build       跳过后端和前端构建，直接启动已有产物。
---backend-only     只启动基础依赖、初始化数据、构建和启动后端。
---frontend-only    只启动前端，不初始化数据库，不启动后端。
---no-start         只启动依赖并初始化数据库，不启动后端/前端。
+--skip-build       跳过 Docker 镜像构建，直接启动已有镜像。
+--backend-only     只启动数据库、Redis、MinIO、后端，不启动前端。
+--frontend-only    只启动前端容器，不初始化数据库，不启动后端。
+--no-start         只启动基础依赖并初始化数据库，不启动后端/前端容器。
 --check-only       只执行 ready check。
+--local-dev        使用本机 Java/Maven/Node 进程启动后端和前端，仅用于开发调试。
 --help             输出帮助。
 ```
 
@@ -140,7 +145,19 @@ YEAR=2026
 ROUTE_CODE=G210
 ```
 
-Maven 优先级：
+Docker 镜像和容器变量：
+
+```bash
+BACKEND_IMAGE=srmp-backend:latest
+FRONTEND_IMAGE=srmp-frontend:latest
+COMPOSE_PROJECT_NAME=srmp
+SPRING_PROFILES_ACTIVE=demo
+VITE_API_BASE_URL=
+```
+
+`VITE_API_BASE_URL` 在 Docker 部署中默认为空，让前端通过同源 `/api` 访问 nginx 反向代理；本地开发模式可设置为 `http://localhost:8080`。
+
+仅 `--local-dev` 模式需要本机 Java/Maven/Node。该模式下 Maven 优先级：
 
 1. 如果设置了 `MAVEN_HOME`，使用 `$MAVEN_HOME/bin/mvn`。
 2. 否则使用 PATH 中的 `mvn`。
@@ -149,6 +166,11 @@ Java 优先级：
 
 1. 如果设置了 `JAVA_HOME`，使用 `$JAVA_HOME/bin/java`。
 2. 否则使用 PATH 中的 `java`。
+
+Node/npm 优先级：
+
+1. 使用 PATH 中的 `npm`。
+2. 如果不存在，`--local-dev` 模式失败；Docker 模式不依赖本机 npm。
 
 ## 6. 数据初始化顺序
 
@@ -228,13 +250,13 @@ disease_record >= 3000
 执行策略：
 
 1. 如果 `PSQL_BIN` 显式设置，直接使用。
-2. 如果 PATH 中存在 `psql`，使用本机 `psql`。
-3. 如果 Docker 可用且 `srmp-postgres` 容器存在，使用：
+2. 如果 Docker 可用且 `srmp-postgres` 容器存在，使用：
 
 ```bash
 docker exec -i srmp-postgres psql -U "$DB_USER" -d "$DB_NAME"
 ```
 
+3. 如果 PATH 中存在 `psql`，使用本机 `psql`。
 4. 如果以上都不可用，输出清晰错误：
 
 ```text
@@ -244,27 +266,169 @@ docker exec -i srmp-postgres psql -U "$DB_USER" -d "$DB_NAME"
 
 对于容器模式，SQL 文件通过 stdin 输入，不要求把 SQL 文件复制到容器内。
 
-## 9. 服务启动方式
+## 9. Docker 部署设计
 
-### 9.1 基础依赖
+### 9.1 Compose 文件
 
-默认执行：
+保留现有 `docker-compose.yml` 作为基础依赖定义，新增应用层 Compose：
+
+```text
+docker-compose.app.yml
+```
+
+一键启动默认采用两阶段 Compose，避免后端在数据库结构初始化前抢先处理请求。
+
+第一阶段启动基础依赖：
 
 ```bash
 docker compose up -d postgres redis minio
 ```
 
-然后等待 PostgreSQL 可用。
+第二阶段启动应用容器：
 
-### 9.2 后端
+```bash
+docker compose -f docker-compose.yml -f docker-compose.app.yml up -d --build backend frontend
+```
 
-默认构建：
+如果传入 `--skip-build`：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.app.yml up -d backend frontend
+```
+
+新增服务：
+
+- `backend`：运行 `srmp-admin` Spring Boot 应用。
+- `frontend`：运行 nginx，托管 Vue 构建产物，并将 `/api` 反向代理到 `backend:8080`。
+
+服务依赖：
+
+```text
+frontend -> backend -> postgres / redis / minio
+```
+
+后端容器环境变量：
+
+```yaml
+SPRING_PROFILES_ACTIVE: demo
+DB_HOST: postgres
+DB_PORT: 5432
+DB_NAME: srmp
+DB_USER: srmp
+DB_PASSWORD: srmp123
+REDIS_HOST: redis
+REDIS_PORT: 6379
+MINIO_ENDPOINT: http://minio:9000
+MINIO_ACCESS_KEY: minioadmin
+MINIO_SECRET_KEY: minioadmin
+MINIO_BUCKET: srmp
+```
+
+端口映射：
+
+```text
+backend:  8080:8080
+frontend: 5173:80
+```
+
+保留前端对外端口 `5173`，让用户访问地址与开发模式一致。
+
+### 9.2 后端镜像
+
+新增：
+
+```text
+deploy/docker/backend/Dockerfile
+```
+
+推荐使用多阶段构建：
+
+```text
+builder: Maven + JDK 8，执行 mvn -pl srmp-admin -am package -DskipTests
+runtime: JRE 8，运行 srmp-admin/target/srmp-admin-1.0.0.jar
+```
+
+运行命令必须包含本地网络代理规避参数，避免容器内或宿主代理影响数据库连接：
+
+```bash
+java \
+  -Djava.net.useSystemProxies=false \
+  -Dhttp.nonProxyHosts='localhost|127.*|[::1]|postgres|redis|minio|backend|frontend' \
+  -Dhttps.nonProxyHosts='localhost|127.*|[::1]|postgres|redis|minio|backend|frontend' \
+  -jar /app/srmp-admin-1.0.0.jar
+```
+
+后端日志默认由 Docker 管理，通过以下命令查看：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.app.yml logs -f backend
+```
+
+### 9.3 前端镜像
+
+新增：
+
+```text
+deploy/docker/frontend/Dockerfile
+deploy/docker/frontend/nginx.conf
+```
+
+推荐使用多阶段构建：
+
+```text
+builder: Node 镜像，执行 npm ci 或 npm install，再执行 npm run build
+runtime: nginx 镜像，托管 dist
+```
+
+Docker 模式下前端构建时：
+
+```bash
+VITE_API_BASE_URL=
+VITE_TENANT_ID=default
+```
+
+这样浏览器请求 `/api/...` 时会走同源 nginx 反向代理。
+
+nginx 配置要求：
+
+```text
+/              -> /usr/share/nginx/html
+/api/          -> http://backend:8080/api/
+SPA fallback   -> /index.html
+AI 长请求超时   -> proxy_read_timeout >= 180s
+```
+
+前端日志默认由 Docker 管理，通过以下命令查看：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.app.yml logs -f frontend
+```
+
+### 9.4 数据初始化容器兼容
+
+数据初始化仍由宿主脚本 `srmp-init-demo.sh` 发起，但默认优先使用容器内 `psql`：
+
+```bash
+docker exec -i srmp-postgres psql -U "$DB_USER" -d "$DB_NAME"
+```
+
+原因：
+
+- 默认 Docker 启动不要求本机安装 PostgreSQL 客户端。
+- SQL 文件仍从宿主仓库读取，避免复制文件到容器。
+- 可以在容器网络和宿主端口两种场景下复用。
+
+### 9.5 本地开发模式
+
+`--local-dev` 才使用本机进程启动方式。
+
+后端本地构建：
 
 ```bash
 mvn -pl srmp-admin -am package -DskipTests
 ```
 
-默认启动：
+后端本地启动：
 
 ```bash
 java \
@@ -275,7 +439,7 @@ java \
   -jar srmp-admin/target/srmp-admin-1.0.0.jar
 ```
 
-日志输出：
+本地模式后端日志输出：
 
 ```text
 logs/srmp-backend.log
@@ -292,22 +456,15 @@ logs/srmp-backend.pid
 - 如果 PID 文件存在且指向同一个 jar，先停止旧进程再启动。
 - 如果端口由其他程序占用，停止启动并输出占用信息，不强杀未知进程。
 
-### 9.3 前端
-
-默认构建：
+前端本地构建和启动：
 
 ```bash
 npm --prefix srmp-web-ui install
 npm --prefix srmp-web-ui run build
-```
-
-开发启动：
-
-```bash
 npm --prefix srmp-web-ui run dev -- --host 0.0.0.0 --port 5173
 ```
 
-日志输出：
+本地模式前端日志输出：
 
 ```text
 logs/srmp-frontend.log
@@ -328,6 +485,8 @@ logs/srmp-frontend.pid
 - `srmp-postgres` 容器存在并可连接。
 - `srmp-redis` 容器存在。
 - `srmp-minio` 容器存在。
+- `srmp-backend` 或 Compose `backend` 服务运行中。
+- `srmp-frontend` 或 Compose `frontend` 服务运行中。
 
 ### 10.2 数据库
 
@@ -395,12 +554,14 @@ set -euo pipefail
 关键失败点要输出明确提示：
 
 - Docker 不可用。
+- Docker 镜像构建失败。
+- Docker Compose 服务启动失败。
 - 端口被占用。
 - 数据库连接失败。
 - SQL 执行失败。
-- Maven 不存在。
-- Java 不存在。
-- npm 不存在。
+- `--local-dev` 模式下 Maven 不存在。
+- `--local-dev` 模式下 Java 不存在。
+- `--local-dev` 模式下 npm 不存在。
 - 后端启动超时。
 - 前端启动超时。
 - ready check 失败。
@@ -425,6 +586,7 @@ docs/one-click-start-guide.md
 - 一键启动命令。
 - 参数说明。
 - 默认端口。
+- Docker 镜像和 Compose 服务说明。
 - 默认账号密码。
 - 数据库初始化范围。
 - 样例业务数据范围。
@@ -438,7 +600,11 @@ README 中“快速开始”应更新为优先推荐：
 ./scripts/srmp-one-click-start.sh
 ```
 
-保留原手工启动步骤作为高级用法。
+保留原手工启动步骤作为本地开发高级用法：
+
+```bash
+./scripts/srmp-one-click-start.sh --local-dev
+```
 
 ## 13. 测试计划
 
@@ -448,6 +614,12 @@ README 中“快速开始”应更新为优先推荐：
 bash -n scripts/srmp-one-click-start.sh
 bash -n scripts/srmp-init-demo.sh
 bash -n scripts/srmp-check-ready.sh
+```
+
+Docker 配置检查：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.app.yml config
 ```
 
 ### 13.2 数据初始化检查
@@ -478,14 +650,22 @@ bash -n scripts/srmp-check-ready.sh
 - 前端 5173 可访问。
 - ready check 通过。
 
-### 13.4 构建检查
+### 13.4 Docker 构建检查
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.app.yml build backend frontend
+```
+
+### 13.5 本地开发构建检查
+
+仅验证 `--local-dev` 兼容性：
 
 ```bash
 mvn -pl srmp-admin -am package -DskipTests
 npm --prefix srmp-web-ui run build
 ```
 
-### 13.5 接口检查
+### 13.6 接口检查
 
 复用：
 
@@ -505,8 +685,10 @@ RUN_BUILD=0 RUN_API=1 ./scripts/phase31-acceptance.sh
 完成后应满足：
 
 - 新环境执行一条命令即可启动可用系统。
+- 默认模式下后端和前端均运行在 Docker 容器中。
+- 本机没有 Java、Maven、Node 时，默认 Docker 模式仍可启动。
 - 本机没有 `psql` 时仍可通过 Docker 容器初始化数据库。
 - 重复执行初始化不会破坏非演示数据。
 - 默认模板配置存在，区域方案模板匹配不再提示“未返回模板信息”。
-- 后端和前端日志可定位。
+- 后端和前端容器日志可定位。
 - README 和独立指南能让新成员按步骤跑起来。
