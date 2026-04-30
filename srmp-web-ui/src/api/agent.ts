@@ -40,6 +40,7 @@ export interface AiKnowledgeSearchRequest {
   query: string
   topK?: number
   filters?: Record<string, any>
+  sourceTypes?: string[]
 }
 
 export type MapObjectSolutionType =
@@ -125,4 +126,11 @@ export function searchAiKnowledge(data: AiKnowledgeSearchRequest): Promise<any> 
  */
 export function searchKnowledge(data: AiKnowledgeSearchRequest): Promise<any> {
   return searchAiKnowledge(data)
+}
+
+/**
+ * Phase36：获取知识库统计信息。
+ */
+export function getAiKnowledgeStats(): Promise<any> {
+  return aiRequest.get('/api/ai/knowledge/stats')
 }
