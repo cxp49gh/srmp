@@ -134,6 +134,7 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
         variables.put("knowledgeSources", context.getKnowledgeSources());
         variables.put("outlineSources", context.getOutlineSources());
         normalizeRegionVariables(variables, context.getRegionSummary());
+        normalizeRegionTextVariables(variables, context.getRegionSummary());
         if (timer != null) {
             timer.success(variables.size());
         }
@@ -304,6 +305,146 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
         putIfPresent(variables, "avgPci", first(assessment, "avg_pci", "avgPci"));
     }
 
+    private void normalizeRegionTextVariables(Map<String, Object> variables, Map<String, Object> regionSummary) {
+        if (variables == null || regionSummary == null || regionSummary.isEmpty()) {
+            return;
+        }
+        String llmMarkdown = safe(variables.get("llmMarkdown"));
+        List<?> hotspots = firstList(variables.get("hotspots"), regionSummary.get("hotspots"));
+
+        putIfBlank(variables, "hotspotSummary", firstNonBlank(
+                extractMarkdownSection(llmMarkdown, "热点识别", "重点路段", "病害热点"),
+                buildHotspotSummary(hotspots)
+        ));
+        putIfBlank(variables, "regionSummary", firstNonBlank(
+                extractMarkdownSection(llmMarkdown, "区域综合判断", "综合判断", "问题分析"),
+                buildRegionSummaryText(regionSummary)
+        ));
+        putIfBlank(variables, "maintenanceSuggestion", firstNonBlank(
+                extractMarkdownSection(llmMarkdown, "养护建议", "处治建议", "治理建议"),
+                buildMaintenanceSuggestionText(regionSummary, hotspots)
+        ));
+        putIfBlank(variables, "riskNotice", firstNonBlank(
+                extractMarkdownSection(llmMarkdown, "风险提示", "风险提醒", "审核提示"),
+                "本建议由系统基于区域统计和 AI 分析生成，实施前需结合现场复核、交通组织、资金计划和最新检测数据进行人工复核。"
+        ));
+    }
+
+    private List<?> firstList(Object first, Object second) {
+        if (first instanceof List) {
+            return (List<?>) first;
+        }
+        if (second instanceof List) {
+            return (List<?>) second;
+        }
+        return new ArrayList<Object>();
+    }
+
+    private String buildHotspotSummary(List<?> hotspots) {
+        if (hotspots == null || hotspots.isEmpty()) {
+            return "未识别到明显集中热点，建议保持常规巡查，并结合现场复核确认零散病害处治优先级。";
+        }
+        StringBuilder builder = new StringBuilder();
+        int index = 0;
+        for (Object raw : hotspots) {
+            Map<String, Object> hotspot = toMap(raw);
+            if (hotspot.isEmpty()) {
+                continue;
+            }
+            if (index > 0) {
+                builder.append('\n');
+            }
+            builder.append("- ")
+                    .append(firstNonBlank(safe(first(hotspot, "route_code", "routeCode")), "路线"))
+                    .append(" K")
+                    .append(safe(first(hotspot, "start_stake", "startStake")))
+                    .append("-K")
+                    .append(safe(first(hotspot, "end_stake", "endStake")))
+                    .append("：病害 ")
+                    .append(firstNonBlank(safe(first(hotspot, "disease_count", "diseaseCount")), "0"))
+                    .append(" 处，重度 ")
+                    .append(firstNonBlank(safe(first(hotspot, "heavy_count", "heavyCount")), "0"))
+                    .append(" 处，建议纳入近期重点巡查和优先处治。");
+            index++;
+        }
+        return builder.length() == 0
+                ? "未识别到明显集中热点，建议保持常规巡查，并结合现场复核确认零散病害处治优先级。"
+                : builder.toString();
+    }
+
+    private String buildRegionSummaryText(Map<String, Object> regionSummary) {
+        Map<String, Object> disease = toMap(first(regionSummary, "diseaseSummary", "disease_summary"));
+        Map<String, Object> assessment = toMap(first(regionSummary, "assessmentSummary", "assessment_summary"));
+        return "- 区域覆盖路线 " + firstNonBlank(safe(regionSummary.get("routeCount")), "0") +
+                " 条、路段 " + firstNonBlank(safe(regionSummary.get("sectionCount")), "0") +
+                " 段、评定单元 " + firstNonBlank(safe(regionSummary.get("unitCount")), "0") + " 个。\n" +
+                "- 共识别病害 " + firstNonBlank(safe(first(disease, "disease_count", "diseaseCount")), "0") +
+                " 处，其中重度 " + firstNonBlank(safe(first(disease, "heavy_count", "heavyCount")), "0") +
+                " 处、中度 " + firstNonBlank(safe(first(disease, "medium_count", "mediumCount")), "0") + " 处。\n" +
+                "- 平均 MQI " + firstNonBlank(safe(first(assessment, "avg_mqi", "avgMqi")), "-") +
+                "，平均 PQI " + firstNonBlank(safe(first(assessment, "avg_pqi", "avgPqi")), "-") +
+                "，平均 PCI " + firstNonBlank(safe(first(assessment, "avg_pci", "avgPci")), "-") +
+                "，建议结合低分单元和重度病害分布确定处治重点。";
+    }
+
+    private String buildMaintenanceSuggestionText(Map<String, Object> regionSummary, List<?> hotspots) {
+        Map<String, Object> disease = toMap(first(regionSummary, "diseaseSummary", "disease_summary"));
+        String hotspotAction = hotspots == null || hotspots.isEmpty()
+                ? "对零散病害开展现场复核，按安全影响和发展速度排序。"
+                : "优先复核热点路段，形成重度病害处治清单。";
+        return "- P1：针对重度病害 " + firstNonBlank(safe(first(disease, "heavy_count", "heavyCount")), "0") +
+                " 处组织专项核查，优先处治影响行车安全的坑槽、沉陷和重度裂缝。\n" +
+                "- P2：针对中度病害 " + firstNonBlank(safe(first(disease, "medium_count", "mediumCount")), "0") +
+                " 处安排预防性养护，控制裂缝、松散等病害继续扩展。\n" +
+                "- P3：" + hotspotAction + " 对低分评定单元同步建立复测计划，跟踪 MQI/PQI/PCI 改善效果。";
+    }
+
+    private String extractMarkdownSection(String markdown, String... keywords) {
+        String source = safe(markdown);
+        if (source.isEmpty() || keywords == null || keywords.length == 0) {
+            return "";
+        }
+        String[] lines = source.split("\\r?\\n");
+        StringBuilder builder = new StringBuilder();
+        boolean capturing = false;
+        for (String line : lines) {
+            String trimmed = line == null ? "" : line.trim();
+            if (isMarkdownHeading(trimmed)) {
+                if (capturing) {
+                    break;
+                }
+                if (containsAny(trimmed, keywords)) {
+                    capturing = true;
+                }
+                continue;
+            }
+            if (capturing) {
+                if (builder.length() > 0) {
+                    builder.append('\n');
+                }
+                builder.append(line);
+            }
+        }
+        return builder.toString().trim();
+    }
+
+    private boolean isMarkdownHeading(String line) {
+        return line != null && line.matches("#{1,6}\\s+.*");
+    }
+
+    private boolean containsAny(String text, String... keywords) {
+        String source = safe(text);
+        if (source.isEmpty() || keywords == null) {
+            return false;
+        }
+        for (String keyword : keywords) {
+            if (!safe(keyword).isEmpty() && source.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> toMap(Object value) {
         return value instanceof Map ? (Map<String, Object>) value : new LinkedHashMap<String, Object>();
@@ -326,6 +467,17 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
         if (value != null && !String.valueOf(value).trim().isEmpty()) {
             target.put(key, value);
         }
+    }
+
+    private void putIfBlank(Map<String, Object> target, String key, Object value) {
+        if (target == null || key == null || !safe(target.get(key)).isEmpty()) {
+            return;
+        }
+        putIfPresent(target, key, value);
+    }
+
+    private String firstNonBlank(String first, String second) {
+        return !safe(first).isEmpty() ? safe(first) : safe(second);
     }
 
     private Map<String, Object> templateStepData(Map<String, Object> template, boolean fallback) {
