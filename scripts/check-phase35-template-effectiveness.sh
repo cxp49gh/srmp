@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 test -f srmp-admin/src/main/resources/db/phase35_template_effectiveness.sql
+test -f srmp-admin/src/main/resources/db/phase35_sample_solution_templates.sql
 grep -R "template_meta" -n srmp-admin/src/main/resources/db srmp-agent/src/main/java >/dev/null
 grep -R "step_data" -n srmp-admin/src/main/resources/db srmp-agent/src/main/java >/dev/null
 grep -R "AiSolutionTemplatePipelineService" -n srmp-agent/src/main/java >/dev/null
@@ -20,5 +21,8 @@ grep -R "TemplateMetaCard" -n srmp-web-ui/src >/dev/null
 grep -R "TemplateVariableCheckPanel" -n srmp-web-ui/src >/dev/null
 grep -R "TemplateRenderPreviewDialog" -n srmp-web-ui/src >/dev/null
 grep -R "templateMeta" -n srmp-web-ui/src srmp-agent/src/main/java srmp-gis/src/main/java >/dev/null
+grep -R "map_region_maintenance_advice_default" -n srmp-admin/src/main/resources/db >/dev/null
+grep -R "map_object_disease_treatment_default" -n srmp-admin/src/main/resources/db >/dev/null
+grep -R "REGION_MAINTENANCE_ADVICE" -n srmp-admin/src/main/resources/db srmp-web-ui/src >/dev/null
 
 echo "[OK] phase35 template effectiveness hooks exist"
