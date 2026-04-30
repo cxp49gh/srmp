@@ -74,70 +74,40 @@ HTTPS_PROXY=http://127.0.0.1:7890
 
 ### 环境要求
 
-- JDK 8+
-- Maven 3.6+
-- PostgreSQL 15+（需启用 PostGIS 扩展）
-- Redis 6+
-- MinIO（可选，用于文件存储）
+- Docker
+- Docker Compose
 
-### 1. 启动基础依赖
+默认启动不要求本机安装 Java、Maven、Node、npm 或 PostgreSQL 客户端。
 
-```bash
-docker compose up -d
-```
-
-### 2. 初始化数据库
+### 一键启动
 
 ```bash
-psql -h 127.0.0.1 -U srmp -d srmp -f srmp-admin/src/main/resources/db/schema.sql
-psql -h 127.0.0.1 -U srmp -d srmp -f srmp-admin/src/main/resources/db/init_dict.sql
-psql -h 127.0.0.1 -U srmp -d srmp -f srmp-admin/src/main/resources/db/init_admin.sql
-psql -h 127.0.0.1 -U srmp -d srmp -f srmp-admin/src/main/resources/db/demo_data.sql
+./scripts/srmp-one-click-start.sh
 ```
 
-> 默认数据库：`srmp`，用户名：`srmp`，密码：`srmp123`
+脚本会启动 PostGIS、Redis、MinIO，初始化数据库和样例数据，构建并运行后端和前端 Docker 容器。
 
-### 3. 编译项目
+访问地址：
+
+- 前端：http://localhost:5173
+- 后端：http://localhost:8080
+- MinIO 控制台：http://localhost:9001
+
+常用命令：
 
 ```bash
-mvn clean package -DskipTests
+./scripts/srmp-one-click-start.sh --check-only
+./scripts/srmp-one-click-start.sh --reset-demo
+./scripts/srmp-one-click-start.sh --skip-build
 ```
 
-### 4. 启动后端
+本地 Java/Node 开发模式：
 
 ```bash
-java -jar srmp-admin/target/srmp-admin-1.0.0.jar
+./scripts/srmp-one-click-start.sh --local-dev
 ```
 
-### 5. 验证服务
-
-```bash
-curl http://localhost:8080/api/health
-```
-
-期望返回：
-
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "system": "SmartRoad Maintenance Platform",
-    "status": "UP",
-    "phase": "phase1-skeleton"
-  }
-}
-```
-
-### 6. 启动前端（可选）
-
-```bash
-cd srmp-web-ui
-npm install
-npm run dev
-```
-
-访问 http://localhost:5173 查看 GIS 一张图。
+详细说明见 `docs/one-click-start-guide.md`。
 
 ---
 
@@ -336,24 +306,15 @@ X-Tenant-Id: default
 ### 快速启动（推荐）
 
 ```bash
-docker compose -f docker-compose.demo.yml up -d
-chmod +x scripts/*.sh
-./scripts/reset-demo.sh
-mvn clean package -DskipTests
-java -jar srmp-admin/target/srmp-admin-1.0.0.jar --spring.profiles.active=demo
-cd srmp-web-ui && cp .env.development.example .env.development && npm install && npm run dev
+./scripts/srmp-one-click-start.sh
 ```
 
 访问 http://localhost:5173
 
-### 手动启动
+### 本地开发启动
 
 ```bash
-docker compose up -d
-chmod +x scripts/*.sh
-./scripts/init-db.sh
-./scripts/start-backend.sh
-./scripts/start-frontend.sh
+./scripts/srmp-one-click-start.sh --local-dev
 ```
 
 访问 http://localhost:5173，输入路线 `G210` 即可演示。
