@@ -15,7 +15,7 @@
         </div>
       </section>
 
-      <TemplateMetaCard :meta="(solution as any)?.templateMeta || (solution as any)?.template_meta || null" />
+      <TemplateMetaCard :meta="(solution as any)?.templateMeta || (solution as any)?.template_meta || null" show-empty />
 
       <section v-if="solution.qualityCheck" class="quality-check">
         <div class="quality-header">

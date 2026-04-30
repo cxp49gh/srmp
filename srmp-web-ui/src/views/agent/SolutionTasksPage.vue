@@ -88,7 +88,7 @@
             <el-descriptions-item label="当前版本">{{ detail.current_version_no || '-' }}</el-descriptions-item>
           </el-descriptions>
 
-          <TemplateMetaCard :meta="detail.template_meta || detail.templateMeta || null" />
+          <TemplateMetaCard :meta="detail.template_meta || detail.templateMeta || null" show-empty />
 
           <SolutionQualityPanel :quality="quality" />
 
