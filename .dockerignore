@@ -1,0 +1,13 @@
+.git
+.idea
+.vscode
+.DS_Store
+logs
+*.log
+**/target
+**/node_modules
+srmp-web-ui/dist
+srmp-web-ui/.vite
+deploy/docker/**/*.tmp
+docs/superpowers/plans
+docs/superpowers/specs
