@@ -1,4 +1,4 @@
-import request from '../utils/request'
+import request, { aiRequest } from '../utils/request'
 import type { GeoJsonFeatureCollection } from '../types/geojson'
 import type { AiSolutionDraftSaveRequest } from './solution'
 
@@ -79,7 +79,7 @@ export function analyzeMapRegion(data: MapRegionAnalysisRequest): Promise<Record
 }
 
 export function generateMapRegionSolution(data: MapRegionSolutionRequest): Promise<MapRegionSolutionResponse> {
-  return request.post('/api/gis/map-region/solution', data)
+  return aiRequest.post('/api/gis/map-region/solution', data)
 }
 
 export function saveMapRegionSolutionDraft(data: AiSolutionDraftSaveRequest): Promise<Record<string, any>> {

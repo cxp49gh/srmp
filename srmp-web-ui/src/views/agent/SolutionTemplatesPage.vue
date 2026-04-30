@@ -221,7 +221,7 @@ const solutionTypeOptions = [
   { label: '养护建议方案', value: 'MAINTENANCE_SUGGESTION' },
   { label: '病害治理方案', value: 'DISEASE_TREATMENT_PLAN' },
   { label: '低分路段分析', value: 'LOW_SCORE_SECTION_ANALYSIS' },
-  { label: '区域养护建议', value: 'REGION_MAINTENANCE_ADVICE' }
+  { label: '区域养护建议', value: 'REGION_MAINTENANCE_SUGGESTION' }
 ]
 
 const originTypeOptions = [
