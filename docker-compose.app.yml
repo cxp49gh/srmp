@@ -1,0 +1,45 @@
+version: "3.8"
+
+services:
+  backend:
+    image: ${BACKEND_IMAGE:-srmp-backend:latest}
+    container_name: srmp-backend
+    build:
+      context: .
+      dockerfile: deploy/docker/backend/Dockerfile
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-demo}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-srmp}
+      DB_USER: ${DB_USER:-srmp}
+      DB_PASSWORD: ${DB_PASSWORD:-srmp123}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-srmp}
+      JAVA_OPTS: ${JAVA_OPTS:-}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    restart: unless-stopped
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-srmp-frontend:latest}
+    container_name: srmp-frontend
+    build:
+      context: .
+      dockerfile: deploy/docker/frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+        VITE_TENANT_ID: ${VITE_TENANT_ID:-default}
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
