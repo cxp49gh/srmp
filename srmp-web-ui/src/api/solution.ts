@@ -4,17 +4,25 @@ export interface AiSolutionTemplateRequest {
   templateCode?: string
   templateName: string
   solutionType: string
+  originType?: string
+  objectType?: string
+  isDefault?: boolean
+  priority?: number
   sourceType?: string
   sourceId?: string
   category?: string
   version?: string
   content: string
   sourceUrl?: string
+  changeNote?: string
 }
 
 export interface AiSolutionTemplateQuery {
   keyword?: string
   solutionType?: string
+  originType?: string
+  objectType?: string
+  isDefault?: boolean
   status?: string
   limit?: number
 }
@@ -71,6 +79,7 @@ export interface AiSolutionDraftSaveRequest {
   templateId?: string
   templateVersion?: string
   templateName?: string
+  templateMeta?: Record<string, any>
   options?: Record<string, any>
   requestContext?: Record<string, any>
 }
@@ -99,6 +108,26 @@ export function getSolutionTemplateVersions(id: string): Promise<Record<string, 
 
 export function importTemplateFromKnowledge(data: AiSolutionTemplateImportRequest): Promise<Record<string, any>> {
   return request.post('/api/ai/solution/templates/import-from-knowledge', data)
+}
+
+export function matchSolutionTemplate(data: Record<string, any>): Promise<Record<string, any>> {
+  return request.post('/api/ai/solution/templates/match-preview', data)
+}
+
+export function renderSolutionTemplatePreview(id: string, data: Record<string, any>): Promise<Record<string, any>> {
+  return request.post(`/api/ai/solution/templates/${id}/render-preview`, data)
+}
+
+export function updateSolutionTemplateStatus(id: string, status: string): Promise<Record<string, any>> {
+  return request.post(`/api/ai/solution/templates/${id}/status`, { status })
+}
+
+export function setDefaultSolutionTemplate(id: string): Promise<Record<string, any>> {
+  return request.post(`/api/ai/solution/templates/${id}/default`)
+}
+
+export function createSolutionTemplateVersion(id: string, data: Record<string, any>): Promise<Record<string, any>> {
+  return request.post(`/api/ai/solution/templates/${id}/versions`, data)
 }
 
 export function disableSolutionTemplate(id: string): Promise<Record<string, any>> {

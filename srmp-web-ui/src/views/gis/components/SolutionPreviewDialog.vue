@@ -15,6 +15,8 @@
         </div>
       </section>
 
+      <TemplateMetaCard :meta="(solution as any)?.templateMeta || (solution as any)?.template_meta || null" />
+
       <section v-if="solution.qualityCheck" class="quality-check">
         <div class="quality-header">
           <strong>质量检查</strong>
@@ -74,6 +76,7 @@ import type { MapObjectSolutionResponse } from '../../../api/agent'
 import type { MapRegionSolutionResponse } from '../../../api/gis'
 import AiTraceButton from '../../agent/components/AiTraceButton.vue'
 import AiTraceDrawer from '../../agent/components/AiTraceDrawer.vue'
+import TemplateMetaCard from '../../agent/components/TemplateMetaCard.vue'
 
 type PreviewSolution = MapObjectSolutionResponse | MapRegionSolutionResponse
 

@@ -33,6 +33,7 @@ export interface MapRegionSolutionResponse {
   markdown: string
   regionSummary?: Record<string, any>
   qualityCheck?: Record<string, any>
+  templateMeta?: Record<string, any>
   sourceSummaries?: Record<string, any>[]
   trace?: Record<string, any>
 }

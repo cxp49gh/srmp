@@ -612,6 +612,7 @@ async function saveRegionDraft() {
   if (!regionSolution.value || !regionGeometry.value) return
   regionDraftSaving.value = true
   try {
+    const templateMeta = regionSolution.value.templateMeta || {}
     const saved = await saveMapRegionSolutionDraft({
       originType: 'MAP_REGION',
       objectType: 'MAP_REGION',
@@ -629,6 +630,10 @@ async function saveRegionDraft() {
       regionSummary: regionSolution.value.regionSummary || {},
       qualityCheck: regionSolution.value.qualityCheck || {},
       trace: regionSolution.value.trace || {},
+      templateId: templateMeta.templateId || templateMeta.template_id || '',
+      templateVersion: templateMeta.templateVersion || templateMeta.template_version || '',
+      templateName: templateMeta.templateName || templateMeta.template_name || '',
+      templateMeta,
       sourceSummaries: regionSolution.value.sourceSummaries || [],
       requestContext: { query: { ...query }, layers: activeLayerNames() }
     })

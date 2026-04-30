@@ -309,6 +309,13 @@ async function saveSolutionDraft() {
   const query = props.context?.query || {}
   solutionSaveLoading.value = true
   try {
+    const templateMeta = solution.templateMeta || {}
+    const objectSource = {
+      sourceType: 'MAP_OBJECT',
+      sourceTitle: mapContextLabel.value,
+      sourceId: String(obj.objectId || obj.object_id || obj.id || obj.featureId || ''),
+      contentExcerpt: mapContextLabel.value
+    }
     savedSolutionTask.value = await saveMapObjectSolutionDraft({
       solutionType: solution.solutionType,
       title: solution.title,
@@ -319,12 +326,11 @@ async function saveSolutionDraft() {
       objectSummary: solution.objectSummary || {},
       qualityCheck: solution.qualityCheck || {},
       trace: solution.trace || {},
-      sourceSummaries: [{
-        sourceType: 'MAP_OBJECT',
-        sourceTitle: mapContextLabel.value,
-        sourceId: String(obj.objectId || obj.object_id || obj.id || obj.featureId || ''),
-        contentExcerpt: mapContextLabel.value
-      }],
+      templateId: templateMeta.templateId || templateMeta.template_id || '',
+      templateVersion: templateMeta.templateVersion || templateMeta.template_version || '',
+      templateName: templateMeta.templateName || templateMeta.template_name || '',
+      templateMeta,
+      sourceSummaries: [...(solution.sourceSummaries || []), objectSource],
       options: { ...options },
       requestContext: props.context || {}
     })

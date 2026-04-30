@@ -88,6 +88,8 @@
             <el-descriptions-item label="当前版本">{{ detail.current_version_no || '-' }}</el-descriptions-item>
           </el-descriptions>
 
+          <TemplateMetaCard :meta="detail.template_meta || detail.templateMeta || null" />
+
           <SolutionQualityPanel :quality="quality" />
 
           <pre>{{ detail.result_content }}</pre>
@@ -124,6 +126,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import AgentPageShell from './components/AgentPageShell.vue'
 import SolutionQualityPanel from './components/SolutionQualityPanel.vue'
+import TemplateMetaCard from './components/TemplateMetaCard.vue'
 import {
   checkSolutionQuality,
   getSolutionMarkdownExportUrl,

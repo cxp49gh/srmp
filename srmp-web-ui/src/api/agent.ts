@@ -47,6 +47,8 @@ export interface MapObjectSolutionResponse {
   markdown: string
   objectSummary?: Record<string, any>
   qualityCheck?: MapObjectSolutionQualityCheck
+  templateMeta?: Record<string, any>
+  sourceSummaries?: Record<string, any>[]
   trace?: Record<string, any>
 }
 
