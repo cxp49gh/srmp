@@ -40,6 +40,7 @@
         <el-checkbox v-model="options.useBusinessData">业务数据</el-checkbox>
         <el-checkbox v-model="options.useKnowledge">知识库</el-checkbox>
         <el-checkbox v-model="options.useOutline">Outline</el-checkbox>
+        <el-checkbox v-model="useAgentTools">Agent工具</el-checkbox>
       </div>
 
       <div class="quick-list">
@@ -57,6 +58,30 @@
             <el-tag v-if="item.meta.mapObjectUsed" size="small" type="success">地图上下文</el-tag>
             <el-tag v-if="item.meta.answerSourceLabel" size="small">{{ item.meta.answerSourceLabel }}</el-tag>
             <el-tag v-if="item.meta.fallback" size="small" type="warning">降级</el-tag>
+          </div>
+          <div v-if="item.role === 'assistant' && item.sources && item.sources.length" class="source-panel">
+            <div class="source-title">参考资料</div>
+            <div v-for="(source, sIdx) in item.sources" :key="sIdx" class="source-item">
+              <span class="source-index">{{ sIdx + 1 }}</span>
+              <span class="source-main">
+                {{ source.title || source.docTitle || source.documentTitle || '知识片段' }}
+                <template v-if="source.sectionTitle || source.section"> / {{ source.sectionTitle || source.section }}</template>
+              </span>
+              <span v-if="source.score !== undefined && source.score !== null" class="source-score">{{ formatScore(source.score) }}</span>
+            </div>
+          </div>
+          <div v-if="item.role === 'assistant' && item.toolResults && item.toolResults.length" class="tool-panel">
+            <div class="source-title">工具调用</div>
+            <div v-for="(tool, tIdx) in item.toolResults" :key="tIdx" class="tool-item">
+              <span class="tool-name">{{ tool.toolName || tool.name || 'tool' }}</span>
+              <el-tag size="small" :type="tool.success === false ? 'danger' : 'success'" effect="plain">
+                {{ tool.success === false ? '失败' : '成功' }}
+              </el-tag>
+              <span class="tool-summary">
+                {{ tool.summary || '' }}
+                <template v-if="tool.count !== undefined && tool.count !== null">（{{ tool.count }}条）</template>
+              </span>
+            </div>
           </div>
           <AiTraceButton v-if="item.role === 'assistant'" :trace="item.trace" class="trace-button" @open="openTrace" />
         </div>
@@ -92,6 +117,7 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   chat,
+  mapAgentChat,
   generateMapObjectSolution,
   type MapObjectSolutionResponse,
   type MapObjectSolutionType
@@ -106,6 +132,8 @@ interface MessageItem {
   content: string
   meta?: Record<string, any>
   trace?: Record<string, any> | null
+  sources?: any[]
+  toolResults?: any[]
 }
 
 const props = defineProps<{
@@ -132,6 +160,7 @@ const solutionSaveLoading = ref(false)
 const savedSolutionTask = ref<Record<string, any> | null>(null)
 const traceDrawerVisible = ref(false)
 const activeTrace = ref<Record<string, any> | null>(null)
+const useAgentTools = ref(true)
 
 const options = reactive({
   useBusinessData: true,
@@ -142,6 +171,18 @@ const options = reactive({
 
 const activeMapObject = computed(() => {
   return props.mapObject || props.context?.mapObject || props.context?.selectedMapObject || props.context?.selected || null
+})
+
+const activeRegionSummary = computed(() => {
+  return props.context?.regionSummary || props.context?.region || null
+})
+
+const contextMode = computed(() => {
+  if (activeMapObject.value) return 'OBJECT'
+  if (activeRegionSummary.value) return 'REGION'
+  if (props.context?.viewport || props.context?.bounds) return 'VIEWPORT'
+  if (props.context?.query?.routeCode || props.context?.routeCode) return 'ROUTE'
+  return 'FREE'
 })
 
 const solutionActions = computed(() => {
@@ -231,6 +272,7 @@ const mapContextLabel = computed(() => {
 
 const contextText = computed(() => {
   if (activeMapObject.value) return mapContextLabel.value
+  if (activeRegionSummary.value) return '框选区域｜区域养护分析'
   const query = props.context?.query || {}
   const route = query.routeCode || '全部路线'
   const year = query.year || '全部年度'
@@ -263,6 +305,26 @@ function analyzeCurrentObject() {
 function suggestForCurrentObject() {
   if (!activeMapObject.value) return
   quickAsk('基于当前地图选中对象，生成养护处置建议和优先级判断')
+}
+
+/**
+ * Phase36 关键方法：buildMapAiContext
+ * 构建一张图 AI Agent 使用的地图上下文包。
+ */
+function buildMapAiContext(message: string) {
+  const query = props.context?.query || props.context || {}
+  return {
+    mode: contextMode.value,
+    routeCode: query.routeCode || activeMapObject.value?.routeCode || activeMapObject.value?.route_code,
+    year: Number(query.year || activeMapObject.value?.year || 2026),
+    mapObject: activeMapObject.value,
+    regionSummary: activeRegionSummary.value,
+    viewport: props.context?.viewport || props.context?.bounds || null,
+    selectedLayers: props.context?.selectedLayers || [],
+    nearbyObjects: props.context?.nearbyObjects || [],
+    userQuestion: message,
+    extra: { rawContext: props.context || {} }
+  }
 }
 
 async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
@@ -351,12 +413,19 @@ async function send() {
   loading.value = true
 
   try {
-    const res: any = await chat({
+    const requestPayload = {
       message: text,
       context: props.context,
       mapObject: activeMapObject.value,
-      options: { ...options }
-    })
+      options: { ...options, useTools: useAgentTools.value }
+    }
+
+    const res: any = useAgentTools.value
+      ? await mapAgentChat({
+          ...requestPayload,
+          mapContext: buildMapAiContext(text)
+        })
+      : await chat(requestPayload)
 
     const payload = normalizeResponse(res)
     const answer = String(payload.answer || payload.data?.answer || '未返回内容')
@@ -370,6 +439,8 @@ async function send() {
       role: 'assistant',
       content: answer,
       trace: payload.data?.trace || payload.trace || null,
+      sources: payload.data?.sources || payload.sources || payload.data?.knowledgeHits || [],
+      toolResults: payload.data?.toolResults || payload.toolResults || payload.data?.tools || [],
       meta: {
         ...meta,
         mapObjectUsed: payload.data?.mapObjectUsed || payload.mapObjectUsed || meta?.mapObjectUsed
@@ -430,6 +501,11 @@ function renderMarkdown(value: string) {
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/^\- (.*)$/gm, '<div class="md-list">• $1</div>')
     .replace(/\n/g, '<br />')
+}
+
+function formatScore(score: any) {
+  const num = Number(score)
+  return Number.isFinite(num) ? num.toFixed(3) : String(score)
 }
 
 function openTrace(trace: Record<string, any>) {
@@ -612,6 +688,66 @@ function openTrace(trace: Record<string, any>) {
 .trace-button {
   margin-top: 6px;
 }
+
+.source-panel,
+.tool-panel {
+  margin-top: 6px;
+  padding: 8px;
+  background: #f9fafb;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  font-size: 12px;
+}
+
+.source-title {
+  margin-bottom: 6px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.source-item,
+.tool-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+  color: #475569;
+}
+
+.source-index {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #0369a1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.source-main {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-score {
+  color: #64748b;
+}
+
+.tool-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #0f766e;
+}
+
+.tool-summary {
+  flex: 1;
+  color: #64748b;
+}
+
 
 .source-summary {
   margin: 6px 0;
