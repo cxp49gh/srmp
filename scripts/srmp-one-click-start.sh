@@ -150,7 +150,11 @@ if [ "$FRONTEND_ONLY" = "0" ]; then
   if [ "$LOCAL_DEV" = "1" ]; then
     INIT_ARGS+=(--local-dev)
   fi
-  ./scripts/srmp-init-demo.sh "${INIT_ARGS[@]}"
+  if [ "${#INIT_ARGS[@]}" -gt 0 ]; then
+    ./scripts/srmp-init-demo.sh "${INIT_ARGS[@]}"
+  else
+    ./scripts/srmp-init-demo.sh
+  fi
 fi
 
 if [ "$NO_START" = "1" ]; then
@@ -194,7 +198,11 @@ fi
 if [ "$FRONTEND_ONLY" = "1" ]; then
   CHECK_ARGS+=(--frontend-only)
 fi
-./scripts/srmp-check-ready.sh "${CHECK_ARGS[@]}"
+if [ "${#CHECK_ARGS[@]}" -gt 0 ]; then
+  ./scripts/srmp-check-ready.sh "${CHECK_ARGS[@]}"
+else
+  ./scripts/srmp-check-ready.sh
+fi
 
 cat <<INFO
 

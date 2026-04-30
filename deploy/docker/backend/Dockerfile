@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.4
 FROM maven:3.8.8-eclipse-temurin-8 AS builder
 
 WORKDIR /workspace
@@ -18,8 +19,6 @@ COPY srmp-agent/pom.xml srmp-agent/pom.xml
 COPY srmp-dashboard/pom.xml srmp-dashboard/pom.xml
 COPY srmp-admin/pom.xml srmp-admin/pom.xml
 
-RUN mvn -pl srmp-admin -am dependency:go-offline -DskipTests
-
 COPY srmp-common srmp-common
 COPY srmp-web srmp-web
 COPY srmp-security srmp-security
@@ -36,7 +35,7 @@ COPY srmp-agent srmp-agent
 COPY srmp-dashboard srmp-dashboard
 COPY srmp-admin srmp-admin
 
-RUN mvn -pl srmp-admin -am package -DskipTests
+RUN --mount=type=cache,target=/root/.m2 mvn -pl srmp-admin -am package -DskipTests
 
 FROM eclipse-temurin:8-jre
 
