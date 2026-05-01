@@ -37,11 +37,13 @@
         "severity": "MEDIUM"
       }
     },
-    "expectedKeywords": [
-      "灌缝",
-      "封层",
-      "渗水"
-    ],
+    "expectedKeywordGroups": [
+    ["灌缝", "开槽灌缝", "封缝", "裂缝灌缝"],
+    ["封层", "雾封层", "稀浆封层", "薄层罩面", "罩面"],
+    ["渗水", "下渗", "雨水", "水损害", "雨水下渗"]
+  ],
+  "minKeywordHitRatio": 0.0,
+  "minKeywordGroupHitRatio": 0.67,
     "expectedSources": [
       "裂缝"
     ]

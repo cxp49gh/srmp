@@ -48,6 +48,9 @@
         <el-table-column label="关键词" width="120">
           <template #default="{ row }">{{ row.keywordMatchedCount }}/{{ row.keywordTotal }}</template>
         </el-table-column>
+        <el-table-column label="关键词组" width="120">
+          <template #default="{ row }">{{ row.keywordGroupMatchedCount || 0 }}/{{ row.keywordGroupTotal || 0 }}</template>
+        </el-table-column>
         <el-table-column prop="sourceCount" label="来源数" width="100" />
         <el-table-column prop="searchMode" label="检索模式" width="130" />
         <el-table-column label="vector" width="100">
@@ -55,8 +58,13 @@
             <el-tag :type="row.vectorUsed ? 'success' : 'warning'">{{ row.vectorUsed }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="错误" min-width="260">
-          <template #default="{ row }">{{ (row.errors || []).join('；') }}</template>
+        <el-table-column label="错误" min-width="360">
+          <template #default="{ row }">
+            <div>{{ (row.errors || []).join('；') }}</div>
+            <div v-if="row.missingKeywords && row.missingKeywords.length" class="muted">缺失关键词：{{ row.missingKeywords.join('，') }}</div>
+            <div v-if="row.missingKeywordGroups && row.missingKeywordGroups.length" class="muted">缺失关键词组：{{ JSON.stringify(row.missingKeywordGroups) }}</div>
+            <div v-if="row.passed === false && row.answerPreview" class="answer-preview">回答摘要：{{ row.answerPreview }}</div>
+          </template>
         </el-table-column>
       </el-table>
     </el-card>
@@ -111,4 +119,6 @@ onMounted(loadDefaultCases)
 .metric { padding: 12px; background: #f8fafc; border-radius: 10px; }
 .metric span { color: #64748b; display: block; margin-bottom: 6px; }
 .metric strong { font-size: 24px; }
+.muted { color: #64748b; font-size: 12px; margin-top: 4px; }
+.answer-preview { color: #475569; font-size: 12px; margin-top: 6px; line-height: 1.5; }
 </style>
