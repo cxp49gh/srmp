@@ -34,9 +34,33 @@ public class RagEvalController {
 
     private List<RagEvalCase> defaultCaseList() {
         List<RagEvalCase> list = new ArrayList<>();
-        list.add(caseOf("disease-repair", "修补损坏怎么处理？", "修补损坏", Arrays.asList("复核", "基层", "排水", "局部"), Arrays.asList("修补损坏")));
-        list.add(caseOf("crack", "中度裂缝如何处置？", "裂缝", Arrays.asList("灌缝", "封层", "渗水"), Arrays.asList("裂缝")));
-        list.add(caseOf("mqi-pci", "MQI、PQI、PCI 分别是什么意思？", "评定指标", Arrays.asList("MQI", "PQI", "PCI"), Arrays.asList("指标")));
+        // disease-repair
+        RagEvalCase diseaseRepair = caseOf("disease-repair", "修补损坏怎么处理？", "修补损坏",
+            Arrays.asList("复核", "基层", "排水", "局部"),
+            Arrays.asList("修补损坏"));
+        diseaseRepair.setExpectedKeywordGroups(new ArrayList<>());
+        diseaseRepair.setMinKeywordHitRatio(null);
+        diseaseRepair.setMinKeywordGroupHitRatio(null);
+        list.add(diseaseRepair);
+        // crack
+        RagEvalCase crack = caseOf("crack", "中度裂缝如何处置？", "裂缝",
+            Arrays.asList("灌缝", "封层", "渗水"),
+            Arrays.asList("裂缝"));
+        List<List<String>> crackGroups = new ArrayList<>();
+        crackGroups.add(Arrays.asList("灌缝", "开槽灌缝", "封缝", "裂缝灌缝"));
+        crackGroups.add(Arrays.asList("封层", "雾封层", "稀浆封层", "薄层罩面", "罩面"));
+        crackGroups.add(Arrays.asList("渗水", "下渗", "雨水", "水损害", "雨水下渗"));
+        crack.setExpectedKeywordGroups(crackGroups);
+        crack.setMinKeywordHitRatio(null);
+        crack.setMinKeywordGroupHitRatio(null);
+        list.add(crack);
+        // mqi-pci
+        RagEvalCase mqiPci = caseOf("mqi-pci", "MQI、PQI、PCI 分别是什么意思？", "评定指标",
+            Arrays.asList("MQI", "PQI", "PCI"), Arrays.asList("指标"));
+        mqiPci.setExpectedKeywordGroups(new ArrayList<>());
+        mqiPci.setMinKeywordHitRatio(null);
+        mqiPci.setMinKeywordGroupHitRatio(null);
+        list.add(mqiPci);
         return list;
     }
 
