@@ -5,6 +5,9 @@ import com.smartroad.srmp.agent.knowledge.vo.AiKnowledgeSearchResponse;
 import com.smartroad.srmp.agent.llm.LlmClient;
 import com.smartroad.srmp.agent.mapagent.dto.*;
 import com.smartroad.srmp.agent.mapagent.service.MapAiAgentService;
+import com.smartroad.srmp.agent.mapagent.enhance.MapAiAnswerEnhanceContext;
+import com.smartroad.srmp.agent.mapagent.enhance.MapAiAnswerEnhancerRegistry;
+import com.smartroad.srmp.agent.mapagent.plan.MapAiToolPlanner;
 import com.smartroad.srmp.agent.tool.*;
 import com.smartroad.srmp.agent.trace.AiTraceContext;
 import com.smartroad.srmp.agent.trace.service.AiTraceService;
@@ -27,6 +30,12 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
 
     @Resource
     private AiTraceService aiTraceService;
+
+    @Resource
+    private MapAiToolPlanner mapAiToolPlanner;
+
+    @Resource
+    private MapAiAnswerEnhancerRegistry mapAiAnswerEnhancerRegistry;
 
     @Resource
     private MapObjectDiseaseAdviceEnhancer mapObjectDiseaseAdviceEnhancer;
@@ -74,7 +83,7 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
             toolContext.setMapContext(context);
             toolContext.setOptions(request == null ? new LinkedHashMap<String, Object>() : request.getOptions());
 
-            List<String> toolNames = planTools(intent, context, request == null ? null : request.getOptions(), message);
+            List<String> toolNames = mapAiToolPlanner.plan(intent, context, request == null ? null : request.getOptions(), message);
             List<AiToolResult> toolResults = new ArrayList<>();
             List<AiKnowledgeSearchHit> knowledgeSources = new ArrayList<>();
 
@@ -133,10 +142,10 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
             AiTraceContext.StepTimer cleanTimer = trace.step("answer_sanitize", "回答清洗");
             answer = sanitize(answer);
             answer = enrichAnswerWithKnowledgeTerms(answer, message, context, knowledgeSources);
-            answer = mapObjectDiseaseAdviceEnhancer.enhance(answer, message, context, knowledgeSources, toolResults);
-            answer = assessmentResultAdviceEnhancer.enhance(answer, message, context, knowledgeSources, toolResults);
-            answer = roadAssetAdviceEnhancer.enhance(answer, message, context, knowledgeSources, toolResults);
-            answer = mapAiAnswerPolisher.polish(answer);
+            answer = mapAiAnswerEnhancerRegistry.enhance(
+                    answer,
+                    MapAiAnswerEnhanceContext.of(answer, message, context, knowledgeSources, toolResults)
+            );
             cleanTimer.success(null, map("termEnriched", true));
 
             response.setAnswer(answer);

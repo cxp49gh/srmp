@@ -84,6 +84,18 @@
             </div>
           </div>
           <AiEvidencePanel v-if="item.role === 'assistant'" :message="item" :map-context="props.context" />
+          <div v-if="item.role === 'assistant' && activeMapObject" class="assistant-action-row">
+            <el-button
+              size="small"
+              type="success"
+              plain
+              :loading="solutionLoading"
+              :disabled="loading || solutionLoading"
+              @click="generateDefaultSolutionDraft"
+            >
+              基于本次分析生成方案草稿
+            </el-button>
+          </div>
           <AiTraceButton v-if="item.role === 'assistant'" :trace="item.trace" class="trace-button" @open="openTrace" />
         </div>
       </div>
@@ -327,6 +339,15 @@ function buildMapAiContext(message: string) {
     userQuestion: message,
     extra: { rawContext: props.context || {} }
   }
+}
+
+function generateDefaultSolutionDraft() {
+  const primary = solutionActions.value.find((it: any) => it.primary) || solutionActions.value[0]
+  if (!primary) {
+    ElMessage.warning('当前对象暂不支持生成方案草稿')
+    return
+  }
+  generateSolutionDraft(primary.type)
 }
 
 async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
@@ -685,6 +706,12 @@ function openTrace(trace: Record<string, any>) {
   gap: 6px;
   margin-top: 6px;
   flex-wrap: wrap;
+}
+
+.assistant-action-row {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-start;
 }
 
 .trace-button {
