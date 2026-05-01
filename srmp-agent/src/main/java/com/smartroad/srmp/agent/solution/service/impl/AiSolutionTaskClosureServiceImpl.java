@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartroad.srmp.agent.solution.dto.AiSolutionAiContextUpdateRequest;
 import com.smartroad.srmp.agent.solution.dto.AiSolutionTaskVersionRestoreRequest;
 import com.smartroad.srmp.agent.solution.service.AiSolutionTaskClosureService;
+import com.smartroad.srmp.agent.solution.support.AiSolutionFallbackTemplateSupport;
 import com.smartroad.srmp.tenant.context.TenantContextHolder;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -174,7 +175,12 @@ public class AiSolutionTaskClosureServiceImpl implements AiSolutionTaskClosureSe
             md.append("## 二、AI 分析摘要\n\n").append(aiAnswer).append("\n\n");
         }
 
-        md.append("## 三、方案正文\n\n").append(safe(task.get("result_content"))).append("\n\n");
+        String fixedResultContent = AiSolutionFallbackTemplateSupport.repairFallbackContentIfNeeded(
+                safe(task.get("result_content")),
+                task,
+                safe(ai.get("aiAnswer"))
+        );
+        md.append("## 三、方案正文\n\n").append(fixedResultContent).append("\n\n");
 
         md.append("## 四、AI 依据摘要\n\n");
         md.append("- AI Trace：").append(safe(ai.get("aiTraceId"))).append("\n");
