@@ -35,13 +35,13 @@ srmp:
   llm:
     provider: openai-compatible
     base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
-    api-key: sk-f39cf265c5ad4c378dc052d01db084e3
+    api-key: ${DASHSCOPE_API_KEY:}
     model: qwen3.6-plus
 
   ai:
     embedding:
       provider: openai-compatible
       endpoint: https://dashscope.aliyuncs.com/compatible-mode/v1
-      api-key: sk-f39cf265c5ad4c378dc052d01db084e3
+      api-key: ${DASHSCOPE_API_KEY:}
       model: text-embedding-v4
       dimensions: 1024

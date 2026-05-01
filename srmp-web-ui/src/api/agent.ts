@@ -137,6 +137,26 @@ export interface AiKnowledgeStatsResponse {
   message?: string
 }
 
+export interface EmbeddingHealthResponse {
+  provider: string
+  model: string
+  endpoint?: string
+  expectedDimensions?: number
+  actualDimensions?: number
+  available?: boolean
+  costMs?: number
+  errorType?: string
+  errorMessage?: string
+  suggestion?: string
+}
+
+/**
+ * Phase37  embedding health check.
+ */
+export function getEmbeddingHealth(): Promise<EmbeddingHealthResponse> {
+  return aiRequest.get('/api/ai/embedding/health')
+}
+
 /**
  * Phase36 补强：知识库统计。
  */

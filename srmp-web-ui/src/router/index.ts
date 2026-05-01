@@ -6,6 +6,7 @@ import KnowledgeDocumentPage from '../views/agent/KnowledgeDocumentPage.vue'
 import KnowledgeSearchPage from '../views/agent/KnowledgeSearchPage.vue'
 import KnowledgeVectorPage from '../views/agent/KnowledgeVectorPage.vue'
 import RagEvalPage from '../views/agent/RagEvalPage.vue'
+import AiHealthPage from '../views/agent/AiHealthPage.vue'
 import OutlineSearchPage from '../views/agent/OutlineSearchPage.vue'
 import OutlineStatusPage from '../views/agent/OutlineStatusPage.vue'
 import OutlineSyncPage from '../views/agent/OutlineSyncPage.vue'
@@ -96,6 +97,13 @@ const router = createRouter({
       component: RagEvalPage,
       meta: {
         title: 'RAG 质量评测'
+      }
+    },
+    {
+      path: '/agent/ai-health',
+      component: AiHealthPage,
+      meta: {
+        title: 'AI 健康检查'
       }
     },
     {

@@ -35,13 +35,13 @@ srmp:
   llm:
     provider: openai-compatible
     base-url: https://api.minimaxi.com/v1
-    api-key: sk-api-1uHNR6cg7SbLcflSwbh692kA-pyWAx3_dpa3bhNDykXuZMCDWrJgzaG4-t32zfiB1oKLra9Ytz8WhwjjJ9YlseMRcpkaDO80-ZUfCLXSoRPy3r70jB4MSuE
+    api-key: ${DASHSCOPE_API_KEY:}
     model: MiniMax-M2.7
 
   ai:
     embedding:
       provider: openai-compatible
       endpoint: https://api.minimax.chat/v1/embeddings
-      api-key: sk-api-1uHNR6cg7SbLcflSwbh692kA-pyWAx3_dpa3bhNDykXuZMCDWrJgzaG4-t32zfiB1oKLra9Ytz8WhwjjJ9YlseMRcpkaDO80-ZUfCLXSoRPy3r70jB4MSuE
+      api-key: ${DASHSCOPE_API_KEY:}
       model: embo-01
       dimensions: 1536
