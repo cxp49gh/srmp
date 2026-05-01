@@ -4,6 +4,8 @@ import AiChatPage from '../views/agent/AiChatPage.vue'
 import AiTracesPage from '../views/agent/AiTracesPage.vue'
 import KnowledgeDocumentPage from '../views/agent/KnowledgeDocumentPage.vue'
 import KnowledgeSearchPage from '../views/agent/KnowledgeSearchPage.vue'
+import KnowledgeVectorPage from '../views/agent/KnowledgeVectorPage.vue'
+import RagEvalPage from '../views/agent/RagEvalPage.vue'
 import OutlineSearchPage from '../views/agent/OutlineSearchPage.vue'
 import OutlineStatusPage from '../views/agent/OutlineStatusPage.vue'
 import OutlineSyncPage from '../views/agent/OutlineSyncPage.vue'
@@ -80,6 +82,20 @@ const router = createRouter({
       component: KnowledgeSearchPage,
       meta: {
         title: '知识库检索测试'
+      }
+    },
+    {
+      path: '/agent/knowledge-vector',
+      component: KnowledgeVectorPage,
+      meta: {
+        title: '向量知识库验证'
+      }
+    },
+    {
+      path: '/agent/rag-eval',
+      component: RagEvalPage,
+      meta: {
+        title: 'RAG 质量评测'
       }
     },
     {

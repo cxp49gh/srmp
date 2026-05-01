@@ -39,7 +39,14 @@ public class KnowledgeRetrieveTool implements AiTool {
             }
             AiKnowledgeSearchResponse response = aiKnowledgeRetrieverService.search(request);
             int count = response.getHits() == null ? 0 : response.getHits().size();
-            return AiToolResult.success(name(), "知识库命中 " + count + " 条", response, count, System.currentTimeMillis() - start);
+            String summary = "知识库命中 " + count + " 条";
+            if (response.getSearchMode() != null) {
+                summary += "，模式：" + response.getSearchMode();
+            }
+            if (Boolean.TRUE.equals(response.getVectorUsed())) {
+                summary += "，已使用向量检索";
+            }
+            return AiToolResult.success(name(), summary, response, count, System.currentTimeMillis() - start);
         } catch (Exception e) {
             return AiToolResult.failed(name(), e.getMessage(), System.currentTimeMillis() - start);
         }

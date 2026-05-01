@@ -5,6 +5,7 @@ import com.smartroad.srmp.agent.knowledge.dto.AiKnowledgeSearchRequest;
 import com.smartroad.srmp.agent.knowledge.service.AiKnowledgeIngestService;
 import com.smartroad.srmp.agent.knowledge.service.AiKnowledgeRetrieverService;
 import com.smartroad.srmp.agent.knowledge.vo.AiKnowledgeSearchResponse;
+import com.smartroad.srmp.agent.knowledge.vo.AiKnowledgeStatsResponse;
 import com.smartroad.srmp.common.core.R;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,5 +30,13 @@ public class AiKnowledgeController {
     @PostMapping("/search")
     public R<AiKnowledgeSearchResponse> search(@RequestBody AiKnowledgeSearchRequest request) {
         return R.ok(aiKnowledgeRetrieverService.search(request));
+    }
+
+    /**
+     * Phase36 补强：知识库统计，用于验证知识数据、embedding 和向量能力是否可用。
+     */
+    @GetMapping("/stats")
+    public R<AiKnowledgeStatsResponse> stats(@RequestParam(value = "tenantId", required = false) String tenantId) {
+        return R.ok(aiKnowledgeRetrieverService.stats(tenantId));
     }
 }

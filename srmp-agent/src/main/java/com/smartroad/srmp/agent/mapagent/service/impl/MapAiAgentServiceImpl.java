@@ -74,13 +74,26 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
                 if (tool == null) {
                     continue;
                 }
-                AiTraceContext.StepTimer toolTimer = trace.step("tool_execute", "工具执行 - " + toolName);
+                String stepName = "knowledge.retrieve".equals(toolName) ? "knowledge_retrieve" : "tool_execute";
+                String stepLabel = "knowledge.retrieve".equals(toolName) ? "知识库检索" : "工具执行 - " + toolName;
+                AiTraceContext.StepTimer toolTimer = trace.step(stepName, stepLabel);
                 AiToolResult result = tool.execute(toolContext, defaultArgs(toolName, message));
                 toolResults.add(result);
                 Map<String, Object> stepData = new LinkedHashMap<>();
                 stepData.put("toolName", toolName);
                 stepData.put("summary", result.getSummary());
                 stepData.put("success", result.isSuccess());
+                if (result.getData() instanceof AiKnowledgeSearchResponse) {
+                    AiKnowledgeSearchResponse kr = (AiKnowledgeSearchResponse) result.getData();
+                    stepData.put("query", kr.getQuery());
+                    stepData.put("searchMode", kr.getSearchMode());
+                    stepData.put("vectorUsed", kr.getVectorUsed());
+                    stepData.put("embeddingProvider", kr.getEmbeddingProvider());
+                    stepData.put("hitCount", kr.getHitCount());
+                    stepData.put("topScore", kr.getTopScore());
+                    stepData.put("fallback", kr.getFallback());
+                    stepData.put("fallbackReason", kr.getFallbackReason());
+                }
                 if (result.isSuccess()) {
                     toolTimer.success(result.getCount(), stepData);
                 } else {
@@ -114,8 +127,10 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
             response.setMapContext(context);
             response.setToolResults(toolResults);
             response.setKnowledgeSources(knowledgeSources);
+            response.setSources(knowledgeSources);
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("sources", knowledgeSources);
+            data.put("knowledgeSources", knowledgeSources);
             data.put("toolResults", toolResults);
             data.put("mapContext", context);
             data.put("intent", intent.name());

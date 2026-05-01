@@ -13,6 +13,8 @@
         <router-link to="/agent/solution-tasks">方案任务</router-link>
         <router-link to="/agent/knowledge-documents">知识库文档</router-link>
         <router-link to="/agent/knowledge-search">知识库检索</router-link>
+        <router-link to="/agent/knowledge-vector">向量知识库验证</router-link>
+        <router-link to="/agent/rag-eval">RAG 质量评测</router-link>
         <router-link to="/agent/outline-search">Outline 搜索</router-link>
         <router-link to="/agent/outline-sync">Outline 同步</router-link>
         <router-link to="/agent/outline-status">Outline 状态</router-link>

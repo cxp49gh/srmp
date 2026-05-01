@@ -3,12 +3,15 @@ package com.smartroad.srmp.agent.knowledge.service.impl;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartroad.srmp.agent.embedding.EmbeddingClient;
+import com.smartroad.srmp.agent.embedding.EmbeddingProperties;
 import com.smartroad.srmp.agent.knowledge.dto.AiKnowledgeSearchRequest;
 import com.smartroad.srmp.agent.knowledge.service.AiKnowledgeRetrieverService;
 import com.smartroad.srmp.agent.knowledge.vo.AiKnowledgeSearchHit;
 import com.smartroad.srmp.agent.knowledge.vo.AiKnowledgeSearchResponse;
+import com.smartroad.srmp.agent.knowledge.vo.AiKnowledgeStatsResponse;
 import com.smartroad.srmp.tenant.context.TenantContextHolder;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -28,16 +31,25 @@ public class AiKnowledgeRetrieverServiceImpl implements AiKnowledgeRetrieverServ
     @Resource
     private EmbeddingClient embeddingClient;
 
+    @Resource
+    private EmbeddingProperties embeddingProperties;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     public AiKnowledgeSearchResponse search(AiKnowledgeSearchRequest request) {
         AiKnowledgeSearchResponse response = new AiKnowledgeSearchResponse();
+        decorateEmbeddingMeta(response);
+
         String query = request == null ? "" : safe(request.getQuery());
         response.setQuery(query);
         if (query.length() == 0) {
+            response.setSearchMode("NO_DATA");
+            response.setFallback(true);
+            response.setFallbackReason("query is empty");
             return response;
         }
+
         int topK = request.getTopK() == null ? 5 : request.getTopK();
         if (topK <= 0) {
             topK = 5;
@@ -45,24 +57,76 @@ public class AiKnowledgeRetrieverServiceImpl implements AiKnowledgeRetrieverServ
         if (topK > 20) {
             topK = 20;
         }
+
         try {
-            response.setHits(vectorSearch(request, query, topK));
+            if (!vectorEnabled()) {
+                throw new IllegalStateException("pgvector extension not available");
+            }
+            if (embeddedCount(tenantId(request)) <= 0) {
+                throw new IllegalStateException("no embedded chunks");
+            }
+            List<AiKnowledgeSearchHit> hits = vectorSearch(request, query, topK);
+            response.setHits(hits);
+            response.setSearchMode("VECTOR");
+            response.setVectorUsed(true);
+            response.setFallback(false);
+            fillHitMeta(response);
             return response;
         } catch (Exception e) {
             log.warn("[AI-KNOWLEDGE] vector search fallback to keyword, error={}", e.getMessage());
-            response.setHits(keywordSearch(request, query, topK));
+            List<AiKnowledgeSearchHit> hits = keywordSearch(request, query, topK);
+            response.setHits(hits);
+            response.setSearchMode("KEYWORD_FALLBACK");
+            response.setVectorUsed(false);
+            response.setFallback(true);
+            response.setFallbackReason(e.getMessage());
+            fillHitMeta(response);
             return response;
         }
+    }
+
+    @Override
+    public AiKnowledgeStatsResponse stats(String tenantId) {
+        String actualTenantId = safe(tenantId).length() > 0 ? tenantId.trim() : TenantContextHolder.getTenantId();
+        AiKnowledgeStatsResponse response = new AiKnowledgeStatsResponse();
+        response.setEmbeddingProvider(embeddingProperties == null ? null : embeddingProperties.getProvider());
+        response.setEmbeddingModel(embeddingClient == null ? null : embeddingClient.model());
+        response.setEmbeddingDimensions(embeddingClient == null ? null : embeddingClient.dimensions());
+        response.setVectorEnabled(vectorEnabled());
+
+        try {
+            MapSqlParameterSource p = new MapSqlParameterSource().addValue("tenantId", actualTenantId);
+            response.setDocumentCount(queryLong("select count(*) from ai_knowledge_document where tenant_id=:tenantId", p));
+            response.setChunkCount(queryLong("select count(*) from ai_knowledge_chunk where tenant_id=:tenantId", p));
+            response.setEmbeddedChunkCount(queryLong("select count(*) from ai_knowledge_chunk where tenant_id=:tenantId and embedding is not null", p));
+            response.setSourceTypes(querySourceTypes(actualTenantId));
+            response.setStatus("OK");
+            if (response.getChunkCount() <= 0) {
+                response.setMessage("暂无知识切片，请先导入知识数据");
+            } else if (response.getEmbeddedChunkCount() <= 0) {
+                response.setMessage("已有知识切片，但 embedding 为空，向量检索无法生效");
+            } else if (!Boolean.TRUE.equals(response.getVectorEnabled())) {
+                response.setMessage("已有 embedding，但 pgvector 扩展不可用，将走关键词兜底");
+            } else {
+                response.setMessage("知识库已就绪，可验证向量检索链路");
+            }
+        } catch (Exception e) {
+            response.setStatus("ERROR");
+            response.setMessage(e.getMessage());
+        }
+        return response;
     }
 
     private List<AiKnowledgeSearchHit> vectorSearch(AiKnowledgeSearchRequest request, String query, int topK) {
         List<Float> embedding = embeddingClient.embed(query);
         MapSqlParameterSource p = baseParams(request, topK);
         p.addValue("embedding", vectorLiteral(embedding));
-        String sql = baseSelect() +
-                " where c.tenant_id=:tenantId and d.status='ACTIVE' " + sourceTypeFilter(request) +
+        String sql = "select c.id chunk_id, c.document_id, c.title, c.section_title, c.source_type, c.source_id, c.content, c.metadata, " +
+                "(c.embedding <=> cast(:embedding as vector)) as distance " +
+                "from ai_knowledge_chunk c join ai_knowledge_document d on d.id=c.document_id and d.tenant_id=c.tenant_id " +
+                "where c.tenant_id=:tenantId and d.status='ACTIVE' and c.embedding is not null " + sourceTypeFilter(request) +
                 " order by c.embedding <=> cast(:embedding as vector) limit :limit";
-        return namedParameterJdbcTemplate.query(sql, p, (rs, rowNum) -> mapHit(rs, true));
+        return namedParameterJdbcTemplate.query(sql, p, (rs, rowNum) -> mapVectorHit(rs));
     }
 
     private List<AiKnowledgeSearchHit> keywordSearch(AiKnowledgeSearchRequest request, String query, int topK) {
@@ -72,12 +136,11 @@ public class AiKnowledgeRetrieverServiceImpl implements AiKnowledgeRetrieverServ
                 " where c.tenant_id=:tenantId and d.status='ACTIVE' " + sourceTypeFilter(request) +
                 " and (lower(c.content) like :kw or lower(coalesce(c.title,'')) like :kw or lower(coalesce(c.section_title,'')) like :kw) " +
                 " order by c.updated_at desc limit :limit";
-        return namedParameterJdbcTemplate.query(sql, p, (rs, rowNum) -> mapHit(rs, false));
+        return namedParameterJdbcTemplate.query(sql, p, (rs, rowNum) -> mapKeywordHit(rs));
     }
 
     private String baseSelect() {
-        return "select c.id chunk_id, c.document_id, c.title, c.section_title, c.source_type, c.source_id, c.content, c.metadata, " +
-                "case when c.embedding is null then null else 1.0 end as vector_score " +
+        return "select c.id chunk_id, c.document_id, c.title, c.section_title, c.source_type, c.source_id, c.content, c.metadata " +
                 "from ai_knowledge_chunk c join ai_knowledge_document d on d.id=c.document_id and d.tenant_id=c.tenant_id ";
     }
 
@@ -125,7 +188,24 @@ public class AiKnowledgeRetrieverServiceImpl implements AiKnowledgeRetrieverServ
         return Collections.emptyList();
     }
 
-    private AiKnowledgeSearchHit mapHit(ResultSet rs, boolean vector) throws SQLException {
+    private AiKnowledgeSearchHit mapVectorHit(ResultSet rs) throws SQLException {
+        AiKnowledgeSearchHit hit = mapBaseHit(rs);
+        double distance = rs.getDouble("distance");
+        if (rs.wasNull()) {
+            hit.setScore(0.0d);
+        } else {
+            hit.setScore(Math.max(0.0d, 1.0d - distance));
+        }
+        return hit;
+    }
+
+    private AiKnowledgeSearchHit mapKeywordHit(ResultSet rs) throws SQLException {
+        AiKnowledgeSearchHit hit = mapBaseHit(rs);
+        hit.setScore(0.5d);
+        return hit;
+    }
+
+    private AiKnowledgeSearchHit mapBaseHit(ResultSet rs) throws SQLException {
         AiKnowledgeSearchHit hit = new AiKnowledgeSearchHit();
         hit.setChunkId(rs.getString("chunk_id"));
         hit.setDocumentId(rs.getString("document_id"));
@@ -134,7 +214,6 @@ public class AiKnowledgeRetrieverServiceImpl implements AiKnowledgeRetrieverServ
         hit.setSourceType(rs.getString("source_type"));
         hit.setSourceId(rs.getString("source_id"));
         hit.setContent(rs.getString("content"));
-        hit.setScore(vector ? 1.0d : 0.5d);
         hit.setMetadata(parseJson(rs.getString("metadata")));
         return hit;
     }
@@ -147,6 +226,64 @@ public class AiKnowledgeRetrieverServiceImpl implements AiKnowledgeRetrieverServ
             return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
         } catch (Exception e) {
             return new LinkedHashMap<>();
+        }
+    }
+
+    private boolean vectorEnabled() {
+        try {
+            MapSqlParameterSource p = new MapSqlParameterSource();
+            Long count = namedParameterJdbcTemplate.queryForObject(
+                    "select count(*) from pg_extension where extname='vector'",
+                    p,
+                    Long.class
+            );
+            return count != null && count > 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private long embeddedCount(String tenantId) {
+        MapSqlParameterSource p = new MapSqlParameterSource().addValue("tenantId", tenantId);
+        return queryLong("select count(*) from ai_knowledge_chunk where tenant_id=:tenantId and embedding is not null", p);
+    }
+
+    private long queryLong(String sql, MapSqlParameterSource p) {
+        try {
+            Long value = namedParameterJdbcTemplate.queryForObject(sql, p, Long.class);
+            return value == null ? 0L : value;
+        } catch (DataAccessException e) {
+            return 0L;
+        }
+    }
+
+    private Map<String, Long> querySourceTypes(String tenantId) {
+        MapSqlParameterSource p = new MapSqlParameterSource().addValue("tenantId", tenantId);
+        Map<String, Long> result = new LinkedHashMap<>();
+        try {
+            namedParameterJdbcTemplate.query(
+                    "select coalesce(source_type,'UNKNOWN') source_type, count(*) cnt from ai_knowledge_chunk where tenant_id=:tenantId group by coalesce(source_type,'UNKNOWN') order by cnt desc",
+                    p,
+                    rs -> {
+                        result.put(rs.getString("source_type"), rs.getLong("cnt"));
+                    }
+            );
+        } catch (Exception ignored) {
+        }
+        return result;
+    }
+
+    private void decorateEmbeddingMeta(AiKnowledgeSearchResponse response) {
+        response.setEmbeddingProvider(embeddingProperties == null ? null : embeddingProperties.getProvider());
+        response.setEmbeddingModel(embeddingClient == null ? null : embeddingClient.model());
+        response.setEmbeddingDimensions(embeddingClient == null ? null : embeddingClient.dimensions());
+    }
+
+    private void fillHitMeta(AiKnowledgeSearchResponse response) {
+        int count = response.getHits() == null ? 0 : response.getHits().size();
+        response.setHitCount(count);
+        if (count > 0 && response.getHits().get(0) != null) {
+            response.setTopScore(response.getHits().get(0).getScore());
         }
     }
 
