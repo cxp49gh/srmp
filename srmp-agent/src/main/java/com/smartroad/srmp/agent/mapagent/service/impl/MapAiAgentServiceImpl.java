@@ -31,6 +31,12 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
     @Resource
     private MapObjectDiseaseAdviceEnhancer mapObjectDiseaseAdviceEnhancer;
 
+    @Resource
+    private AssessmentResultAdviceEnhancer assessmentResultAdviceEnhancer;
+
+    @Resource
+    private MapAiAnswerPolisher mapAiAnswerPolisher;
+
     @Override
     public MapAiAgentResponse chat(MapAiAgentRequest request) {
         String message = request == null ? "" : safe(request.getMessage());
@@ -125,6 +131,8 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
             answer = sanitize(answer);
             answer = enrichAnswerWithKnowledgeTerms(answer, message, context, knowledgeSources);
             answer = mapObjectDiseaseAdviceEnhancer.enhance(answer, message, context, knowledgeSources, toolResults);
+            answer = assessmentResultAdviceEnhancer.enhance(answer, message, context, knowledgeSources, toolResults);
+            answer = mapAiAnswerPolisher.polish(answer);
             cleanTimer.success(null, map("termEnriched", true));
 
             response.setAnswer(answer);
@@ -213,7 +221,10 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
         if (intent == MapAiIntent.OBJECT_ANALYSIS || intent == MapAiIntent.SOLUTION_GENERATE) {
             String type = firstString(context.getMapObject(), "objectType", "object_type", "type");
             if ("DISEASE".equalsIgnoreCase(type) || "DISEASE_RECORD".equalsIgnoreCase(type)) tools.add("gis.queryNearbyObjects");
-            if ("ASSESSMENT_RESULT".equalsIgnoreCase(type) || "EVALUATION_UNIT".equalsIgnoreCase(type)) tools.add("gis.queryAssessmentResults");
+            if ("ASSESSMENT_RESULT".equalsIgnoreCase(type) || "EVALUATION_UNIT".equalsIgnoreCase(type)) {
+                tools.add("gis.queryAssessmentResults");
+                tools.add("gis.queryDiseasesByStakeRange");
+            }
         }
         if (intent == MapAiIntent.TEMPLATE_VERIFY) tools.add("template.match");
         if (intent == MapAiIntent.SOLUTION_GENERATE && isExplicitSolutionDraftRequest(message)) tools.add("solution.generateDraft");
@@ -277,6 +288,7 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
         sb.append("8. 回答应尽量保留知识库中的专业术语，并在结尾列出参考资料标题。\n");
         sb.append("9. 必须优先吸收 Top1 参考资料中的处置工艺、成因判断和复核要点，不能只输出泛化建议。\n");
         sb.append("10. 若当前对象为病害，应按：主要问题、成因判断、现场复核、处置建议、优先级、参考依据 组织回答。\n");
+        sb.append("11. 若当前对象为评定结果，应显式分析 MQI/PQI/PCI、grade、主要短板、可能成因和养护处置建议。\\n");
         return sb.toString();
     }
 
