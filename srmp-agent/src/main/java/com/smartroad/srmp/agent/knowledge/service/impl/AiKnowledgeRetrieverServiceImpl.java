@@ -68,8 +68,10 @@ public class AiKnowledgeRetrieverServiceImpl implements AiKnowledgeRetrieverServ
             List<AiKnowledgeSearchHit> hits = vectorSearch(request, query, topK);
             response.setHits(hits);
             response.setSearchMode("VECTOR");
+            response.setRetrievalStrategy("VECTOR");
             response.setVectorUsed(true);
             response.setFallback(false);
+            response.setRewrittenQuery(query);
             fillHitMeta(response);
             return response;
         } catch (Exception e) {
@@ -77,9 +79,11 @@ public class AiKnowledgeRetrieverServiceImpl implements AiKnowledgeRetrieverServ
             List<AiKnowledgeSearchHit> hits = keywordSearch(request, query, topK);
             response.setHits(hits);
             response.setSearchMode("KEYWORD_FALLBACK");
+            response.setRetrievalStrategy("KEYWORD_FALLBACK");
             response.setVectorUsed(false);
             response.setFallback(true);
             response.setFallbackReason(e.getMessage());
+            response.setRewrittenQuery(query);
             fillHitMeta(response);
             return response;
         }
