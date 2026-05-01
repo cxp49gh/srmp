@@ -83,6 +83,7 @@
               </span>
             </div>
           </div>
+          <AiEvidencePanel v-if="item.role === 'assistant'" :message="item" :map-context="props.context" />
           <AiTraceButton v-if="item.role === 'assistant'" :trace="item.trace" class="trace-button" @open="openTrace" />
         </div>
       </div>
@@ -126,6 +127,7 @@ import { saveMapObjectSolutionDraft } from '../../../api/solution'
 import SolutionPreviewDialog from './SolutionPreviewDialog.vue'
 import AiTraceButton from '../../agent/components/AiTraceButton.vue'
 import AiTraceDrawer from '../../agent/components/AiTraceDrawer.vue'
+import AiEvidencePanel from './AiEvidencePanel.vue'
 
 interface MessageItem {
   role: 'user' | 'assistant'

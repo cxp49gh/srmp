@@ -45,3 +45,13 @@ srmp:
       api-key: ${DASHSCOPE_API_KEY:}
       model: text-embedding-v4
       dimensions: 1024
+    rag:
+      top-k: 8
+      score-threshold: 0.0
+      max-context-chars: 6000
+      hybrid:
+        enabled: true
+        vector-top-k: 10
+        keyword-top-k: 10
+        vector-weight: 0.7
+        keyword-weight: 0.3

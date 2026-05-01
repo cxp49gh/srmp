@@ -1,12 +1,17 @@
 package com.smartroad.srmp.agent.knowledge.service.impl;
 
+import com.smartroad.srmp.agent.knowledge.dto.AiKnowledgeSearchRequest;
 import com.smartroad.srmp.agent.knowledge.dto.KnowledgeDocumentRequest;
 import com.smartroad.srmp.agent.knowledge.dto.KnowledgeSearchRequest;
+import com.smartroad.srmp.agent.knowledge.service.AiKnowledgeRetrieverService;
 import com.smartroad.srmp.agent.knowledge.service.KnowledgeService;
 import com.smartroad.srmp.agent.knowledge.splitter.TextChunkSplitter;
+import com.smartroad.srmp.agent.knowledge.vo.AiKnowledgeSearchHit;
+import com.smartroad.srmp.agent.knowledge.vo.AiKnowledgeSearchResponse;
 import com.smartroad.srmp.agent.knowledge.vo.KnowledgeSearchResult;
 import com.smartroad.srmp.agent.llm.LlmClient;
 import com.smartroad.srmp.tenant.context.TenantContextHolder;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -18,6 +23,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
 
+@Slf4j
 @Service
 public class KnowledgeServiceImpl implements KnowledgeService {
 
@@ -29,6 +35,16 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     @Resource
     private LlmClient llmClient;
+
+    /**
+     * Phase37.4.1:
+     * /api/knowledge/search 是早期知识库接口，查的是 knowledge_document / knowledge_chunk；
+     * Phase36+ 新知识库查的是 ai_knowledge_document / ai_knowledge_chunk。
+     *
+     * 为了兼容旧前端和旧接口，当 legacy search 为空时，自动兜底到新的 AI 向量知识库。
+     */
+    @Resource
+    private AiKnowledgeRetrieverService aiKnowledgeRetrieverService;
 
     @Override
     public String createDocument(KnowledgeDocumentRequest request) {
@@ -93,34 +109,109 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             return Collections.emptyList();
         }
 
-        int topK = request.getTopK() == null ? 5 : request.getTopK();
-        if (topK <= 0) {
-            topK = 5;
+        List<KnowledgeSearchResult> legacyResults = legacySearch(request);
+        if (!legacyResults.isEmpty()) {
+            return legacyResults;
         }
-        if (topK > 20) {
-            topK = 20;
+
+        List<KnowledgeSearchResult> aiResults = searchAiKnowledge(request);
+        if (!aiResults.isEmpty()) {
+            return aiResults;
         }
+
+        return Collections.emptyList();
+    }
+
+    private List<KnowledgeSearchResult> legacySearch(KnowledgeSearchRequest request) {
+        String query = request == null ? "" : defaultString(request.getQuery(), "");
+        int topK = normalizeTopK(request == null ? null : request.getTopK());
 
         MapSqlParameterSource params = new MapSqlParameterSource();
         params.addValue("tenantId", TenantContextHolder.getTenantId());
-        params.addValue("kw", "%" + query.toLowerCase() + "%");
         params.addValue("category", defaultString(request.getCategory(), ""));
         params.addValue("sourceType", defaultString(request.getSourceType(), ""));
         params.addValue("limit", topK);
 
+        List<String> tokens = keywordTokens(query);
+        String keywordSql;
+        if (tokens.isEmpty()) {
+            params.addValue("kw0", "%" + query.toLowerCase(Locale.ROOT) + "%");
+            keywordSql = " and (lower(c.content) like :kw0 or lower(coalesce(c.heading,'')) like :kw0 or lower(d.title) like :kw0) ";
+        } else {
+            StringBuilder sb = new StringBuilder();
+            sb.append(" and (");
+            for (int i = 0; i < tokens.size(); i++) {
+                if (i > 0) {
+                    sb.append(" or ");
+                }
+                String key = "kw" + i;
+                params.addValue(key, "%" + tokens.get(i).toLowerCase(Locale.ROOT) + "%");
+                sb.append("lower(c.content) like :").append(key)
+                        .append(" or lower(coalesce(c.heading,'')) like :").append(key)
+                        .append(" or lower(d.title) like :").append(key);
+            }
+            sb.append(") ");
+            keywordSql = sb.toString();
+        }
+
         String sql =
                 "select d.id as document_id, c.id as chunk_id, d.title, c.heading, c.content, c.source_type, c.source_url, " +
-                        " case when lower(c.heading) like :kw then 2.0 else 1.0 end as score " +
-                " from knowledge_chunk c " +
-                " join knowledge_document d on d.id=c.document_id and d.tenant_id=c.tenant_id and d.deleted=false " +
-                " where c.tenant_id=:tenantId and c.deleted=false " +
-                "   and (:category='' or d.category=:category) " +
-                "   and (:sourceType='' or c.source_type=:sourceType) " +
-                "   and (lower(c.content) like :kw or lower(coalesce(c.heading,'')) like :kw or lower(d.title) like :kw) " +
-                " order by score desc, c.updated_at desc " +
-                " limit :limit";
+                        " case when lower(coalesce(c.heading,'')) like :kw0 then 2.0 else 1.0 end as score " +
+                        " from knowledge_chunk c " +
+                        " join knowledge_document d on d.id=c.document_id and d.tenant_id=c.tenant_id and d.deleted=false " +
+                        " where c.tenant_id=:tenantId and c.deleted=false " +
+                        "   and (:category='' or d.category=:category) " +
+                        "   and (:sourceType='' or c.source_type=:sourceType) " +
+                        keywordSql +
+                        " order by score desc, c.updated_at desc " +
+                        " limit :limit";
 
-        return namedParameterJdbcTemplate.query(sql, params, (rs, rowNum) -> mapResult(rs));
+        if (!params.hasValue("kw0")) {
+            params.addValue("kw0", "%" + tokens.get(0).toLowerCase(Locale.ROOT) + "%");
+        }
+
+        try {
+            return namedParameterJdbcTemplate.query(sql, params, (rs, rowNum) -> mapResult(rs));
+        } catch (Exception e) {
+            log.warn("[KNOWLEDGE] legacy knowledge search failed, fallback to ai_knowledge, error={}", e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    private List<KnowledgeSearchResult> searchAiKnowledge(KnowledgeSearchRequest request) {
+        try {
+            AiKnowledgeSearchRequest aiRequest = new AiKnowledgeSearchRequest();
+            aiRequest.setTenantId(TenantContextHolder.getTenantId());
+            aiRequest.setQuery(request.getQuery());
+            aiRequest.setOriginalQuery(request.getQuery());
+            aiRequest.setTopK(normalizeTopK(request.getTopK()));
+            if (request.getSourceType() != null && request.getSourceType().trim().length() > 0) {
+                aiRequest.setSourceTypes(Collections.singletonList(request.getSourceType().trim()));
+            }
+
+            AiKnowledgeSearchResponse response = aiKnowledgeRetrieverService.search(aiRequest);
+            List<AiKnowledgeSearchHit> hits = response == null ? Collections.emptyList() : response.getHits();
+            if (hits == null || hits.isEmpty()) {
+                return Collections.emptyList();
+            }
+
+            List<KnowledgeSearchResult> results = new ArrayList<>();
+            for (AiKnowledgeSearchHit hit : hits) {
+                KnowledgeSearchResult item = new KnowledgeSearchResult();
+                item.setDocumentId(hit.getDocumentId());
+                item.setChunkId(hit.getChunkId());
+                item.setTitle(hit.getTitle());
+                item.setHeading(hit.getSectionTitle());
+                item.setContent(hit.getContent());
+                item.setSourceType(hit.getSourceType());
+                item.setScore(hit.getScore());
+                results.add(item);
+            }
+            return results;
+        } catch (Exception e) {
+            log.warn("[KNOWLEDGE] ai_knowledge fallback search failed, error={}", e.getMessage());
+            return Collections.emptyList();
+        }
     }
 
     @Override
@@ -188,6 +279,55 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             sb.append("：").append(shortText(item.getContent(), 180)).append("\n");
         }
         return sb.toString();
+    }
+
+    private int normalizeTopK(Integer topK) {
+        int value = topK == null ? 5 : topK;
+        if (value <= 0) {
+            value = 5;
+        }
+        if (value > 20) {
+            value = 20;
+        }
+        return value;
+    }
+
+    private List<String> keywordTokens(String query) {
+        LinkedHashSet<String> tokens = new LinkedHashSet<>();
+        String text = query == null ? "" : query.trim();
+        String normalized = text
+                .replace("？", " ")
+                .replace("?", " ")
+                .replace("，", " ")
+                .replace(",", " ")
+                .replace("。", " ")
+                .replace(".", " ")
+                .replace("是什么意思", " ")
+                .replace("什么是", " ")
+                .replace("含义", " ");
+
+        for (String part : normalized.split("\\s+")) {
+            String token = part.trim();
+            if (token.length() >= 2) {
+                tokens.add(token);
+            }
+        }
+
+        // 中文短句兜底：对常见指标类问题补充核心词。
+        String upper = text.toUpperCase(Locale.ROOT);
+        for (String indicator : Arrays.asList("MQI", "PQI", "PCI", "RQI", "RDI", "SRI", "PSSI")) {
+            if (upper.contains(indicator)) {
+                tokens.add(indicator.toLowerCase(Locale.ROOT));
+            }
+        }
+        if (text.contains("指标")) {
+            tokens.add("指标");
+        }
+
+        if (tokens.size() > 12) {
+            return new ArrayList<>(tokens).subList(0, 12);
+        }
+        return new ArrayList<>(tokens);
     }
 
     private String shortText(String text, int max) {
