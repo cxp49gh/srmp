@@ -131,12 +131,22 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
 
             AiTraceContext.StepTimer llmTimer = trace.step("llm_answer", "大模型回答");
             String answer = llmClient.chat(systemPrompt(), prompt);
+            Map<String, Object> llmDiag = llmClient.diagnostics();
             if (answer == null || answer.trim().isEmpty()) {
                 answer = localAnswer(message, context, toolResults, knowledgeSources);
-                llmTimer.skipped(map("reason", "LLM 未启用或未返回内容，使用本地 Agent 回答"));
+                Map<String, Object> llmData = new LinkedHashMap<>(llmDiag);
+                llmData.put("reason", "LLM 未返回内容，使用本地 Agent 回答");
+                if (llmClient.enabled()) {
+                    String errorMessage = String.valueOf(llmData.getOrDefault("errorMessage", "LLM 返回为空"));
+                    llmTimer.failed(new RuntimeException(errorMessage), llmData);
+                } else {
+                    llmTimer.skipped(llmData);
+                }
                 trace.setFallback(true);
             } else {
-                llmTimer.success();
+                Map<String, Object> llmData = new LinkedHashMap<>(llmDiag);
+                llmData.put("answerChars", answer.length());
+                llmTimer.success(1, llmData);
             }
 
             AiTraceContext.StepTimer cleanTimer = trace.step("answer_sanitize", "回答清洗");

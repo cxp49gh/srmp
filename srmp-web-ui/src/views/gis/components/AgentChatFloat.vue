@@ -135,7 +135,7 @@ import {
   type MapObjectSolutionResponse,
   type MapObjectSolutionType
 } from '../../../api/agent'
-import { saveMapObjectSolutionDraft } from '../../../api/solution'
+import { saveMapObjectSolutionDraft, updateSolutionTaskAiContext } from '../../../api/solution'
 import SolutionPreviewDialog from './SolutionPreviewDialog.vue'
 import AiTraceButton from '../../agent/components/AiTraceButton.vue'
 import AiTraceDrawer from '../../agent/components/AiTraceDrawer.vue'
@@ -383,6 +383,28 @@ async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
   }
 }
 
+function latestAssistantMessage() {
+  const list = messages.value.filter((it: any) => it.role === 'assistant')
+  return list.length ? list[list.length - 1] : null
+}
+
+function buildAiEvidenceFromMessage(message: any) {
+  const toolResults = message?.toolResults || []
+  const knowledgeTool = toolResults.find((it: any) => (it.toolName || it.name) === 'knowledge.retrieve')
+  const data = knowledgeTool?.data || {}
+  return {
+    traceId: message?.trace?.id || message?.trace?.traceId || '',
+    retrievalStrategy: data.retrievalStrategy || '',
+    searchMode: data.searchMode || '',
+    vectorUsed: data.vectorUsed === true,
+    fallback: data.fallback === true,
+    rewrittenQuery: data.rewrittenQuery || '',
+    topScore: data.topScore,
+    sourceCount: (message?.sources || []).length,
+    mapContext: props.context || {}
+  }
+}
+
 async function saveSolutionDraft() {
   const solution = solutionResult.value
   const obj: any = activeMapObject.value
@@ -401,6 +423,7 @@ async function saveSolutionDraft() {
       sourceId: String(obj.objectId || obj.object_id || obj.id || obj.featureId || ''),
       contentExcerpt: mapContextLabel.value
     }
+    const assistantMessage = latestAssistantMessage()
     savedSolutionTask.value = await saveMapObjectSolutionDraft({
       solutionType: solution.solutionType,
       title: solution.title,
@@ -419,6 +442,22 @@ async function saveSolutionDraft() {
       options: { ...options },
       requestContext: props.context || {}
     })
+    if (savedSolutionTask.value?.id && assistantMessage) {
+      await updateSolutionTaskAiContext(savedSolutionTask.value.id, {
+        aiTraceId: String(assistantMessage.trace?.id || assistantMessage.trace?.traceId || ''),
+        aiAnswer: assistantMessage.content || '',
+        aiSources: assistantMessage.sources || [],
+        aiToolResults: assistantMessage.toolResults || [],
+        aiEvidence: buildAiEvidenceFromMessage(assistantMessage),
+        aiContext: {
+          mapContext: props.context || {},
+          mapObject: obj,
+          solutionType: solution.solutionType,
+          solutionTitle: solution.title
+        },
+        generationMode: 'MAP_AI_ANALYSIS_TO_SOLUTION_DRAFT'
+      })
+    }
     ElMessage.success('方案草稿已保存')
   } catch (error: any) {
     ElMessage.error(error?.message || '保存方案草稿失败')

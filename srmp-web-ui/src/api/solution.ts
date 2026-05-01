@@ -84,6 +84,16 @@ export interface AiSolutionDraftSaveRequest {
   requestContext?: Record<string, any>
 }
 
+export interface AiSolutionAiContextUpdateRequest {
+  aiTraceId?: string
+  aiAnswer?: string
+  aiSources?: Record<string, any>[]
+  aiToolResults?: Record<string, any>[]
+  aiEvidence?: Record<string, any>
+  aiContext?: Record<string, any>
+  generationMode?: string
+}
+
 export interface AiSolutionDraftUpdateRequest {
   title?: string
   markdown: string
@@ -177,4 +187,25 @@ export function getSolutionQualityResult(id: string): Promise<Record<string, any
 export function getSolutionMarkdownExportUrl(id: string): string {
   const base = import.meta.env.VITE_API_BASE_URL || ''
   return `${base}/api/ai/solution/tasks/${id}/export/markdown`
+}
+
+export function updateSolutionTaskAiContext(id: string, data: AiSolutionAiContextUpdateRequest): Promise<Record<string, any>> {
+  return request.post(`/api/ai/solution/tasks/${id}/ai-context`, data)
+}
+
+export function getSolutionTaskAiContext(id: string): Promise<Record<string, any>> {
+  return request.get(`/api/ai/solution/tasks/${id}/ai-context`)
+}
+
+export function getSolutionTaskStatusTimeline(id: string): Promise<Record<string, any>[]> {
+  return request.get(`/api/ai/solution/tasks/${id}/status-timeline`)
+}
+
+export function restoreSolutionTaskVersion(id: string, versionNo: number, changeNote?: string): Promise<Record<string, any>> {
+  return request.post(`/api/ai/solution/tasks/${id}/versions/${versionNo}/restore`, { changeNote })
+}
+
+export function getSolutionMarkdownV2ExportUrl(id: string): string {
+  const base = import.meta.env.VITE_API_BASE_URL || ''
+  return `${base}/api/ai/solution/tasks/${id}/export/markdown-v2`
 }

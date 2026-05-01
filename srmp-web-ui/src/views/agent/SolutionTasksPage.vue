@@ -92,12 +92,27 @@
 
           <SolutionQualityPanel :quality="quality" />
 
+          <el-card v-if="aiContext && (aiContext.aiAnswer || aiContext.generationMode)" shadow="never" class="mb">
+            <template #header>AI 分析依据</template>
+            <el-descriptions :column="2" border size="small">
+              <el-descriptions-item label="生成模式">{{ aiContext.generationMode || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="Trace">{{ aiContext.aiTraceId || '-' }}</el-descriptions-item>
+            </el-descriptions>
+            <div v-if="aiContext.aiAnswer" class="ai-answer-preview">{{ aiContext.aiAnswer }}</div>
+          </el-card>
+
           <pre>{{ detail.result_content }}</pre>
         </template>
       </el-card>
 
       <el-card class="right-card">
         <template #header>引用来源</template>
+        <div v-if="statusTimeline.length" class="timeline-box">
+          <strong>状态时间线</strong>
+          <div v-for="item in statusTimeline" :key="item.id" class="timeline-item">
+            {{ item.from_status || '-' }} -> {{ item.to_status }} | {{ item.action || '-' }}
+          </div>
+        </div>
         <el-empty v-if="sources.length === 0" description="暂无来源" />
         <div v-for="item in sources" :key="item.id" class="source-item">
           <div class="source-title">
@@ -115,6 +130,7 @@
       <div v-for="item in versions" :key="item.id" class="version-item">
         <strong>v{{ item.version_no }} {{ item.title }}</strong>
         <p>{{ item.change_note || '版本快照' }}</p>
+        <el-button v-if="detail?.draft_status === 'DRAFT'" size="small" @click="restoreVersion(item.version_no)">恢复到该版本</el-button>
         <div class="meta">{{ item.created_at }}</div>
       </div>
     </el-drawer>
@@ -130,6 +146,10 @@ import TemplateMetaCard from './components/TemplateMetaCard.vue'
 import {
   checkSolutionQuality,
   getSolutionMarkdownExportUrl,
+  getSolutionMarkdownV2ExportUrl,
+  getSolutionTaskAiContext,
+  getSolutionTaskStatusTimeline,
+  restoreSolutionTaskVersion,
   getSolutionQualityResult,
   getSolutionTask,
   getSolutionTaskSources,
@@ -151,6 +171,8 @@ const detail = ref<Record<string, any> | null>(null)
 const sources = ref<Record<string, any>[]>([])
 const quality = ref<Record<string, any> | null>(null)
 const versions = ref<Record<string, any>[]>([])
+const aiContext = ref<Record<string, any> | null>(null)
+const statusTimeline = ref<Record<string, any>[]>([])
 const checking = ref(false)
 const versionDrawerVisible = ref(false)
 const statusUpdating = ref(false)
@@ -166,6 +188,8 @@ async function selectTask(item: Record<string, any>) {
   detail.value = await getSolutionTask(item.id)
   sources.value = await getSolutionTaskSources(item.id)
   quality.value = await getSolutionQualityResult(item.id)
+  aiContext.value = await getSolutionTaskAiContext(item.id)
+  statusTimeline.value = await getSolutionTaskStatusTimeline(item.id)
   versions.value = []
 }
 
@@ -188,7 +212,14 @@ async function copyResult() {
 
 function exportMarkdown() {
   if (!detail.value?.id) return
-  window.open(getSolutionMarkdownExportUrl(detail.value.id), '_blank')
+  window.open(getSolutionMarkdownV2ExportUrl(detail.value.id), '_blank')
+}
+
+async function restoreVersion(versionNo: number) {
+  if (!detail.value?.id) return
+  detail.value = await restoreSolutionTaskVersion(detail.value.id, versionNo, `恢复到 v${versionNo}`)
+  versions.value = await getSolutionTaskVersions(detail.value.id)
+  ElMessage.success('已恢复历史版本')
 }
 
 async function openVersions() {
@@ -294,5 +325,28 @@ pre {
   line-height: 1.6;
   max-height: calc(100vh - 360px);
   overflow: auto;
+}
+
+.ai-answer-preview {
+  margin-top: 10px;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.timeline-box {
+  margin-bottom: 12px;
+  padding: 10px;
+  border-radius: 10px;
+  background: #f8fafc;
+  font-size: 13px;
+}
+
+.timeline-item {
+  margin-top: 6px;
+  color: #475569;
 }
 </style>
