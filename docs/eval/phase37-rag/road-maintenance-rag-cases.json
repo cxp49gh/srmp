@@ -1,0 +1,89 @@
+[
+  {
+    "id": "repair-damage-treatment",
+    "question": "修补损坏怎么处理？",
+    "mapContext": {
+      "mode": "OBJECT",
+      "routeCode": "G210",
+      "year": 2026,
+      "mapObject": {
+        "objectType": "DISEASE",
+        "routeCode": "G210",
+        "diseaseName": "修补损坏",
+        "severity": "MEDIUM"
+      }
+    },
+    "expectedKeywords": [
+      "复核",
+      "基层",
+      "排水",
+      "局部"
+    ],
+    "expectedSources": [
+      "修补损坏"
+    ]
+  },
+  {
+    "id": "crack-treatment",
+    "question": "中度裂缝如何处置？",
+    "mapContext": {
+      "mode": "OBJECT",
+      "routeCode": "G210",
+      "year": 2026,
+      "mapObject": {
+        "objectType": "DISEASE",
+        "routeCode": "G210",
+        "diseaseName": "裂缝",
+        "severity": "MEDIUM"
+      }
+    },
+    "expectedKeywords": [
+      "灌缝",
+      "封层",
+      "渗水"
+    ],
+    "expectedSources": [
+      "裂缝"
+    ]
+  },
+  {
+    "id": "mqi-pqi-pci",
+    "question": "MQI、PQI、PCI 分别是什么意思？",
+    "mapContext": {
+      "mode": "ROUTE",
+      "routeCode": "G210",
+      "year": 2026
+    },
+    "expectedKeywords": [
+      "MQI",
+      "PQI",
+      "PCI"
+    ],
+    "expectedSources": [
+      "指标"
+    ]
+  },
+  {
+    "id": "region-advice",
+    "question": "框选区域病害集中时怎么制定养护建议？",
+    "mapContext": {
+      "mode": "REGION",
+      "routeCode": "G210",
+      "year": 2026,
+      "regionSummary": {
+        "diseaseCount": 52,
+        "lowScoreCount": 4,
+        "avgMqi": 86.3
+      }
+    },
+    "expectedKeywords": [
+      "区域",
+      "病害",
+      "优先",
+      "处置"
+    ],
+    "expectedSources": [
+      "区域"
+    ]
+  }
+]
