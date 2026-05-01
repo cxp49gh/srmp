@@ -28,6 +28,9 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
     @Resource
     private AiTraceService aiTraceService;
 
+    @Resource
+    private MapObjectDiseaseAdviceEnhancer mapObjectDiseaseAdviceEnhancer;
+
     @Override
     public MapAiAgentResponse chat(MapAiAgentRequest request) {
         String message = request == null ? "" : safe(request.getMessage());
@@ -62,7 +65,7 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
             toolContext.setMapContext(context);
             toolContext.setOptions(request == null ? new LinkedHashMap<String, Object>() : request.getOptions());
 
-            List<String> toolNames = planTools(intent, context, request == null ? null : request.getOptions());
+            List<String> toolNames = planTools(intent, context, request == null ? null : request.getOptions(), message);
             List<AiToolResult> toolResults = new ArrayList<>();
             List<AiKnowledgeSearchHit> knowledgeSources = new ArrayList<>();
 
@@ -121,6 +124,7 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
             AiTraceContext.StepTimer cleanTimer = trace.step("answer_sanitize", "回答清洗");
             answer = sanitize(answer);
             answer = enrichAnswerWithKnowledgeTerms(answer, message, context, knowledgeSources);
+            answer = mapObjectDiseaseAdviceEnhancer.enhance(answer, message, context, knowledgeSources, toolResults);
             cleanTimer.success(null, map("termEnriched", true));
 
             response.setAnswer(answer);
@@ -194,7 +198,7 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
         String text = message == null ? "" : message;
         if (containsAny(text, "保存", "归档", "确认方案")) return MapAiIntent.TASK_SAVE;
         if (containsAny(text, "模板", "是否生效", "变量")) return MapAiIntent.TEMPLATE_VERIFY;
-        if (containsAny(text, "生成方案", "处置建议", "报告草稿", "养护建议")) return MapAiIntent.SOLUTION_GENERATE;
+        if (isExplicitSolutionDraftRequest(text)) return MapAiIntent.SOLUTION_GENERATE;
         if (containsAny(text, "周边", "附近", "相邻", "集中区")) return MapAiIntent.NEARBY_ANALYSIS;
         if (containsAny(text, "区域", "框选", "范围") || "REGION".equals(context.getMode())) return MapAiIntent.REGION_ANALYSIS;
         if (containsAny(text, "规范", "标准", "怎么处理", "工艺", "依据")) return MapAiIntent.KNOWLEDGE_QA;
@@ -202,7 +206,7 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
         return MapAiIntent.GENERAL_CHAT;
     }
 
-    private List<String> planTools(MapAiIntent intent, MapAiContext context, Map<String, Object> options) {
+    private List<String> planTools(MapAiIntent intent, MapAiContext context, Map<String, Object> options, String message) {
         LinkedHashSet<String> tools = new LinkedHashSet<>();
         if (intent == MapAiIntent.NEARBY_ANALYSIS) tools.add("gis.queryNearbyObjects");
         if (intent == MapAiIntent.REGION_ANALYSIS) tools.add("gis.queryRegionSummary");
@@ -212,12 +216,19 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
             if ("ASSESSMENT_RESULT".equalsIgnoreCase(type) || "EVALUATION_UNIT".equalsIgnoreCase(type)) tools.add("gis.queryAssessmentResults");
         }
         if (intent == MapAiIntent.TEMPLATE_VERIFY) tools.add("template.match");
-        if (intent == MapAiIntent.SOLUTION_GENERATE) tools.add("solution.generateDraft");
+        if (intent == MapAiIntent.SOLUTION_GENERATE && isExplicitSolutionDraftRequest(message)) tools.add("solution.generateDraft");
         if (useKnowledge(options) || intent == MapAiIntent.KNOWLEDGE_QA || intent == MapAiIntent.SOLUTION_GENERATE || intent == MapAiIntent.OBJECT_ANALYSIS) {
             tools.add("knowledge.retrieve");
         }
         if (tools.isEmpty()) tools.add("knowledge.retrieve");
         return new ArrayList<>(tools);
+    }
+
+    private boolean isExplicitSolutionDraftRequest(String message) {
+        String text = message == null ? "" : message;
+        return containsAny(text,
+                "生成方案", "方案草稿", "生成草稿", "保存方案", "保存为方案", "保存为方案任务",
+                "形成方案", "生成任务", "生成养护方案", "保存任务", "创建方案任务");
     }
 
     private boolean useKnowledge(Map<String, Object> options) {
@@ -264,6 +275,8 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
         sb.append("6. 【知识库术语保留要求】如果知识库资料中包含明确的处置工艺、风险因素、现场复核要点，回答必须显式提取并写入，不要只概括为“预防性养护”或“局部修补”。\n");
         sb.append("7. 对于裂缝类病害，必须优先覆盖：灌缝/开槽灌缝/封缝，封层/薄层罩面/雾封层，以及防止渗水、雨水下渗造成基层水损害。\n");
         sb.append("8. 回答应尽量保留知识库中的专业术语，并在结尾列出参考资料标题。\n");
+        sb.append("9. 必须优先吸收 Top1 参考资料中的处置工艺、成因判断和复核要点，不能只输出泛化建议。\n");
+        sb.append("10. 若当前对象为病害，应按：主要问题、成因判断、现场复核、处置建议、优先级、参考依据 组织回答。\n");
         return sb.toString();
     }
 
