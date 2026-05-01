@@ -100,6 +100,7 @@ public class AiKnowledgeRetrieverServiceImpl implements AiKnowledgeRetrieverServ
             response.setChunkCount(queryLong("select count(*) from ai_knowledge_chunk where tenant_id=:tenantId", p));
             response.setEmbeddedChunkCount(queryLong("select count(*) from ai_knowledge_chunk where tenant_id=:tenantId and embedding is not null", p));
             response.setSourceTypes(querySourceTypes(actualTenantId));
+            response.setChunkEmbeddingProviders(queryChunkEmbeddingProviders(actualTenantId));
             response.setStatus("OK");
             if (response.getChunkCount() <= 0) {
                 response.setMessage("暂无知识切片，请先导入知识数据");
@@ -267,6 +268,27 @@ public class AiKnowledgeRetrieverServiceImpl implements AiKnowledgeRetrieverServ
                     rs -> {
                         result.put(rs.getString("source_type"), rs.getLong("cnt"));
                     }
+            );
+        } catch (Exception ignored) {
+        }
+        return result;
+    }
+
+    private Map<String, Long> queryChunkEmbeddingProviders(String tenantId) {
+        MapSqlParameterSource p = new MapSqlParameterSource().addValue("tenantId", tenantId);
+        Map<String, Long> result = new LinkedHashMap<>();
+        try {
+            namedParameterJdbcTemplate.query(
+                    "select " +
+                            "coalesce(embedding_provider,'UNKNOWN') || ':' || " +
+                            "coalesce(embedding_model,'UNKNOWN') || ':' || " +
+                            "coalesce(embedding_dimensions::text,'UNKNOWN') as provider_key, " +
+                            "count(*) cnt " +
+                            "from ai_knowledge_chunk " +
+                            "where tenant_id=:tenantId and embedding is not null " +
+                            "group by provider_key order by cnt desc",
+                    p,
+                    (org.springframework.jdbc.core.RowCallbackHandler) (rs -> result.put(rs.getString("provider_key"), rs.getLong("cnt")))
             );
         } catch (Exception ignored) {
         }

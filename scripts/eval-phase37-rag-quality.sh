@@ -25,7 +25,7 @@ PY
 )"
 
 echo "==> POST /api/ai/eval/rag/run"
-resp="$(curl -fsS -X POST "$BASE_URL/api/ai/eval/rag/run" -H "Content-Type: application/json" -d "$payload")"
+resp="$(curl -fsS --max-time 300 -X POST "$BASE_URL/api/ai/eval/rag/run" -H "Content-Type: application/json" -d "$payload")"
 printf '%s' "$resp" | python3 -m json.tool
 
 python3 - "$resp" <<'PY'

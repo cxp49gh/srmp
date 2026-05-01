@@ -2,6 +2,7 @@ package com.smartroad.srmp.agent.knowledge.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartroad.srmp.agent.embedding.EmbeddingClient;
+import com.smartroad.srmp.agent.embedding.EmbeddingProperties;
 import com.smartroad.srmp.agent.knowledge.dto.AiKnowledgeIngestMarkdownRequest;
 import com.smartroad.srmp.agent.knowledge.service.AiKnowledgeIngestService;
 import com.smartroad.srmp.agent.knowledge.splitter.TextChunkSplitter;
@@ -26,6 +27,9 @@ public class AiKnowledgeIngestServiceImpl implements AiKnowledgeIngestService {
 
     @Resource
     private EmbeddingClient embeddingClient;
+
+    @Resource
+    private EmbeddingProperties embeddingProperties;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -84,10 +88,12 @@ public class AiKnowledgeIngestServiceImpl implements AiKnowledgeIngestService {
                     .addValue("content", chunkText)
                     .addValue("metadata", metadataJson)
                     .addValue("embedding", vectorLiteral(embedding))
-                    .addValue("embeddingModel", embeddingClient.model());
+                    .addValue("embeddingProvider", embeddingProperties == null ? null : embeddingProperties.getProvider())
+                    .addValue("embeddingModel", embeddingClient.model())
+                    .addValue("embeddingDimensions", embeddingClient.dimensions());
             namedParameterJdbcTemplate.update(
-                    "insert into ai_knowledge_chunk(id, tenant_id, document_id, source_type, source_id, title, section_title, chunk_index, content, metadata, embedding, embedding_model, created_at, updated_at) " +
-                            "values(:id,:tenantId,:documentId,:sourceType,:sourceId,:title,:sectionTitle,:chunkIndex,:content,cast(:metadata as jsonb),cast(:embedding as vector),:embeddingModel,now(),now())",
+                    "insert into ai_knowledge_chunk(id, tenant_id, document_id, source_type, source_id, title, section_title, chunk_index, content, metadata, embedding, embedding_provider, embedding_model, embedding_dimensions, embedded_at, created_at, updated_at) " +
+                            "values(:id,:tenantId,:documentId,:sourceType,:sourceId,:title,:sectionTitle,:chunkIndex,:content,cast(:metadata as jsonb),cast(:embedding as vector),:embeddingProvider,:embeddingModel,:embeddingDimensions,now(),now(),now())",
                     p
             );
         }

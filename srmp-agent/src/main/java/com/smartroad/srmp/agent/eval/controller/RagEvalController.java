@@ -22,6 +22,11 @@ public class RagEvalController {
         return R.ok(ragEvalService.run(request));
     }
 
+    @GetMapping("/cases")
+    public R<List<RagEvalCase>> cases() {
+        return R.ok(defaultCaseList());
+    }
+
     @GetMapping("/default-cases")
     public R<List<RagEvalCase>> defaultCases() {
         return R.ok(defaultCaseList());

@@ -147,26 +147,81 @@ export function getAiKnowledgeStats(tenantId?: string): Promise<AiKnowledgeStats
 }
 
 
+export interface AiKnowledgeReindexRequest {
+  tenantId?: string
+  sourceType?: string
+  documentIds?: string[]
+  force?: boolean
+  limit?: number
+}
+
+export interface AiKnowledgeReindexResponse {
+  total: number
+  success: number
+  failed: number
+  skipped?: number
+  force?: boolean
+  tenantId?: string
+  sourceType?: string
+  embeddingProvider?: string
+  embeddingModel?: string
+  embeddingDimensions?: number
+  costMs?: number
+  failedMessages?: string[]
+}
+
+/**
+ * Phase37.1：知识库 Reindex / Re-embedding。
+ */
+export function reindexAiKnowledge(data: AiKnowledgeReindexRequest): Promise<AiKnowledgeReindexResponse> {
+  return aiRequest.post('/api/ai/knowledge/reindex', data)
+}
+
+// ============================================================
+// Phase37 RAG 评测
+// ============================================================
+
 export interface RagEvalCase {
-  id?: string
-  question: string
-  mapContext?: Record<string, any>
+  id: string
+  query: string
   expectedKeywords?: string[]
-  expectedSources?: string[]
-  options?: Record<string, any>
+  requireVectorUsed?: boolean
+  description?: string
 }
 
 export interface RagEvalRequest {
-  tenantId?: string
   cases: RagEvalCase[]
   topK?: number
   requireVectorUsed?: boolean
 }
 
-export function runRagEval(data: RagEvalRequest): Promise<Record<string, any>> {
+export interface RagEvalResponse {
+  total: number
+  passed: number
+  passRate: number
+  results?: Array<{
+    caseId: string
+    passed: boolean
+    hits: Array<{
+      title: string
+      sectionTitle?: string
+      score: number
+      content?: string
+    }>
+    error?: string
+  }>
+}
+
+/**
+ * Phase37 RAG 评测执行。
+ */
+export function runRagEval(data: RagEvalRequest): Promise<RagEvalResponse> {
   return aiRequest.post('/api/ai/eval/rag/run', data)
 }
 
+/**
+ * Phase37 获取默认评测用例。
+ */
 export function getDefaultRagEvalCases(): Promise<RagEvalCase[]> {
-  return aiRequest.get('/api/ai/eval/rag/default-cases')
+  return aiRequest.get('/api/ai/eval/rag/cases')
 }

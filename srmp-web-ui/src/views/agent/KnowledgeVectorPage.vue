@@ -38,7 +38,11 @@
       <template #header>
         <div class="card-header">
           <span>知识库状态</span>
-          <el-button size="small" :loading="loadingStats" @click="loadStats">刷新</el-button>
+          <div>
+            <el-button size="small" :loading="loadingStats" @click="loadStats">刷新</el-button>
+            <el-button size="small" :loading="reindexing" @click="reindex(false)">补齐空向量</el-button>
+            <el-button size="small" type="warning" plain :loading="reindexing" @click="reindex(true)">强制重建向量</el-button>
+          </div>
         </div>
       </template>
 
@@ -51,6 +55,7 @@
       </el-descriptions>
 
       <div class="source-types" v-if="stats.sourceTypes">
+        <div class="tag-title">来源类型分布</div>
         <el-tag
           v-for="(count, type) in stats.sourceTypes"
           :key="type"
@@ -60,6 +65,21 @@
           {{ type }}: {{ count }}
         </el-tag>
       </div>
+
+      <div class="source-types" v-if="stats.chunkEmbeddingProviders">
+        <div class="tag-title">Chunk Embedding 来源分布</div>
+        <el-tag
+          v-for="(count, providerKey) in stats.chunkEmbeddingProviders"
+          :key="providerKey"
+          class="source-type"
+          :type="String(providerKey).includes('mock') ? 'warning' : 'success'"
+          effect="plain"
+        >
+          {{ providerKey }}: {{ count }}
+        </el-tag>
+      </div>
+
+      <pre v-if="reindexResult" class="reindex-result">{{ reindexResult }}</pre>
     </el-card>
 
     <el-row :gutter="16">
@@ -166,10 +186,13 @@ import {
   getAiKnowledgeStats,
   ingestKnowledgeMarkdown,
   mapAgentChat,
-  searchAiKnowledge
+  searchAiKnowledge,
+  reindexAiKnowledge
 } from '../../api/agent'
 
 const loadingStats = ref(false)
+const reindexing = ref(false)
+const reindexResult = ref('')
 const ingesting = ref(false)
 const searching = ref(false)
 const askingAgent = ref(false)
@@ -202,6 +225,21 @@ async function loadStats() {
     Object.assign(stats, data?.data || data || {})
   } finally {
     loadingStats.value = false
+  }
+}
+
+async function reindex(force: boolean) {
+  reindexing.value = true
+  try {
+    const data: any = await reindexAiKnowledge({
+      sourceType: 'MANUAL',
+      force
+    })
+    reindexResult.value = JSON.stringify(data?.data || data, null, 2)
+    ElMessage.success(force ? '强制重建完成' : '空向量补齐完成')
+    await loadStats()
+  } finally {
+    reindexing.value = false
   }
 }
 
@@ -317,6 +355,17 @@ onMounted(loadStats)
 .source-type {
   margin-right: 8px;
   margin-bottom: 8px;
+}
+
+.tag-title {
+  margin: 8px 0;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.reindex-result {
+  margin-top: 12px;
 }
 
 .debug-line {

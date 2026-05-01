@@ -11,6 +11,10 @@ public class AiKnowledgeStatsResponse {
     private Long chunkCount = 0L;
     private Long embeddedChunkCount = 0L;
     private Map<String, Long> sourceTypes = new LinkedHashMap<>();
+    /**
+     * key: provider:model:dimensions，例如 local:bge-m3:1024。
+     */
+    private Map<String, Long> chunkEmbeddingProviders = new LinkedHashMap<>();
 
     private String embeddingProvider;
     private String embeddingModel;

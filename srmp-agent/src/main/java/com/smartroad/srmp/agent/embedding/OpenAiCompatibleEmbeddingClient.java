@@ -4,11 +4,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.http.*;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.Resource;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.Proxy;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 @Slf4j
@@ -19,7 +23,6 @@ public class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
     @Resource
     private EmbeddingProperties properties;
 
-    private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
@@ -30,15 +33,92 @@ public class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
 
     @Override
     public List<List<Float>> embedBatch(List<String> texts) {
-        String url = endpoint();
+        try {
+            return doEmbedBatch(texts);
+        } catch (Exception e) {
+            String msg = e.getMessage();
+            if (msg != null && (msg.contains("handshake") || msg.contains("SSL") || msg.contains("TLS"))) {
+                log.warn("HttpURLConnection failed with TLS error, trying curl fallback: {}", msg);
+                try {
+                    return curlFallback(texts);
+                } catch (Exception curlEx) {
+                    throw new RuntimeException("curl fallback also failed: " + curlEx.getMessage(), curlEx);
+                }
+            }
+            throw new RuntimeException("openai-compatible embedding request failed: " + msg, e);
+        }
+    }
+
+    private List<List<Float>> doEmbedBatch(List<String> texts) throws Exception {
+        String urlStr = endpoint();
+        URL url = new URL(urlStr);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection(Proxy.NO_PROXY);
+        conn.setRequestMethod("POST");
+        conn.setDoOutput(true);
+        conn.setConnectTimeout(15000);
+        conn.setReadTimeout(30000);
+        conn.setRequestProperty("Content-Type", "application/json");
+        String apiKey = properties != null ? properties.getApiKey() : null;
+        if (apiKey != null && !apiKey.trim().isEmpty()) {
+            conn.setRequestProperty("Authorization", "Bearer " + apiKey);
+        }
+
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", model());
         body.put("input", texts == null ? Collections.emptyList() : texts);
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        if (properties.getApiKey() != null && !properties.getApiKey().trim().isEmpty()) headers.setBearerAuth(properties.getApiKey());
-        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
-        return parseOpenAiResponse(response.getBody());
+        String json = objectMapper.writeValueAsString(body);
+        conn.getOutputStream().write(json.getBytes(StandardCharsets.UTF_8));
+
+        int code = conn.getResponseCode();
+        StringBuilder sb = new StringBuilder();
+        try (BufferedReader br = new BufferedReader(
+                new InputStreamReader(code >= 400 ? conn.getErrorStream() : conn.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = br.readLine()) != null) sb.append(line);
+        }
+        conn.disconnect();
+        return parseOpenAiResponse(sb.toString());
+    }
+
+    private List<List<Float>> curlFallback(List<String> texts) throws Exception {
+        String urlStr = endpoint();
+        String apiKey = properties != null ? properties.getApiKey() : null;
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", model());
+        body.put("input", texts == null ? Collections.emptyList() : texts);
+        String json = objectMapper.writeValueAsString(body);
+
+        List<String> cmd = new ArrayList<>();
+        cmd.add("curl");
+        cmd.add("-s");
+        cmd.add("-X");
+        cmd.add("POST");
+        cmd.add(urlStr);
+        cmd.add("-H");
+        cmd.add("Content-Type: application/json");
+        if (apiKey != null && !apiKey.trim().isEmpty()) {
+            cmd.add("-H");
+            cmd.add("Authorization: Bearer " + apiKey);
+        }
+        cmd.add("-d");
+        cmd.add(json);
+        cmd.add("--max-time");
+        cmd.add("30");
+
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.redirectErrorStream(true);
+        Process process = pb.start();
+        StringBuilder output = new StringBuilder();
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = br.readLine()) != null) output.append(line);
+        }
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            throw new RuntimeException("curl exited with " + exitCode + ": " + output);
+        }
+        return parseOpenAiResponse(output.toString());
     }
 
     @Override
@@ -57,7 +137,8 @@ public class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
         }
         String endpoint = properties.getEndpoint().trim();
         if (endpoint.endsWith("/embeddings")) return endpoint;
-        if (endpoint.endsWith("/")) return endpoint + "v1/embeddings";
+        if (endpoint.endsWith("/")) endpoint = endpoint.substring(0, endpoint.length() - 1);
+        if (endpoint.endsWith("/v1")) return endpoint + "/embeddings";
         return endpoint + "/v1/embeddings";
     }
 
@@ -65,7 +146,10 @@ public class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
         try {
             JsonNode root = objectMapper.readTree(json == null ? "{}" : json);
             JsonNode data = root.get("data");
-            if (data == null || !data.isArray()) throw new IllegalStateException("embedding response missing data array");
+            if (data == null || !data.isArray()) {
+                String msg = root.has("error") ? root.get("error").toString() : "embedding response missing data array";
+                throw new IllegalStateException(msg);
+            }
             List<List<Float>> result = new ArrayList<>();
             for (JsonNode item : data) result.add(toFloatList(item.get("embedding")));
             return result;
