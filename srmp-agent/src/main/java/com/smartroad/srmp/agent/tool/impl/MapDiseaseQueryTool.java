@@ -32,19 +32,54 @@ public class MapDiseaseQueryTool extends AbstractJdbcAiTool {
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("items", rows);
             data.put("count", rows.size());
+            data.put("summary", summarize(rows));
             return AiToolResult.success(name(), "查询到 " + rows.size() + " 条病害记录", data, rows.size(), System.currentTimeMillis() - start);
         } catch (Exception e) {
             return failedResult(e.getMessage(), start);
         }
     }
 
+    private Map<String, Object> summarize(List<Map<String, Object>> rows) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        Map<String, Integer> diseaseTypes = new LinkedHashMap<>();
+        Map<String, Integer> severities = new LinkedHashMap<>();
+        double totalQuantity = 0.0d;
+
+        for (Map<String, Object> row : rows) {
+            String name = safe(first(row, "disease_name", "diseaseName", "disease_type", "diseaseType"));
+            String severity = safe(first(row, "severity"));
+            if (name.length() == 0) name = "UNKNOWN";
+            if (severity.length() == 0) severity = "UNKNOWN";
+            diseaseTypes.put(name, diseaseTypes.getOrDefault(name, 0) + 1);
+            severities.put(severity, severities.getOrDefault(severity, 0) + 1);
+            try {
+                Object quantity = first(row, "quantity");
+                if (quantity != null) totalQuantity += Double.parseDouble(String.valueOf(quantity));
+            } catch (Exception ignored) {
+            }
+        }
+
+        summary.put("diseaseTypes", diseaseTypes);
+        summary.put("severities", severities);
+        summary.put("totalQuantity", totalQuantity);
+        return summary;
+    }
+
+    private Object first(Map<String, Object> row, String... keys) {
+        for (String key : keys) {
+            Object value = row.get(key);
+            if (value != null) return value;
+        }
+        return null;
+    }
+
     private int limit(Map<String, Object> args) {
         Object value = args == null ? null : args.get("limit");
         try {
-            int limit = value == null ? 10 : Integer.parseInt(String.valueOf(value));
-            return Math.max(1, Math.min(limit, 50));
+            int limit = value == null ? 50 : Integer.parseInt(String.valueOf(value));
+            return Math.max(1, Math.min(limit, 200));
         } catch (Exception e) {
-            return 10;
+            return 50;
         }
     }
 }

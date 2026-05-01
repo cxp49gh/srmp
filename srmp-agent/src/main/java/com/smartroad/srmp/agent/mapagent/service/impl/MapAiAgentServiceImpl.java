@@ -35,6 +35,9 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
     private AssessmentResultAdviceEnhancer assessmentResultAdviceEnhancer;
 
     @Resource
+    private RoadAssetAdviceEnhancer roadAssetAdviceEnhancer;
+
+    @Resource
     private MapAiAnswerPolisher mapAiAnswerPolisher;
 
     @Override
@@ -132,6 +135,7 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
             answer = enrichAnswerWithKnowledgeTerms(answer, message, context, knowledgeSources);
             answer = mapObjectDiseaseAdviceEnhancer.enhance(answer, message, context, knowledgeSources, toolResults);
             answer = assessmentResultAdviceEnhancer.enhance(answer, message, context, knowledgeSources, toolResults);
+            answer = roadAssetAdviceEnhancer.enhance(answer, message, context, knowledgeSources, toolResults);
             answer = mapAiAnswerPolisher.polish(answer);
             cleanTimer.success(null, map("termEnriched", true));
 
@@ -220,6 +224,15 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
         if (intent == MapAiIntent.REGION_ANALYSIS) tools.add("gis.queryRegionSummary");
         if (intent == MapAiIntent.OBJECT_ANALYSIS || intent == MapAiIntent.SOLUTION_GENERATE) {
             String type = firstString(context.getMapObject(), "objectType", "object_type", "type");
+            if ("ROAD_ROUTE".equalsIgnoreCase(type) || "ROUTE".equalsIgnoreCase(type)) {
+                tools.add("gis.queryAssessmentResults");
+                tools.add("gis.queryDiseases");
+            }
+            if ("ROAD_SECTION".equalsIgnoreCase(type) || "SECTION".equalsIgnoreCase(type) || "ROAD_SEGMENT".equalsIgnoreCase(type) || "SEGMENT".equalsIgnoreCase(type)) {
+                tools.add("gis.queryAssessmentResults");
+                tools.add("gis.queryDiseases");
+                tools.add("gis.queryDiseasesByStakeRange");
+            }
             if ("DISEASE".equalsIgnoreCase(type) || "DISEASE_RECORD".equalsIgnoreCase(type)) tools.add("gis.queryNearbyObjects");
             if ("ASSESSMENT_RESULT".equalsIgnoreCase(type) || "EVALUATION_UNIT".equalsIgnoreCase(type)) {
                 tools.add("gis.queryAssessmentResults");
@@ -289,6 +302,7 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
         sb.append("9. 必须优先吸收 Top1 参考资料中的处置工艺、成因判断和复核要点，不能只输出泛化建议。\n");
         sb.append("10. 若当前对象为病害，应按：主要问题、成因判断、现场复核、处置建议、优先级、参考依据 组织回答。\n");
         sb.append("11. 若当前对象为评定结果，应显式分析 MQI/PQI/PCI、grade、主要短板、可能成因和养护处置建议。\\n");
+        sb.append("12. 若当前对象为路线或路段，应结合评定结果、病害分布、低分区间和路段属性，输出路线/路段级养护建议。\\n");
         return sb.toString();
     }
 
