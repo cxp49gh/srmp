@@ -45,6 +45,14 @@ srmp:
       api-key: ${DASHSCOPE_API_KEY:}
       model: text-embedding-v4
       dimensions: 1024
+
+  outline:
+    enabled: ${OUTLINE_ENABLED:false}
+    base-url: ${OUTLINE_BASE_URL:}
+    api-token: ${OUTLINE_API_TOKEN:}
+    sync-enabled: false
+    default-collection-id: ${OUTLINE_DEFAULT_COLLECTION_ID:}
+    search-limit: ${OUTLINE_SEARCH_LIMIT:5}
     rag:
       top-k: 8
       score-threshold: 0.0

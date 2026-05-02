@@ -44,6 +44,12 @@ public class OutlineSyncController {
         return R.ok(outlineSyncService.task(id));
     }
 
+    @GetMapping("/sync-tasks/{id}/details")
+    public R<List<Map<String, Object>>> details(@PathVariable String id,
+                                                @RequestParam(required = false) Integer limit) {
+        return R.ok(outlineSyncService.details(id, limit));
+    }
+
     private Integer readInt(Object value) {
         if (value == null) return null;
         try { return Integer.valueOf(String.valueOf(value)); } catch (Exception e) { return null; }

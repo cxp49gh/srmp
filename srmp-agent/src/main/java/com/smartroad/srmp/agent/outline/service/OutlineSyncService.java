@@ -13,4 +13,5 @@ public interface OutlineSyncService {
     Map sync(OutlineSyncRequest request);
     List<Map<String, Object>> tasks(Integer limit);
     Map<String, Object> task(String id);
+    List<Map<String, Object>> details(String taskId, Integer limit);
 }
