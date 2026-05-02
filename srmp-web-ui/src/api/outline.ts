@@ -4,7 +4,16 @@ export interface OutlineSearchRequest { query: string; limit?: number }
 export interface OutlineSearchResult { id: string; title: string; text?: string; url?: string; score?: number }
 export interface OutlineCollection { id: string; name: string; description?: string; url?: string }
 export interface OutlineDocument { id: string; collectionId?: string; title: string; text?: string; url?: string; updatedAt?: string }
-export interface OutlineSyncRequest { collectionId?: string; limit?: number; force?: boolean }
+
+export interface OutlineSyncRequest {
+  collectionId?: string
+  limit?: number
+  force?: boolean
+  dryRun?: boolean
+  cleanupMissing?: boolean
+  documentIds?: string[]
+  retryTaskId?: string
+}
 
 export function getOutlineStatus(): Promise<Record<string, any>> { return request.get('/api/outline/status') }
 export function searchOutline(data: OutlineSearchRequest): Promise<OutlineSearchResult[]> { return request.post('/api/outline/search', data) }
@@ -18,3 +27,9 @@ export function getOutlineSyncTasks(limit = 20): Promise<Record<string, any>[]> 
   return request.get('/api/outline/sync-tasks', { params: { limit } })
 }
 export function getOutlineSyncTask(id: string): Promise<Record<string, any>> { return request.get(`/api/outline/sync-tasks/${id}`) }
+export function getOutlineSyncTaskDetails(id: string, params?: { status?: string; limit?: number }): Promise<Record<string, any>[]> {
+  return request.get(`/api/outline/sync-tasks/${id}/details`, { params })
+}
+export function retryOutlineFailedTask(id: string, force = true): Promise<Record<string, any>> {
+  return request.post(`/api/outline/sync-tasks/${id}/retry-failed`, { force })
+}
