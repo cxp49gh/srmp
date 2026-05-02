@@ -175,18 +175,59 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
     }
 
     private String runSolutionGenerate(AiTraceContext trace, Map<String, Object> summary, String businessMarkdown, Map<String, Object> sources) {
-        AiTraceContext.StepTimer timer = trace.step("region_solution_generate", "生成区域养护建议");
+        String prompt = buildPrompt(summary, businessMarkdown, sources);
+
+        AiTraceContext.StepTimer promptTimer = trace.step("region_prompt_build", "区域方案 Prompt 构建");
+        Map<String, Object> promptData = new LinkedHashMap<>();
+        promptData.put("systemPrompt", "智路养护平台区域养护方案生成助手");
+        promptData.put("promptChars", prompt.length());
+        promptData.put("businessMarkdownChars", safe(businessMarkdown).length());
+        promptData.put("knowledgeCount", listSize(sources == null ? null : sources.get("knowledgeSources")));
+        promptData.put("outlineCount", listSize(sources == null ? null : sources.get("outlineSources")));
+        promptTimer.success(1, promptData);
+
+        AiTraceContext.StepTimer llmTimer = trace.step("llm_answer", "大模型生成区域养护建议");
+        Map<String, Object> beforeDiag = new LinkedHashMap<>(llmClient.diagnostics());
+        beforeDiag.put("enabled", llmClient.enabled());
+        sources.put("llmDiagnosticsBeforeCall", beforeDiag);
+
+        if (!llmClient.enabled()) {
+            String reason = firstNonBlank(safe(beforeDiag.get("errorMessage")), "srmp.llm 未启用，区域养护建议使用业务统计模板兜底");
+            sources.put("llmSuccess", false);
+            sources.put("llmSkipped", true);
+            sources.put("llmError", reason);
+            llmTimer.skipped(beforeDiag);
+            return businessMarkdown;
+        }
+
         try {
-            String prompt = buildPrompt(summary, businessMarkdown, sources);
             String answer = llmClient.chat("你是智路养护平台区域养护方案生成助手。资料不足时必须说明，输出 Markdown 草稿。", prompt);
+            Map<String, Object> llmData = new LinkedHashMap<>(llmClient.diagnostics());
             boolean success = answer != null && answer.trim().length() > 0;
             sources.put("llmSuccess", success);
-            timer.success(success ? 1 : 0);
-            return success ? sanitize(answer) : businessMarkdown;
+            sources.put("llmDiagnostics", llmData);
+
+            if (success) {
+                llmData.put("answerChars", answer.length());
+                llmTimer.success(1, llmData);
+                return sanitize(answer);
+            }
+
+            String reason = firstNonBlank(safe(llmData.get("errorMessage")), "LLM 未返回内容，区域养护建议使用业务统计模板兜底");
+            sources.put("llmSkipped", false);
+            sources.put("llmError", reason);
+            llmData.put("reason", reason);
+            llmTimer.failed(new RuntimeException(reason), llmData);
+            return businessMarkdown;
         } catch (RuntimeException e) {
+            Map<String, Object> llmData = new LinkedHashMap<>(llmClient.diagnostics());
+            llmData.put("exception", e.getClass().getSimpleName());
+            llmData.put("exceptionMessage", e.getMessage());
             sources.put("llmSuccess", false);
+            sources.put("llmSkipped", false);
             sources.put("llmError", e.getMessage());
-            timer.failed(e);
+            sources.put("llmDiagnostics", llmData);
+            llmTimer.failed(e, llmData);
             return businessMarkdown;
         }
     }
@@ -565,6 +606,22 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
             return "";
         }
         return text.length() <= max ? text : text.substring(0, max);
+    }
+
+    private int listSize(Object value) {
+        return value instanceof List ? ((List<?>) value).size() : 0;
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return "";
+        }
+        for (String value : values) {
+            if (!safe(value).isEmpty()) {
+                return safe(value);
+            }
+        }
+        return "";
     }
 
     private String sanitize(String text) {
