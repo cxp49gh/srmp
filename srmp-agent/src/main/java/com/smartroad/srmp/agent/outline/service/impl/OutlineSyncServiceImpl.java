@@ -153,6 +153,8 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
         ingestRequest.setUrl(doc.getUrl());
         ingestRequest.setMetadata(metadata);
         ingestRequest.setForce(force);
+        ingestRequest.setVectorize(false);
+        ingestRequest.setFailOnEmbeddingError(false);
 
         return aiKnowledgeIngestService.ingestMarkdown(ingestRequest);
     }
@@ -223,6 +225,8 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
         ingestRequest.setUrl(doc.getUrl());
         ingestRequest.setMetadata(metadata);
         ingestRequest.setForce(force);
+        ingestRequest.setVectorize(false);
+        ingestRequest.setFailOnEmbeddingError(false);
 
         Map<String, Object> result = aiKnowledgeIngestService.ingestMarkdown(ingestRequest);
         return result == null || !Boolean.TRUE.equals(result.get("skipped"));
