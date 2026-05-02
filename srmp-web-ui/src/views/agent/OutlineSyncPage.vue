@@ -18,9 +18,9 @@
         />
 
         <el-descriptions :column="1" border size="small" class="mb">
-          <el-descriptions-item label="enabled">{{ status.enabled }}</el-descriptions-item>
-          <el-descriptions-item label="usable">{{ status.usable }}</el-descriptions-item>
-          <el-descriptions-item label="baseUrl">{{ status.baseUrl }}</el-descriptions-item>
+          <el-descriptions-item label="enabled">{{ value(status, 'enabled') }}</el-descriptions-item>
+          <el-descriptions-item label="usable">{{ value(status, 'usable') }}</el-descriptions-item>
+          <el-descriptions-item label="baseUrl">{{ value(status, 'baseUrl', 'base_url') }}</el-descriptions-item>
         </el-descriptions>
 
         <el-form label-width="100px">
@@ -67,15 +67,6 @@
           class="mb"
           title="建议：正式同步前先 Dry Run；fail_count > 0 时点击任务查看明细，再重试失败文档。"
         />
-
-        <el-divider />
-
-        <h3>Collection 列表</h3>
-        <el-empty v-if="collections.length === 0" description="暂无 Collection" />
-        <div v-for="item in collections" :key="item.id" class="collection-item">
-          <strong>{{ item.name }}</strong>
-          <p>{{ item.id }}</p>
-        </div>
       </el-card>
 
       <el-card class="middle-card">
@@ -87,9 +78,12 @@
         </template>
         <el-empty v-if="documents.length === 0" description="暂无文档" />
         <div v-for="item in documents" :key="item.id" class="doc-item">
-          <strong>{{ item.title }}</strong>
-          <p>{{ item.id }}</p>
-          <div v-if="item.updatedAt">更新时间：{{ item.updatedAt }}</div>
+          <div class="doc-title">
+            <strong>{{ value(item, 'title') || '未命名文档' }}</strong>
+            <el-link v-if="value(item, 'url')" :href="value(item, 'url')" target="_blank" type="primary">打开</el-link>
+          </div>
+          <p>{{ value(item, 'id') }}</p>
+          <div v-if="value(item, 'updatedAt', 'updated_at')">更新时间：{{ value(item, 'updatedAt', 'updated_at') }}</div>
         </div>
       </el-card>
 
@@ -105,24 +99,24 @@
 
         <div v-for="item in tasks" :key="item.id" class="task-item" @click="openTask(item)">
           <div class="task-title">
-            <strong>{{ item.status }}</strong>
+            <strong>{{ value(item, 'status') }}</strong>
             <div>
-              <el-tag v-if="item.dry_run" size="small" type="info">DRY</el-tag>
-              <el-tag size="small" :type="tagType(item.status)">{{ item.sync_mode }}</el-tag>
+              <el-tag v-if="truthy(value(item, 'dryRun', 'dry_run'))" size="small" type="info">DRY</el-tag>
+              <el-tag size="small" :type="tagType(value(item, 'status'))">{{ value(item, 'syncMode', 'sync_mode') }}</el-tag>
             </div>
           </div>
-          <p>{{ item.id }}</p>
+          <p>{{ value(item, 'id') }}</p>
           <div class="task-grid">
-            <span>总数：{{ item.total_count }}</span>
-            <span>成功：{{ item.success_count }}</span>
-            <span>跳过：{{ item.skip_count }}</span>
-            <span>失败：{{ item.fail_count }}</span>
+            <span>总数：{{ value(item, 'totalCount', 'total_count') || 0 }}</span>
+            <span>成功：{{ value(item, 'successCount', 'success_count') || 0 }}</span>
+            <span>跳过：{{ value(item, 'skipCount', 'skip_count') || 0 }}</span>
+            <span>失败：{{ value(item, 'failCount', 'fail_count') || 0 }}</span>
           </div>
-          <div v-if="item.error_message" class="error">{{ item.error_message }}</div>
+          <div v-if="value(item, 'errorMessage', 'error_message')" class="error">{{ value(item, 'errorMessage', 'error_message') }}</div>
           <div class="task-actions">
             <el-button size="small" @click.stop="openTask(item)">明细</el-button>
             <el-button
-              v-if="Number(item.fail_count || 0) > 0"
+              v-if="Number(value(item, 'failCount', 'fail_count') || 0) > 0"
               size="small"
               type="warning"
               :loading="retrying"
@@ -135,15 +129,22 @@
       </el-card>
     </div>
 
-    <el-drawer v-model="detailVisible" title="Outline 同步明细" size="70%">
+    <el-drawer v-model="detailVisible" title="Outline 同步明细" size="82%">
       <template v-if="selectedTask">
         <el-descriptions :column="4" border size="small" class="mb">
-          <el-descriptions-item label="任务ID" :span="4">{{ selectedTask.id }}</el-descriptions-item>
-          <el-descriptions-item label="状态">{{ selectedTask.status }}</el-descriptions-item>
-          <el-descriptions-item label="总数">{{ selectedTask.total_count }}</el-descriptions-item>
-          <el-descriptions-item label="成功">{{ selectedTask.success_count }}</el-descriptions-item>
-          <el-descriptions-item label="失败">{{ selectedTask.fail_count }}</el-descriptions-item>
+          <el-descriptions-item label="任务ID" :span="4">{{ value(selectedTask, 'id') }}</el-descriptions-item>
+          <el-descriptions-item label="状态">{{ value(selectedTask, 'status') }}</el-descriptions-item>
+          <el-descriptions-item label="总数">{{ value(selectedTask, 'totalCount', 'total_count') }}</el-descriptions-item>
+          <el-descriptions-item label="成功">{{ value(selectedTask, 'successCount', 'success_count') }}</el-descriptions-item>
+          <el-descriptions-item label="失败">{{ value(selectedTask, 'failCount', 'fail_count') }}</el-descriptions-item>
         </el-descriptions>
+
+        <div class="summary-bar">
+          <div class="summary-item success">成功 {{ statusCount.SUCCESS }}</div>
+          <div class="summary-item skipped">跳过 {{ statusCount.SKIPPED }}</div>
+          <div class="summary-item failed">失败 {{ statusCount.FAILED }}</div>
+          <div class="summary-item">总计 {{ details.length }}</div>
+        </div>
 
         <div class="detail-toolbar">
           <el-radio-group v-model="detailStatus" size="small" @change="loadDetails">
@@ -155,7 +156,7 @@
           <div>
             <el-button size="small" @click="loadDetails">刷新明细</el-button>
             <el-button
-              v-if="Number(selectedTask.fail_count || 0) > 0"
+              v-if="Number(value(selectedTask, 'failCount', 'fail_count') || 0) > 0"
               size="small"
               type="warning"
               :loading="retrying"
@@ -166,21 +167,66 @@
           </div>
         </div>
 
-        <el-table :data="details" border height="calc(100vh - 260px)" size="small">
-          <el-table-column prop="status" label="状态" width="100">
+        <el-table :data="details" border height="calc(100vh - 300px)" size="small" row-key="id">
+          <el-table-column type="expand">
             <template #default="{ row }">
-              <el-tag size="small" :type="tagType(row.status)">{{ row.status }}</el-tag>
+              <div class="detail-expand">
+                <el-descriptions :column="2" border size="small">
+                  <el-descriptions-item label="Outline ID">{{ value(row, 'outlineDocumentId', 'outline_document_id') }}</el-descriptions-item>
+                  <el-descriptions-item label="Knowledge Document">{{ value(row, 'knowledgeDocumentId', 'knowledge_document_id') || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="URL" :span="2">
+                    <el-link v-if="value(row, 'outlineUrl', 'outline_url')" :href="value(row, 'outlineUrl', 'outline_url')" target="_blank">
+                      {{ value(row, 'outlineUrl', 'outline_url') }}
+                    </el-link>
+                    <span v-else>-</span>
+                  </el-descriptions-item>
+                  <el-descriptions-item label="Outline更新时间">{{ value(row, 'outlineUpdatedAt', 'outline_updated_at') || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="本地创建时间">{{ value(row, 'createdAt', 'created_at') || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="内容字符数">{{ value(row, 'contentChars', 'content_chars') || 0 }}</el-descriptions-item>
+                  <el-descriptions-item label="Chunk数">{{ value(row, 'chunkCount', 'chunk_count') || 0 }}</el-descriptions-item>
+                  <el-descriptions-item label="当前Hash" :span="2">{{ value(row, 'contentHash', 'content_hash') || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="旧Hash" :span="2">{{ value(row, 'oldContentHash', 'old_content_hash') || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="详情说明" :span="2">{{ value(row, 'detailMessage', 'detail_message') || value(row, 'skipReason', 'skip_reason') || '-' }}</el-descriptions-item>
+                  <el-descriptions-item v-if="value(row, 'errorMessage', 'error_message')" label="错误" :span="2">
+                    <span class="error">{{ value(row, 'errorType', 'error_type') }}：{{ value(row, 'errorMessage', 'error_message') }}</span>
+                  </el-descriptions-item>
+                </el-descriptions>
+              </div>
             </template>
           </el-table-column>
-          <el-table-column prop="action" label="动作" width="160" />
-          <el-table-column prop="outline_title" label="文档标题" min-width="220" show-overflow-tooltip />
-          <el-table-column prop="outline_document_id" label="Outline ID" min-width="220" show-overflow-tooltip />
-          <el-table-column prop="chunk_count" label="Chunk" width="80" />
-          <el-table-column prop="cost_ms" label="耗时ms" width="90" />
-          <el-table-column label="原因/错误" min-width="280" show-overflow-tooltip>
+
+          <el-table-column label="状态" width="100" fixed>
             <template #default="{ row }">
-              <span v-if="row.status === 'FAILED'" class="error">{{ row.error_type }}：{{ row.error_message }}</span>
-              <span v-else>{{ row.skip_reason || '-' }}</span>
+              <el-tag size="small" :type="tagType(value(row, 'status'))">{{ value(row, 'status') }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="动作" width="170">
+            <template #default="{ row }">{{ value(row, 'action') }}</template>
+          </el-table-column>
+          <el-table-column label="文档标题" min-width="260" show-overflow-tooltip>
+            <template #default="{ row }">
+              <div class="doc-title">
+                <strong>{{ value(row, 'outlineTitle', 'outline_title') || '未命名文档' }}</strong>
+                <el-link v-if="value(row, 'outlineUrl', 'outline_url')" :href="value(row, 'outlineUrl', 'outline_url')" target="_blank" type="primary">打开</el-link>
+              </div>
+              <small>{{ value(row, 'outlineDocumentId', 'outline_document_id') }}</small>
+            </template>
+          </el-table-column>
+          <el-table-column label="Chunk" width="80">
+            <template #default="{ row }">{{ value(row, 'chunkCount', 'chunk_count') || 0 }}</template>
+          </el-table-column>
+          <el-table-column label="字符数" width="90">
+            <template #default="{ row }">{{ value(row, 'contentChars', 'content_chars') || 0 }}</template>
+          </el-table-column>
+          <el-table-column label="耗时ms" width="90">
+            <template #default="{ row }">{{ value(row, 'costMs', 'cost_ms') || 0 }}</template>
+          </el-table-column>
+          <el-table-column label="原因/错误" min-width="320" show-overflow-tooltip>
+            <template #default="{ row }">
+              <span v-if="value(row, 'status') === 'FAILED'" class="error">
+                {{ value(row, 'errorType', 'error_type') }}：{{ value(row, 'errorMessage', 'error_message') }}
+              </span>
+              <span v-else>{{ value(row, 'detailMessage', 'detail_message') || value(row, 'skipReason', 'skip_reason') || '-' }}</span>
             </template>
           </el-table-column>
         </el-table>
@@ -190,7 +236,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import AgentPageShell from './components/AgentPageShell.vue'
 import {
@@ -222,6 +268,16 @@ const form = reactive({
   force: false,
   dryRun: false,
   cleanupMissing: false
+})
+
+const statusCount = computed(() => {
+  const stat: Record<string, number> = { SUCCESS: 0, SKIPPED: 0, FAILED: 0 }
+  details.value.forEach((item) => {
+    const s = String(value(item, 'status') || '')
+    if (!stat[s]) stat[s] = 0
+    stat[s] += 1
+  })
+  return stat
 })
 
 onMounted(loadAll)
@@ -268,11 +324,9 @@ async function runSync(dryRun: boolean) {
       dryRun,
       cleanupMissing: form.cleanupMissing
     })
-    ElMessage.success(`${dryRun ? '预演' : '同步'}完成：状态 ${result.status}，成功 ${result.success_count || 0}，跳过 ${result.skip_count || 0}，失败 ${result.fail_count || 0}`)
+    ElMessage.success(`${dryRun ? '预演' : '同步'}完成：状态 ${value(result, 'status')}，成功 ${value(result, 'successCount', 'success_count') || 0}，跳过 ${value(result, 'skipCount', 'skip_count') || 0}，失败 ${value(result, 'failCount', 'fail_count') || 0}`)
     await loadTasks()
-    if (result.id) {
-      await openTask(result)
-    }
+    if (value(result, 'id')) await openTask(result)
   } finally {
     syncing.value = false
   }
@@ -286,34 +340,48 @@ async function openTask(item: Record<string, any>) {
 }
 
 async function loadDetails() {
-  if (!selectedTask.value?.id) return
-  details.value = await getOutlineSyncTaskDetails(selectedTask.value.id, {
+  const id = value(selectedTask.value, 'id')
+  if (!id) return
+  details.value = await getOutlineSyncTaskDetails(String(id), {
     status: detailStatus.value || undefined,
     limit: 1000
   })
 }
 
 async function retryFailed(item: Record<string, any>) {
-  if (!item?.id) return
+  const id = value(item, 'id')
+  if (!id) return
   retrying.value = true
   try {
-    const result = await retryOutlineFailedTask(item.id, true)
-    ElMessage.success(`重试完成：状态 ${result.status}，成功 ${result.success_count || 0}，失败 ${result.fail_count || 0}`)
+    const result = await retryOutlineFailedTask(String(id), true)
+    ElMessage.success(`重试完成：状态 ${value(result, 'status')}，成功 ${value(result, 'successCount', 'success_count') || 0}，失败 ${value(result, 'failCount', 'fail_count') || 0}`)
     await loadTasks()
-    if (result.id) {
-      await openTask(result)
-    }
+    if (value(result, 'id')) await openTask(result)
   } finally {
     retrying.value = false
   }
 }
 
-function tagType(status: string) {
-  if (status === 'SUCCESS' || status === 'DRY_RUN') return 'success'
-  if (status === 'FAILED') return 'danger'
-  if (status === 'PARTIAL_SUCCESS' || status === 'DRY_RUN_PARTIAL') return 'warning'
-  if (status === 'RUNNING') return 'warning'
-  if (status === 'SKIPPED') return 'info'
+function value(obj: any, ...keys: string[]) {
+  if (!obj) return ''
+  for (const key of keys) {
+    const v = obj[key]
+    if (v !== undefined && v !== null && String(v).trim() !== '') return v
+  }
+  return ''
+}
+
+function truthy(v: any) {
+  return v === true || v === 'true' || v === 1 || v === '1'
+}
+
+function tagType(status: any) {
+  const s = String(status || '')
+  if (s === 'SUCCESS' || s === 'DRY_RUN') return 'success'
+  if (s === 'FAILED') return 'danger'
+  if (s === 'PARTIAL_SUCCESS' || s === 'DRY_RUN_PARTIAL') return 'warning'
+  if (s === 'RUNNING') return 'warning'
+  if (s === 'SKIPPED') return 'info'
   return 'info'
 }
 </script>
@@ -333,7 +401,8 @@ function tagType(status: string) {
 
 .card-header,
 .task-title,
-.detail-toolbar {
+.detail-toolbar,
+.doc-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -344,12 +413,6 @@ function tagType(status: string) {
   margin-bottom: 16px;
 }
 
-h3 {
-  margin: 0 0 10px;
-  font-size: 15px;
-}
-
-.collection-item,
 .doc-item,
 .task-item {
   padding: 12px;
@@ -367,7 +430,6 @@ h3 {
   background: #eef6ff;
 }
 
-.collection-item p,
 .doc-item p,
 .task-item p {
   margin: 4px 0;
@@ -394,5 +456,42 @@ h3 {
 
 .detail-toolbar {
   margin-bottom: 12px;
+}
+
+.summary-bar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.summary-item {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  font-size: 13px;
+}
+
+.summary-item.success {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.summary-item.skipped {
+  background: #f8fafc;
+  color: #475569;
+}
+
+.summary-item.failed {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.detail-expand {
+  padding: 14px;
+  background: #f8fafc;
+}
+
+small {
+  color: #94a3b8;
 }
 </style>

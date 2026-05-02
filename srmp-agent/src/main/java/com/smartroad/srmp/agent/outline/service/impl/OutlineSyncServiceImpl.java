@@ -78,29 +78,27 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
             List<OutlineDocumentDTO> docs = documents(collectionId, limit, 0);
             total = docs.size();
             for (OutlineDocumentDTO doc : docs) {
-                String docId = doc.getId();
-                String title = safe(doc.getTitle(), "未命名文档");
                 try {
-                    OutlineDocumentDTO detail = fetchDocumentDetail(docId);
+                    OutlineDocumentDTO detail = fetchDocumentDetail(doc.getId());
                     if (!notBlank(detail.getCollectionId())) detail.setCollectionId(collectionId);
                     if (shouldSkipOutlineSystemDoc(detail)) {
-                        insertDocDetail(taskId, tenantId, docId, title, "SKIPPED", "系统文档跳过", null, 0, null);
+                        insertDocDetail(taskId, tenantId, detail, "SKIP", "SKIPPED", "系统文档跳过", null, null, 0, null, null, null);
                         skipped++;
                         continue;
                     }
                     Map<String, Object> ingestResult = upsertOutlineDocumentWithResult(tenantId, detail, force);
                     if (ingestResult == null) {
-                        insertDocDetail(taskId, tenantId, docId, title, "FAILED", "ingest result is null", null, 0, null);
+                        insertDocDetail(taskId, tenantId, detail, "UPSERT", "FAILED", null, "ingest result is null", null, 0, null, null, null);
                         failed++;
                     } else if (Boolean.TRUE.equals(ingestResult.get("skipped"))) {
-                        insertDocDetail(taskId, tenantId, docId, title, "SKIPPED", safe((String) ingestResult.get("skipReason"), "内容未变化"), safe((String) ingestResult.get("documentId"), null), 0, safe((String) ingestResult.get("contentHash"), null));
+                        insertDocDetail(taskId, tenantId, detail, "UPSERT", "SKIPPED", safe((String) ingestResult.get("skipReason"), "内容未变化"), null, safe((String) ingestResult.get("documentId"), null), 0, safe((String) ingestResult.get("contentHash"), null), null, safe((String) ingestResult.get("skipReason"), "内容未变化"));
                         skipped++;
                     } else {
-                        insertDocDetail(taskId, tenantId, docId, title, "SUCCESS", null, safe((String) ingestResult.get("documentId"), null), ((Number) ingestResult.getOrDefault("chunkCount", Integer.valueOf(0))).intValue(), safe((String) ingestResult.get("contentHash"), null));
+                        insertDocDetail(taskId, tenantId, detail, "UPSERT", "SUCCESS", null, null, safe((String) ingestResult.get("documentId"), null), ((Number) ingestResult.getOrDefault("chunkCount", Integer.valueOf(0))).intValue(), safe((String) ingestResult.get("contentHash"), null), null, null);
                         success++;
                     }
                 } catch (Exception e) {
-                    insertDocDetail(taskId, tenantId, docId, title, "FAILED", e.getMessage(), null, 0, null);
+                    insertDocDetail(taskId, tenantId, doc, "UPSERT", "FAILED", null, e.getMessage(), null, 0, null, null, null);
                     failed++;
                 }
             }
@@ -118,15 +116,19 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
         return "PARTIAL_SUCCESS";
     }
 
-    private void insertDocDetail(String taskId, String tenantId, String sourceId, String title, String status, String error, String documentId, int chunkCount, String contentHash) {
+    private void insertDocDetail(String taskId, String tenantId, OutlineDocumentDTO doc, String action, String status, String skipReason, String error, String knowledgeDocId, int chunkCount, String contentHash, String oldContentHash, String detailMessage) {
         namedParameterJdbcTemplate.update(
-                "insert into outline_sync_document(id, tenant_id, task_id, source_id, title, status, error_message, document_id, chunk_count, content_hash, created_at) " +
-                        "values(:id,:tenantId,:taskId,:sourceId,:title,:status,:error,:documentId,:chunkCount,:contentHash,now())",
+                "insert into outline_sync_task_detail(id, tenant_id, task_id, outline_document_id, outline_title, collection_id, action, status, skip_reason, error_message, knowledge_document_id, chunk_count, content_hash, old_content_hash, detail_message, outline_url, outline_updated_at, created_at) " +
+                        "values(:id,:tenantId,:taskId,:outlineDocId,:outlineTitle,:collectionId,:action,:status,:skipReason,:error,:knowledgeDocId,:chunkCount,:contentHash,:oldContentHash,:detailMessage,:outlineUrl,:outlineUpdatedAt,now())",
                 new MapSqlParameterSource()
                         .addValue("id", uuid()).addValue("tenantId", tenantId).addValue("taskId", taskId)
-                        .addValue("sourceId", sourceId).addValue("title", title).addValue("status", status)
-                        .addValue("error", error).addValue("documentId", documentId)
-                        .addValue("chunkCount", chunkCount).addValue("contentHash", contentHash == null ? null : contentHash)
+                        .addValue("outlineDocId", doc.getId()).addValue("outlineTitle", doc.getTitle())
+                        .addValue("collectionId", doc.getCollectionId()).addValue("action", action)
+                        .addValue("status", status).addValue("skipReason", skipReason)
+                        .addValue("error", error).addValue("knowledgeDocId", knowledgeDocId)
+                        .addValue("chunkCount", chunkCount).addValue("contentHash", contentHash)
+                        .addValue("oldContentHash", oldContentHash).addValue("detailMessage", detailMessage)
+                        .addValue("outlineUrl", doc.getUrl()).addValue("outlineUpdatedAt", doc.getUpdatedAt())
         );
     }
 
@@ -187,8 +189,11 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
                 .addValue("tenantId", TenantContextHolder.getTenantId())
                 .addValue("limit", max);
         return namedParameterJdbcTemplate.queryForList(
-                "select d.id, d.source_id, d.title, d.status, d.error_message, d.document_id, d.chunk_count, d.created_at " +
-                        "from outline_sync_document d where d.task_id=:taskId and d.tenant_id=:tenantId order by d.created_at limit :limit",
+                "select d.id, d.outline_document_id, d.outline_title, d.status, d.error_message, " +
+                        "d.outline_url, d.outline_updated_at, d.content_chars, d.content_hash, d.old_content_hash, " +
+                        "d.detail_message, d.document_status, d.knowledge_document_id, d.chunk_count, d.cost_ms, " +
+                        "d.action, d.skip_reason, d.error_type, d.created_at " +
+                        "from outline_sync_task_detail d where d.task_id=:taskId and d.tenant_id=:tenantId order by d.created_at limit :limit",
                 params);
     }
 
