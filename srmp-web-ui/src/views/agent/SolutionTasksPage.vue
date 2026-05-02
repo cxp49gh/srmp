@@ -186,7 +186,7 @@ async function loadTasks() {
 async function selectTask(item: Record<string, any>) {
   selected.value = item
   detail.value = await getSolutionTask(item.id)
-  sources.value = await getSolutionTaskSources(item.id)
+  sources.value = dedupeSolutionSources(await getSolutionTaskSources(item.id))
   quality.value = await getSolutionQualityResult(item.id)
   aiContext.value = await getSolutionTaskAiContext(item.id)
   statusTimeline.value = await getSolutionTaskStatusTimeline(item.id)
@@ -297,9 +297,31 @@ function displayResultContent(task: any) {
     content.includes('| 对象类型 | - |') ||
     content.includes('| 方案类型 | - |')
   )
-  return hasEmptyFallbackField ? buildFallbackMarkdownForDisplay(task) : content
+  return stripEmbeddedFallbackSourceSection(hasEmptyFallbackField ? buildFallbackMarkdownForDisplay(task) : content)
 }
 
+
+
+function isSystemFallbackSource(source: any) {
+  const title = String(source?.sourceTitle || source?.source_title || source?.title || '')
+  const type = String(source?.sourceType || source?.source_type || source?.type || '')
+  return type === 'SYSTEM_TEMPLATE' || title.includes('系统兜底模板') || title.includes('兜底模板') || title.includes('Fallback Template')
+}
+function dedupeSolutionSources(list: any[] = []) {
+  const seen = new Set<string>()
+  const result: any[] = []
+  list.forEach((item: any) => {
+    if (!item) return
+    const key = isSystemFallbackSource(item) ? 'SYSTEM_TEMPLATE|SYSTEM_FALLBACK_TEMPLATE' : `${item.sourceType || item.source_type || item.type || ''}|${item.sourceId || item.source_id || item.id || ''}|${item.sourceTitle || item.source_title || item.title || ''}`
+    if (!seen.has(key)) { seen.add(key); result.push(item) }
+  })
+  return result
+}
+function stripEmbeddedFallbackSourceSection(content: string) {
+  if (!content) return content
+  const pattern = /\n*##\s*(六、)?引用来源\s*\n\s*[-*]\s*系统兜底模板\s*$/s
+  return content.replace(pattern, '').trim()
+}
 
 function exportMarkdown() {
   if (!detail.value?.id) return

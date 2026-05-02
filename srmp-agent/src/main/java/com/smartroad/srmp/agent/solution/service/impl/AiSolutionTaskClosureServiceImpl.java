@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartroad.srmp.agent.solution.dto.AiSolutionAiContextUpdateRequest;
 import com.smartroad.srmp.agent.solution.dto.AiSolutionTaskVersionRestoreRequest;
 import com.smartroad.srmp.agent.solution.service.AiSolutionTaskClosureService;
+import com.smartroad.srmp.agent.solution.support.AiSolutionFallbackSourceGuard;
 import com.smartroad.srmp.agent.solution.support.AiSolutionFallbackTemplateSupport;
 import com.smartroad.srmp.tenant.context.TenantContextHolder;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -249,9 +250,10 @@ public class AiSolutionTaskClosureServiceImpl implements AiSolutionTaskClosureSe
     }
 
     private List<Map<String, Object>> loadSources(String tenantId, String taskId) {
-        return namedParameterJdbcTemplate.queryForList(
+        List<Map<String, Object>> rows = namedParameterJdbcTemplate.queryForList(
                 "select * from ai_solution_source where tenant_id=:tenantId and task_id=:taskId order by created_at asc",
                 new MapSqlParameterSource().addValue("tenantId", tenantId).addValue("taskId", taskId));
+        return AiSolutionFallbackSourceGuard.dedupeSources(rows);
     }
 
     private void insertVersion(String tenantId, String taskId, int versionNo, String title, String content, Object quality,

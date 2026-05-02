@@ -80,6 +80,7 @@ public final class AiSolutionFallbackTemplateSupport {
     public static String repairFallbackContentIfNeeded(String content,
                                                        Map<String, Object> task,
                                                        String aiAnswer) {
+        content = AiSolutionFallbackSourceGuard.stripEmbeddedFallbackSourceSection(content);
         if (!isFallbackContent(content)) {
             return content;
         }
@@ -135,7 +136,7 @@ public final class AiSolutionFallbackTemplateSupport {
             }
         }
 
-        return result;
+        return AiSolutionFallbackSourceGuard.dedupeSources(result);
     }
 
     public static Map<String, Object> systemFallbackTemplateSource(String solutionType) {
@@ -283,10 +284,7 @@ public final class AiSolutionFallbackTemplateSupport {
         md.append("- 核查排水、基层、路基、重复修补区域和交通安全风险。\n");
         md.append("- 根据现场复核结果调整工程量、工艺和处置边界。\n");
         md.append("- 本方案为系统兜底模板生成，必须经人工审核确认。\n\n");
-
-        md.append("## 六、引用来源\n\n");
-        md.append("- 系统兜底模板\n");
-        return md.toString();
+        return AiSolutionFallbackSourceGuard.stripEmbeddedFallbackSourceSection(md.toString());
     }
 
     private static void appendTreatmentAdvice(StringBuilder md, String diseaseName) {
