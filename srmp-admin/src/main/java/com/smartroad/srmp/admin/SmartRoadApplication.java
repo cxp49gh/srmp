@@ -2,7 +2,9 @@ package com.smartroad.srmp.admin;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
+@EnableScheduling
 @SpringBootApplication(scanBasePackages = "com.smartroad.srmp")
 public class SmartRoadApplication {
     public static void main(String[] args) {

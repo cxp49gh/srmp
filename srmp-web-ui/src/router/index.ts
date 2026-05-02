@@ -10,6 +10,7 @@ import AiHealthPage from '../views/agent/AiHealthPage.vue'
 import OutlineSearchPage from '../views/agent/OutlineSearchPage.vue'
 import OutlineStatusPage from '../views/agent/OutlineStatusPage.vue'
 import OutlineSyncPage from '../views/agent/OutlineSyncPage.vue'
+import OutlineAutoSyncPage from '../views/agent/OutlineAutoSyncPage.vue'
 import SolutionTemplatesPage from '../views/agent/SolutionTemplatesPage.vue'
 import SolutionGeneratePage from '../views/agent/SolutionGeneratePage.vue'
 import SolutionTasksPage from '../views/agent/SolutionTasksPage.vue'
@@ -118,6 +119,13 @@ const router = createRouter({
       component: OutlineSyncPage,
       meta: {
         title: 'Outline 同步入库'
+      }
+    },
+    {
+      path: '/agent/outline-auto-sync',
+      component: OutlineAutoSyncPage,
+      meta: {
+        title: 'Outline 自动同步'
       }
     },
     {

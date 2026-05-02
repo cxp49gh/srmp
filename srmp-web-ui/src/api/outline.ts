@@ -41,3 +41,52 @@ export function getOutlineKnowledgeStats(): Promise<Record<string, any>> {
 export function vectorizeOutline(data: { force?: boolean; dryRun?: boolean; limit?: number } = {}): Promise<Record<string, any>> {
   return request.post('/api/outline/vectorize', data)
 }
+
+
+export interface OutlineAutoSyncConfigRequest {
+  id?: string
+  name?: string
+  enabled?: boolean
+  collectionId?: string
+  intervalMinutes?: number
+  force?: boolean
+  cleanupMissing?: boolean
+  vectorizeAfterSync?: boolean
+  vectorForce?: boolean
+  vectorLimit?: number
+  webhookEnabled?: boolean
+  webhookSecret?: string
+}
+
+export interface OutlineAutoSyncRunRequest {
+  triggerType?: string
+  outlineEvent?: string
+  outlineDocumentId?: string
+  outlineCollectionId?: string
+  force?: boolean
+  vectorizeAfterSync?: boolean
+}
+
+export function getOutlineAutoSyncConfigs(): Promise<Record<string, any>[]> {
+  return request.get('/api/outline/auto-sync/configs')
+}
+
+export function createOutlineAutoSyncConfig(data: OutlineAutoSyncConfigRequest): Promise<Record<string, any>> {
+  return request.post('/api/outline/auto-sync/configs', data)
+}
+
+export function updateOutlineAutoSyncConfig(id: string, data: OutlineAutoSyncConfigRequest): Promise<Record<string, any>> {
+  return request.put(`/api/outline/auto-sync/configs/${id}`, data)
+}
+
+export function runOutlineAutoSyncNow(id: string, data?: OutlineAutoSyncRunRequest): Promise<Record<string, any>> {
+  return request.post(`/api/outline/auto-sync/configs/${id}/run`, data || { triggerType: 'MANUAL' })
+}
+
+export function getOutlineAutoSyncRuns(params?: { configId?: string; limit?: number }): Promise<Record<string, any>[]> {
+  return request.get('/api/outline/auto-sync/runs', { params })
+}
+
+export function scanOutlineAutoSyncDue(): Promise<Record<string, any>> {
+  return request.post('/api/outline/auto-sync/scan-due')
+}
