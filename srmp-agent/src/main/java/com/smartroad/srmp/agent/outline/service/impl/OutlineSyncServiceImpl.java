@@ -86,7 +86,15 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
                         skipped++;
                         continue;
                     }
-                    Map<String, Object> ingestResult = upsertOutlineDocumentWithResult(tenantId, detail, force);
+                    Map<String, Object> ingestResult;
+                    if (Boolean.TRUE.equals(request.getDryRun())) {
+                        Map<String, Object> dryRunSkipped = new LinkedHashMap<>();
+                        dryRunSkipped.put("skipped", true);
+                        dryRunSkipped.put("skipReason", "dryRun 模式不写入知识库");
+                        ingestResult = dryRunSkipped;
+                    } else {
+                        ingestResult = upsertOutlineDocumentWithResult(tenantId, detail, force);
+                    }
                     if (ingestResult == null) {
                         insertDocDetail(taskId, tenantId, detail, "UPSERT", "FAILED", null, "ingest result is null", null, 0, null, null, null);
                         failed++;
@@ -102,7 +110,12 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
                     failed++;
                 }
             }
-            String finalStatus = computeStatus(total, success, skipped, failed);
+            String finalStatus;
+            if (Boolean.TRUE.equals(request.getDryRun())) {
+                finalStatus = (failed == 0) ? "DRY_RUN" : "DRY_RUN_PARTIAL";
+            } else {
+                finalStatus = computeStatus(total, success, skipped, failed);
+            }
             updateTask(taskId, total, success, skipped, failed, finalStatus, null);
         } catch (Exception e) {
             updateTask(taskId, total, success, skipped, failed, "FAILED", e.getMessage());
@@ -217,20 +230,62 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
     }
 
     @Override
-    public List<Map<String, Object>> details(String taskId, Integer limit) {
+    public List<Map<String, Object>> details(String taskId, String status, Integer limit) {
         if (!notBlank(taskId)) return Collections.emptyList();
         int max = normalizeDetailLimit(limit);
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("taskId", taskId)
                 .addValue("tenantId", TenantContextHolder.getTenantId())
                 .addValue("limit", max);
-        return namedParameterJdbcTemplate.queryForList(
-                "select d.id, d.outline_document_id, d.outline_title, d.status, d.error_message, " +
-                        "d.outline_url, d.outline_updated_at, d.content_chars, d.content_hash, d.old_content_hash, " +
-                        "d.detail_message, d.document_status, d.knowledge_document_id, d.chunk_count, d.cost_ms, " +
-                        "d.action, d.skip_reason, d.error_type, d.created_at " +
-                        "from outline_sync_task_detail d where d.task_id=:taskId and d.tenant_id=:tenantId order by d.created_at limit :limit",
-                params);
+        String sql = "select d.id, d.outline_document_id, d.outline_title, d.status, d.error_message, " +
+                "d.outline_url, d.outline_updated_at, d.content_chars, d.content_hash, d.old_content_hash, " +
+                "d.detail_message, d.document_status, d.knowledge_document_id, d.chunk_count, d.cost_ms, " +
+                "d.action, d.skip_reason, d.error_type, d.created_at " +
+                "from outline_sync_task_detail d where d.task_id=:taskId and d.tenant_id=:tenantId";
+        if (notBlank(status)) {
+            sql += " and d.status=:status";
+            params.addValue("status", status);
+        }
+        sql += " order by d.created_at limit :limit";
+        return namedParameterJdbcTemplate.queryForList(sql, params);
+    }
+
+    @Override
+    public Map<String, Object> retryFailed(String taskId, boolean force) {
+        String tenantId = TenantContextHolder.getTenantId();
+        List<Map<String, Object>> failedDetails = details(taskId, "FAILED", 1000);
+        if (failedDetails == null || failedDetails.isEmpty()) {
+            return task(taskId);
+        }
+        String newTaskId = uuid();
+        insertTask(newTaskId, tenantId, null);
+        int total = 0, success = 0, skipped = 0, failed = 0;
+        for (Map<String, Object> detail : failedDetails) {
+            String outlineDocId = String.valueOf(detail.get("outline_document_id"));
+            if (!notBlank(outlineDocId) || "null".equals(outlineDocId)) continue;
+            try {
+                OutlineDocumentDTO docDetail = fetchDocumentDetail(outlineDocId);
+                if (docDetail == null || !notBlank(docDetail.getId())) {
+                    failed++;
+                    continue;
+                }
+                Map<String, Object> ingestResult = upsertOutlineDocumentWithResult(tenantId, docDetail, force);
+                if (ingestResult == null) {
+                    failed++;
+                } else if (Boolean.TRUE.equals(ingestResult.get("skipped"))) {
+                    skipped++;
+                } else {
+                    success++;
+                }
+                total++;
+            } catch (Exception e) {
+                failed++;
+                total++;
+            }
+        }
+        String finalStatus = computeStatus(total, success, skipped, failed);
+        updateTask(newTaskId, total, success, skipped, failed, finalStatus, null);
+        return task(newTaskId);
     }
 
     private OutlineDocumentDTO fetchDocumentDetail(String id) {

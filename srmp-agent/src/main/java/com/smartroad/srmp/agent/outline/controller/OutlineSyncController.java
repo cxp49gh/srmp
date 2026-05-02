@@ -74,8 +74,16 @@ public class OutlineSyncController {
 
     @GetMapping("/sync-tasks/{id}/details")
     public R<List<Map<String, Object>>> details(@PathVariable String id,
+                                                @RequestParam(required = false) String status,
                                                 @RequestParam(required = false) Integer limit) {
-        return R.ok(outlineSyncService.details(id, limit));
+        return R.ok(outlineSyncService.details(id, status, limit));
+    }
+
+    @PostMapping("/sync-tasks/{id}/retry-failed")
+    public R<Map<String, Object>> retryFailed(@PathVariable String id,
+                                               @RequestBody(required = false) Map<String, Object> body) {
+        Boolean force = body != null && Boolean.TRUE.equals(body.get("force"));
+        return R.ok(outlineSyncService.retryFailed(id, force));
     }
 
     private Integer readInt(Object value) {

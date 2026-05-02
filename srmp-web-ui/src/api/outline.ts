@@ -33,3 +33,11 @@ export function getOutlineSyncTaskDetails(id: string, params?: { status?: string
 export function retryOutlineFailedTask(id: string, force = true): Promise<Record<string, any>> {
   return request.post(`/api/outline/sync-tasks/${id}/retry-failed`, { force })
 }
+
+export function getOutlineKnowledgeStats(): Promise<Record<string, any>> {
+  return request.get('/api/outline/knowledge-stats')
+}
+
+export function vectorizeOutline(data: { force?: boolean; dryRun?: boolean; limit?: number } = {}): Promise<Record<string, any>> {
+  return request.post('/api/outline/vectorize', data)
+}
