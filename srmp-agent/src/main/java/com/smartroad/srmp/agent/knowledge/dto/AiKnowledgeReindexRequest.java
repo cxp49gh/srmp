@@ -14,9 +14,14 @@ public class AiKnowledgeReindexRequest {
     private String sourceType;
 
     /**
-     * 可选：指定文档 ID。
+     * 可选：指定 ai_knowledge_document.id。
      */
     private List<String> documentIds;
+
+    /**
+     * 可选：指定业务来源 ID，例如 Outline documentId。
+     */
+    private List<String> sourceIds;
 
     /**
      * true：强制重算所有符合条件的 chunk；
@@ -25,7 +30,12 @@ public class AiKnowledgeReindexRequest {
     private Boolean force = false;
 
     /**
-     * 可选：本次最多处理多少 chunk，防止一次性重建过多数据。
+     * true：只统计候选 chunk，不写入 embedding。
+     */
+    private Boolean dryRun = false;
+
+    /**
+     * 可选：本次最多处理多少 chunk，防止一次性重建过多数据。默认 200，上限 2000。
      */
     private Integer limit;
 }

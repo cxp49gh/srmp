@@ -13,13 +13,16 @@ public class AiKnowledgeReindexResponse {
     private Integer skipped = 0;
 
     private Boolean force = false;
+    private Boolean dryRun = false;
     private String tenantId;
     private String sourceType;
 
     private String embeddingProvider;
     private String embeddingModel;
     private Integer embeddingDimensions;
+    private Integer databaseVectorDimensions;
 
     private Long costMs = 0L;
     private List<String> failedMessages = new ArrayList<>();
+    private List<String> warnings = new ArrayList<>();
 }

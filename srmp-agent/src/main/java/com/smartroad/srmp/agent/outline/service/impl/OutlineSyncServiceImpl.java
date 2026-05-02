@@ -110,6 +110,40 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
         return task(taskId);
     }
 
+
+
+    @Override
+    public Map<String, Object> knowledgeStats() {
+        String tenantId = TenantContextHolder.getTenantId();
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("tenantId", tenantId)
+                .addValue("sourceType", "OUTLINE");
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("tenantId", tenantId);
+        result.put("sourceType", "OUTLINE");
+        result.put("documentCount", queryLong("select count(*) from ai_knowledge_document where tenant_id=:tenantId and source_type=:sourceType and status='ACTIVE'", params));
+        result.put("chunkCount", queryLong("select count(*) from ai_knowledge_chunk where tenant_id=:tenantId and source_type=:sourceType", params));
+        result.put("embeddedChunkCount", queryLong("select count(*) from ai_knowledge_chunk where tenant_id=:tenantId and source_type=:sourceType and embedding is not null", params));
+        result.put("pendingEmbeddingChunkCount", queryLong("select count(*) from ai_knowledge_chunk where tenant_id=:tenantId and source_type=:sourceType and embedding is null", params));
+        result.put("documents", namedParameterJdbcTemplate.queryForList(
+                "select d.id, d.source_id, d.title, d.updated_at, " +
+                        "count(c.id) as chunk_count, " +
+                        "count(c.embedding) as embedded_chunk_count " +
+                        "from ai_knowledge_document d " +
+                        "left join ai_knowledge_chunk c on c.tenant_id=d.tenant_id and c.document_id=d.id " +
+                        "where d.tenant_id=:tenantId and d.source_type=:sourceType and d.status='ACTIVE' " +
+                        "group by d.id, d.source_id, d.title, d.updated_at " +
+                        "order by d.updated_at desc limit 50",
+                params));
+        return result;
+    }
+
+    private Long queryLong(String sql, MapSqlParameterSource params) {
+        Long value = namedParameterJdbcTemplate.queryForObject(sql, params, Long.class);
+        return value == null ? 0L : value;
+    }
+
     private String computeStatus(int total, int success, int skipped, int failed) {
         if (failed == 0) return "SUCCESS";
         if (failed == total) return "FAILED";
