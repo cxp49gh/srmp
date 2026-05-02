@@ -36,20 +36,7 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
 
     @Resource
     private MapAiAnswerEnhancerRegistry mapAiAnswerEnhancerRegistry;
-
-    @Resource
-    private MapObjectDiseaseAdviceEnhancer mapObjectDiseaseAdviceEnhancer;
-
-    @Resource
-    private AssessmentResultAdviceEnhancer assessmentResultAdviceEnhancer;
-
-    @Resource
-    private RoadAssetAdviceEnhancer roadAssetAdviceEnhancer;
-
-    @Resource
-    private MapAiAnswerPolisher mapAiAnswerPolisher;
-
-    @Override
+@Override
     public MapAiAgentResponse chat(MapAiAgentRequest request) {
         String message = request == null ? "" : safe(request.getMessage());
         AiTraceContext trace = AiTraceContext.start("MAP_AI_AGENT", message);
@@ -274,7 +261,7 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
         }
         if (intent == MapAiIntent.TEMPLATE_VERIFY) tools.add("template.match");
         if (intent == MapAiIntent.SOLUTION_GENERATE && isExplicitSolutionDraftRequest(message)) tools.add("solution.generateDraft");
-        if (useKnowledge(options) || intent == MapAiIntent.KNOWLEDGE_QA || intent == MapAiIntent.SOLUTION_GENERATE || intent == MapAiIntent.OBJECT_ANALYSIS) {
+        if (intent == MapAiIntent.KNOWLEDGE_QA || intent == MapAiIntent.SOLUTION_GENERATE || intent == MapAiIntent.OBJECT_ANALYSIS) {
             tools.add("knowledge.retrieve");
         }
         if (tools.isEmpty()) tools.add("knowledge.retrieve");
@@ -286,11 +273,6 @@ public class MapAiAgentServiceImpl implements MapAiAgentService {
         return containsAny(text,
                 "生成方案", "方案草稿", "生成草稿", "保存方案", "保存为方案", "保存为方案任务",
                 "形成方案", "生成任务", "生成养护方案", "保存任务", "创建方案任务");
-    }
-
-    private boolean useKnowledge(Map<String, Object> options) {
-        if (options == null || !options.containsKey("useKnowledge")) return true;
-        return Boolean.parseBoolean(String.valueOf(options.get("useKnowledge")));
     }
 
     private Map<String, Object> defaultArgs(String toolName, String message) {
