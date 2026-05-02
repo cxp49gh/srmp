@@ -23,8 +23,8 @@ DB_NAME="${DB_NAME:-srmp}"
 PSQL_BIN="${PSQL_BIN:-psql}"
 
 REQUIRED_TABLES=(
-  "knowledge_document"
-  "knowledge_chunk"
+  "ai_knowledge_document"
+  "ai_knowledge_chunk"
   "outline_sync_task"
   "road_route"
   "road_section"
@@ -34,8 +34,8 @@ REQUIRED_TABLES=(
 )
 
 AI_REQUIRED_TABLES=(
-  "knowledge_document"
-  "knowledge_chunk"
+  "ai_knowledge_document"
+  "ai_knowledge_chunk"
   "outline_sync_task"
 )
 
@@ -105,16 +105,16 @@ done
 echo ""
 echo "==> 检查 AI / Outline 核心字段"
 
-if table_exists "knowledge_document"; then
-  if ! check_columns "knowledge_document" \
-    "id" "tenant_id" "source_type" "source_id" "title" "doc_type" "category" "content_hash" "url" "status" "synced_at" "deleted"; then
+if table_exists "ai_knowledge_document"; then
+  if ! check_columns "ai_knowledge_document" \
+    "id" "tenant_id" "source_type" "source_id" "title" "status" "metadata" "content_hash" "created_at" "updated_at"; then
     fail_count=$((fail_count + 1))
   fi
 fi
 
-if table_exists "knowledge_chunk"; then
-  if ! check_columns "knowledge_chunk" \
-    "id" "tenant_id" "document_id" "chunk_no" "heading" "content" "content_tokens" "source_type" "source_url" "metadata" "deleted"; then
+if table_exists "ai_knowledge_chunk"; then
+  if ! check_columns "ai_knowledge_chunk" \
+    "id" "tenant_id" "document_id" "source_type" "source_id" "title" "section_title" "chunk_index" "content" "metadata" "embedding" "embedding_model" "embedding_provider" "embedding_dimensions" "embedded_at"; then
     fail_count=$((fail_count + 1))
   fi
 fi

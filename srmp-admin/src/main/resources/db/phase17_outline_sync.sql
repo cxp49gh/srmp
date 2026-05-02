@@ -18,6 +18,3 @@ CREATE TABLE IF NOT EXISTS outline_sync_task (
 
 CREATE INDEX IF NOT EXISTS idx_outline_sync_task_tenant
 ON outline_sync_task(tenant_id, created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_knowledge_document_outline_source
-ON knowledge_document(tenant_id, source_type, source_id);

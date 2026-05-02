@@ -1,7 +1,8 @@
 package com.smartroad.srmp.agent.outline.service.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.smartroad.srmp.agent.knowledge.splitter.TextChunkSplitter;
+import com.smartroad.srmp.agent.knowledge.dto.AiKnowledgeIngestMarkdownRequest;
+import com.smartroad.srmp.agent.knowledge.service.AiKnowledgeIngestService;
 import com.smartroad.srmp.agent.outline.config.OutlineProperties;
 import com.smartroad.srmp.agent.outline.dto.OutlineCollectionDTO;
 import com.smartroad.srmp.agent.outline.dto.OutlineDocumentDTO;
@@ -12,11 +13,9 @@ import org.springframework.http.*;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.util.DigestUtils;
 import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.Resource;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 @Service
@@ -24,7 +23,7 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
 
     @Resource private OutlineProperties properties;
     @Resource private NamedParameterJdbcTemplate namedParameterJdbcTemplate;
-    @Resource private TextChunkSplitter textChunkSplitter;
+    @Resource private AiKnowledgeIngestService aiKnowledgeIngestService;
 
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -82,6 +81,10 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
                 try {
                     OutlineDocumentDTO detail = fetchDocumentDetail(doc.getId());
                     if (!notBlank(detail.getCollectionId())) detail.setCollectionId(collectionId);
+                    if (shouldSkipOutlineSystemDoc(detail)) {
+                        skipped++;
+                        continue;
+                    }
                     if (upsertOutlineDocument(tenantId, detail, force)) success++; else skipped++;
                 } catch (Exception e) {
                     failed++;
@@ -123,49 +126,41 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
     }
 
     private boolean upsertOutlineDocument(String tenantId, OutlineDocumentDTO doc, boolean force) {
-        String sourceId = doc.getId();
-        String content = safe(doc.getText(), "");
-        String hash = DigestUtils.md5DigestAsHex(content.getBytes(StandardCharsets.UTF_8));
-        String documentId = "outline-" + sourceId;
-
-        MapSqlParameterSource find = new MapSqlParameterSource()
-                .addValue("tenantId", tenantId).addValue("sourceType", "OUTLINE").addValue("sourceId", sourceId);
-        List<Map<String, Object>> exists = namedParameterJdbcTemplate.queryForList(
-                "select id, content_hash from knowledge_document where tenant_id=:tenantId and source_type=:sourceType and source_id=:sourceId and deleted=false",
-                find);
-
-        if (!force && !exists.isEmpty() && hash.equals(String.valueOf(exists.get(0).get("content_hash")))) return false;
-
-        if (exists.isEmpty()) {
-            namedParameterJdbcTemplate.update(
-                    "insert into knowledge_document(id, tenant_id, source_type, source_id, title, doc_type, category, content_hash, url, status, synced_at, created_at, updated_at, deleted) " +
-                            "values(:id,:tenantId,'OUTLINE',:sourceId,:title,'MARKDOWN','OUTLINE_DOC',:hash,:url,'ENABLED',now(),now(),now(),false)",
-                    new MapSqlParameterSource().addValue("id", documentId).addValue("tenantId", tenantId)
-                            .addValue("sourceId", sourceId).addValue("title", safe(doc.getTitle(), "未命名 Outline 文档"))
-                            .addValue("hash", hash).addValue("url", doc.getUrl()));
-        } else {
-            documentId = String.valueOf(exists.get(0).get("id"));
-            namedParameterJdbcTemplate.update(
-                    "update knowledge_document set title=:title, content_hash=:hash, url=:url, synced_at=now(), updated_at=now() where tenant_id=:tenantId and id=:id",
-                    new MapSqlParameterSource().addValue("id", documentId).addValue("tenantId", tenantId)
-                            .addValue("title", safe(doc.getTitle(), "未命名 Outline 文档")).addValue("hash", hash).addValue("url", doc.getUrl()));
+        if (!notBlank(doc.getId()) || !notBlank(doc.getText())) {
+            return false;
         }
-        refreshChunks(tenantId, documentId, content, doc.getUrl());
-        return true;
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("url", doc.getUrl());
+        metadata.put("sourceUrl", doc.getUrl());
+        metadata.put("outlineDocumentId", doc.getId());
+        metadata.put("outlineCollectionId", doc.getCollectionId());
+        metadata.put("outlineUpdatedAt", doc.getUpdatedAt());
+        metadata.put("syncSource", "OUTLINE");
+
+        AiKnowledgeIngestMarkdownRequest ingestRequest = new AiKnowledgeIngestMarkdownRequest();
+        ingestRequest.setTenantId(tenantId);
+        ingestRequest.setTitle(safe(doc.getTitle(), "未命名 Outline 文档"));
+        ingestRequest.setSourceType("OUTLINE");
+        ingestRequest.setSourceId(doc.getId());
+        ingestRequest.setContent(doc.getText());
+        ingestRequest.setUrl(doc.getUrl());
+        ingestRequest.setMetadata(metadata);
+        ingestRequest.setForce(force);
+
+        Map<String, Object> result = aiKnowledgeIngestService.ingestMarkdown(ingestRequest);
+        return result == null || !Boolean.TRUE.equals(result.get("skipped"));
     }
 
-    private void refreshChunks(String tenantId, String documentId, String content, String sourceUrl) {
-        namedParameterJdbcTemplate.update("delete from knowledge_chunk where tenant_id=:tenantId and document_id=:documentId",
-                new MapSqlParameterSource().addValue("tenantId", tenantId).addValue("documentId", documentId));
-        int no = 1;
-        for (String chunk : textChunkSplitter.split(content)) {
-            namedParameterJdbcTemplate.update(
-                    "insert into knowledge_chunk(id, tenant_id, document_id, chunk_no, heading, content, content_tokens, source_type, source_url, metadata, created_at, updated_at, deleted) " +
-                            "values(:id,:tenantId,:documentId,:chunkNo,:heading,:content,:tokens,'OUTLINE',:sourceUrl,'{}'::jsonb,now(),now(),false)",
-                    new MapSqlParameterSource().addValue("id", uuid()).addValue("tenantId", tenantId).addValue("documentId", documentId)
-                            .addValue("chunkNo", no++).addValue("heading", extractHeading(chunk)).addValue("content", chunk)
-                            .addValue("tokens", Math.max(1, chunk.length() / 2)).addValue("sourceUrl", sourceUrl));
+    private boolean shouldSkipOutlineSystemDoc(OutlineDocumentDTO doc) {
+        String title = safe(doc == null ? null : doc.getTitle(), "").toLowerCase(Locale.ROOT);
+        if (title.length() == 0) {
+            return false;
         }
+        return "our editor".equals(title)
+                || "what is outline".equals(title)
+                || "getting started".equals(title)
+                || "integrations & api".equals(title)
+                || "integrations and api".equals(title);
     }
 
     private void insertTask(String taskId, String tenantId, String collectionId) {
@@ -216,15 +211,6 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
         int size = limit == null ? 20 : limit;
         if (size <= 0) size = 20;
         return Math.min(size, 100);
-    }
-
-    private String extractHeading(String chunk) {
-        if (chunk == null) return null;
-        for (String line : chunk.split("\\n")) {
-            String text = line.trim();
-            if (text.startsWith("#")) return text.replace("#", "").trim();
-        }
-        return null;
     }
 
     private boolean notBlank(String value) { return value != null && value.trim().length() > 0; }

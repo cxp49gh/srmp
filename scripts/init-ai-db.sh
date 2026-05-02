@@ -63,9 +63,9 @@ echo "    user=$DB_USER"
 echo "    db=$DB_NAME"
 echo ""
 
-run_sql_file "srmp-admin/src/main/resources/db/phase13_knowledge_outline.sql" "阶段十三：知识库基础表与演示数据"
 run_sql_file "srmp-admin/src/main/resources/db/phase17_outline_sync.sql" "阶段十七：Outline 同步任务表"
-run_sql_file "srmp-admin/src/main/resources/db/phase18_ai_demo_knowledge.sql" "阶段十八：AI 演示知识库"
+run_sql_file "srmp-admin/src/main/resources/db/phase36_map_ai_agent_vector_knowledge.sql" "阶段三十六：AI 向量知识库"
+run_sql_file "srmp-admin/src/main/resources/db/phase37_1_knowledge_reindex.sql" "阶段三十七：知识库 Reindex 元数据"
 
 echo ""
 echo "==> 初始化完成"

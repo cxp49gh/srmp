@@ -184,12 +184,12 @@ public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService 
                 .addValue("documentId", request.getKnowledgeDocumentId());
 
         List<Map<String, Object>> docs = namedParameterJdbcTemplate.queryForList(
-                "select d.id, d.title, d.source_type, d.source_id, d.url, " +
-                        "coalesce(string_agg(c.content, E'\\n\\n' order by c.chunk_no), '') as content " +
-                        "from knowledge_document d " +
-                        "left join knowledge_chunk c on c.tenant_id=d.tenant_id and c.document_id=d.id and c.deleted=false " +
-                        "where d.tenant_id=:tenantId and d.id=:documentId and d.deleted=false " +
-                        "group by d.id, d.title, d.source_type, d.source_id, d.url",
+                "select d.id, d.title, d.source_type, d.source_id, d.metadata ->> 'sourceUrl' as url, " +
+                        "coalesce(string_agg(c.content, E'\\n\\n' order by c.chunk_index), '') as content " +
+                        "from ai_knowledge_document d " +
+                        "left join ai_knowledge_chunk c on c.tenant_id=d.tenant_id and c.document_id=d.id " +
+                        "where d.tenant_id=:tenantId and d.id=:documentId and d.status='ACTIVE' " +
+                        "group by d.id, d.title, d.source_type, d.source_id, d.metadata",
                 params
         );
 

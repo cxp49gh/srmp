@@ -96,9 +96,9 @@ fi
 
 run_sql_file "srmp-admin/src/main/resources/db/init_dict.sql" "dictionary data"
 run_sql_file "srmp-admin/src/main/resources/db/init_admin.sql" "admin data"
-run_sql_file "srmp-admin/src/main/resources/db/phase13_knowledge_outline.sql" "knowledge base schema and seed"
 run_sql_file "srmp-admin/src/main/resources/db/phase17_outline_sync.sql" "outline sync schema"
-run_sql_file "srmp-admin/src/main/resources/db/phase18_ai_demo_knowledge.sql" "AI demo knowledge"
+run_sql_file "srmp-admin/src/main/resources/db/phase36_map_ai_agent_vector_knowledge.sql" "AI vector knowledge schema"
+run_sql_file "srmp-admin/src/main/resources/db/phase37_1_knowledge_reindex.sql" "AI knowledge reindex metadata"
 run_sql_file "srmp-admin/src/main/resources/db/phase20_ai_solution_template.sql" "AI solution template schema"
 run_sql_file "srmp-admin/src/main/resources/db/phase21_ai_solution_generate.sql" "AI solution generation schema"
 run_sql_file "srmp-admin/src/main/resources/db/phase22_ai_trace_monitor.sql" "AI trace schema"

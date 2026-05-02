@@ -131,7 +131,7 @@
         <h3>从知识库文档登记为模板</h3>
         <el-form label-width="120px">
           <el-form-item label="知识库文档ID">
-            <el-input v-model="importForm.knowledgeDocumentId" placeholder="knowledge_document.id" />
+            <el-input v-model="importForm.knowledgeDocumentId" placeholder="ai_knowledge_document.id" />
           </el-form-item>
           <el-form-item label="方案类型">
             <el-select v-model="importForm.solutionType">

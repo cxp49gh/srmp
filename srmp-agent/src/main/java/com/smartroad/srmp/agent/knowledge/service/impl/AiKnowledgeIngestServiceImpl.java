@@ -10,6 +10,7 @@ import com.smartroad.srmp.tenant.context.TenantContextHolder;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.DigestUtils;
 
 import javax.annotation.Resource;
@@ -34,6 +35,7 @@ public class AiKnowledgeIngestServiceImpl implements AiKnowledgeIngestService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> ingestMarkdown(AiKnowledgeIngestMarkdownRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("入库请求不能为空");
@@ -43,12 +45,78 @@ public class AiKnowledgeIngestServiceImpl implements AiKnowledgeIngestService {
             throw new IllegalArgumentException("知识内容不能为空");
         }
         String tenantId = safe(firstNonBlank(request.getTenantId(), TenantContextHolder.getTenantId()));
-        String documentId = uuid();
         String title = defaultString(request.getTitle(), "未命名知识文档");
         String sourceType = defaultString(request.getSourceType(), "MANUAL");
-        String sourceId = request.getSourceId();
-        String metadataJson = toJson(request.getMetadata() == null ? new LinkedHashMap<String, Object>() : request.getMetadata());
+        String sourceId = safe(request.getSourceId());
+        boolean force = Boolean.TRUE.equals(request.getForce());
 
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        if (request.getMetadata() != null) {
+            metadata.putAll(request.getMetadata());
+        }
+        if (safe(request.getUrl()).length() > 0) {
+            metadata.put("url", request.getUrl());
+            metadata.put("sourceUrl", request.getUrl());
+        }
+        String metadataJson = toJson(metadata);
+        String contentHash = DigestUtils.md5DigestAsHex(content.getBytes(StandardCharsets.UTF_8));
+
+        ExistingDocument existingDocument = findExistingDocument(tenantId, sourceType, sourceId);
+        if (existingDocument != null && !force && contentHash.equals(existingDocument.getContentHash())) {
+            Map<String, Object> skipped = baseResult(existingDocument.getId(), sourceType, sourceId, contentHash);
+            skipped.put("chunkCount", 0);
+            skipped.put("skipped", true);
+            skipped.put("skipReason", "内容未变化，跳过重建向量");
+            skipped.put("embeddingModel", embeddingClient.model());
+            skipped.put("embeddingDimensions", embeddingClient.dimensions());
+            return skipped;
+        }
+
+        String documentId = existingDocument == null ? uuid() : existingDocument.getId();
+        if (existingDocument == null) {
+            insertDocument(documentId, tenantId, sourceType, sourceId, title, metadataJson, contentHash);
+        } else {
+            updateDocument(documentId, tenantId, title, metadataJson, contentHash);
+            namedParameterJdbcTemplate.update(
+                    "delete from ai_knowledge_chunk where tenant_id=:tenantId and document_id=:documentId",
+                    new MapSqlParameterSource().addValue("tenantId", tenantId).addValue("documentId", documentId)
+            );
+        }
+
+        int chunkCount = insertChunks(tenantId, documentId, sourceType, sourceId, title, content, metadataJson);
+
+        Map<String, Object> result = baseResult(documentId, sourceType, sourceId, contentHash);
+        result.put("chunkCount", chunkCount);
+        result.put("skipped", false);
+        result.put("updated", existingDocument != null);
+        result.put("embeddingModel", embeddingClient.model());
+        result.put("embeddingDimensions", embeddingClient.dimensions());
+        return result;
+    }
+
+    private ExistingDocument findExistingDocument(String tenantId, String sourceType, String sourceId) {
+        if (safe(sourceId).length() == 0) {
+            return null;
+        }
+        List<ExistingDocument> list = namedParameterJdbcTemplate.query(
+                "select id, content_hash from ai_knowledge_document " +
+                        "where tenant_id=:tenantId and source_type=:sourceType and source_id=:sourceId and status='ACTIVE' " +
+                        "order by updated_at desc limit 1",
+                new MapSqlParameterSource()
+                        .addValue("tenantId", tenantId)
+                        .addValue("sourceType", sourceType)
+                        .addValue("sourceId", sourceId),
+                (rs, rowNum) -> {
+                    ExistingDocument row = new ExistingDocument();
+                    row.setId(rs.getString("id"));
+                    row.setContentHash(rs.getString("content_hash"));
+                    return row;
+                }
+        );
+        return list.isEmpty() ? null : list.get(0);
+    }
+
+    private void insertDocument(String documentId, String tenantId, String sourceType, String sourceId, String title, String metadataJson, String contentHash) {
         MapSqlParameterSource doc = new MapSqlParameterSource()
                 .addValue("id", documentId)
                 .addValue("tenantId", tenantId)
@@ -57,14 +125,30 @@ public class AiKnowledgeIngestServiceImpl implements AiKnowledgeIngestService {
                 .addValue("title", title)
                 .addValue("status", "ACTIVE")
                 .addValue("metadata", metadataJson)
-                .addValue("contentHash", DigestUtils.md5DigestAsHex(content.getBytes(StandardCharsets.UTF_8)));
+                .addValue("contentHash", contentHash);
 
         namedParameterJdbcTemplate.update(
                 "insert into ai_knowledge_document(id, tenant_id, source_type, source_id, title, status, metadata, content_hash, created_at, updated_at) " +
                         "values(:id,:tenantId,:sourceType,:sourceId,:title,:status,cast(:metadata as jsonb),:contentHash,now(),now())",
                 doc
         );
+    }
 
+    private void updateDocument(String documentId, String tenantId, String title, String metadataJson, String contentHash) {
+        namedParameterJdbcTemplate.update(
+                "update ai_knowledge_document " +
+                        "set title=:title, metadata=cast(:metadata as jsonb), content_hash=:contentHash, status='ACTIVE', updated_at=now() " +
+                        "where tenant_id=:tenantId and id=:id",
+                new MapSqlParameterSource()
+                        .addValue("id", documentId)
+                        .addValue("tenantId", tenantId)
+                        .addValue("title", title)
+                        .addValue("metadata", metadataJson)
+                        .addValue("contentHash", contentHash)
+        );
+    }
+
+    private int insertChunks(String tenantId, String documentId, String sourceType, String sourceId, String title, String content, String metadataJson) {
         List<String> chunks = textChunkSplitter.split(content);
         if (chunks == null || chunks.isEmpty()) {
             chunks = Collections.singletonList(content);
@@ -97,12 +181,15 @@ public class AiKnowledgeIngestServiceImpl implements AiKnowledgeIngestService {
                     p
             );
         }
+        return index;
+    }
 
+    private Map<String, Object> baseResult(String documentId, String sourceType, String sourceId, String contentHash) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("documentId", documentId);
-        result.put("chunkCount", index);
-        result.put("embeddingModel", embeddingClient.model());
-        result.put("embeddingDimensions", embeddingClient.dimensions());
+        result.put("sourceType", sourceType);
+        result.put("sourceId", sourceId);
+        result.put("contentHash", contentHash);
         return result;
     }
 
@@ -151,5 +238,14 @@ public class AiKnowledgeIngestServiceImpl implements AiKnowledgeIngestService {
 
     private String uuid() {
         return UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private static class ExistingDocument {
+        private String id;
+        private String contentHash;
+        public String getId() { return id; }
+        public void setId(String id) { this.id = id; }
+        public String getContentHash() { return contentHash; }
+        public void setContentHash(String contentHash) { this.contentHash = contentHash; }
     }
 }

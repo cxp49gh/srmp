@@ -5,7 +5,7 @@ import lombok.Data;
 @Data
 public class AiSolutionTemplateImportRequest {
     /**
-     * knowledge_document.id
+     * ai_knowledge_document.id
      */
     private String knowledgeDocumentId;
 

@@ -1,7 +1,7 @@
 <template>
   <AgentPageShell
     title="知识库检索测试"
-    description="测试 knowledge_chunk 关键词检索和知识库问答效果。"
+    description="测试 ai_knowledge_chunk 向量检索和知识库问答效果。"
   >
     <el-card class="search-card">
       <el-form :inline="true">
