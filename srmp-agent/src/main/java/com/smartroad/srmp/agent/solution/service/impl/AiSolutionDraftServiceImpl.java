@@ -6,6 +6,7 @@ import com.smartroad.srmp.agent.solution.dto.AiSolutionDraftStatusUpdateRequest;
 import com.smartroad.srmp.agent.solution.dto.AiSolutionDraftUpdateRequest;
 import com.smartroad.srmp.agent.solution.dto.AiSolutionSourceSummaryRequest;
 import com.smartroad.srmp.agent.solution.service.AiSolutionDraftService;
+import com.smartroad.srmp.agent.solution.support.AiSolutionReferenceSourceGuard;
 import com.smartroad.srmp.tenant.context.TenantContextHolder;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -319,7 +320,7 @@ public class AiSolutionDraftServiceImpl implements AiSolutionDraftService {
             meta.put("templateMeta", request.getTemplateMeta());
             sources.add(meta);
         }
-        return sources;
+        return AiSolutionReferenceSourceGuard.filterIrrelevantOutlineSources(sources);
     }
 
     private Map<String, Object> sourceToMap(AiSolutionSourceSummaryRequest source) {

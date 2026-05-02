@@ -8,6 +8,7 @@ import com.smartroad.srmp.agent.outline.service.OutlineService;
 import com.smartroad.srmp.agent.outline.vo.OutlineSearchResult;
 import com.smartroad.srmp.agent.rag.RagOptions;
 import com.smartroad.srmp.agent.solution.service.AiSolutionTemplatePipelineService;
+import com.smartroad.srmp.agent.solution.support.AiSolutionReferenceSourceGuard;
 import com.smartroad.srmp.agent.solution.template.SolutionTemplateContext;
 import com.smartroad.srmp.agent.solution.template.TemplatePipelineResult;
 import com.smartroad.srmp.agent.trace.AiTraceContext;
@@ -25,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @Slf4j
@@ -151,18 +153,20 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
             return result;
         }
         try {
+            String query = buildKnowledgeQuery(request, businessMarkdown);
             if (options.isUseKnowledge()) {
                 KnowledgeSearchRequest searchRequest = new KnowledgeSearchRequest();
-                searchRequest.setQuery(buildKnowledgeQuery(request, businessMarkdown));
-                searchRequest.setTopK(options.getTopK());
-                knowledgeSources = knowledgeService.search(searchRequest);
+                searchRequest.setQuery(query);
+                // 多取一些再做业务相关性过滤，避免 Outline 默认引导文档挤占真正的养护资料。
+                searchRequest.setTopK(Math.max(options.getTopK(), Math.min(options.getTopK() * 3, 20)));
+                knowledgeSources = filterKnowledgeSources(knowledgeService.search(searchRequest), options.isUseOutline(), options.getTopK());
             }
             if (options.isUseOutline()) {
-                outlineSources = outlineService.search(buildKnowledgeQuery(request, businessMarkdown), options.getTopK());
+                outlineSources = filterOutlineSources(outlineService.search(query, Math.max(options.getTopK(), Math.min(options.getTopK() * 3, 20))), options.getTopK());
             }
             result.put("knowledgeSources", knowledgeSources);
             result.put("outlineSources", outlineSources);
-            timer.success(knowledgeSources.size() + outlineSources.size());
+            timer.success(knowledgeSources.size() + outlineSources.size(), sourceFilterTraceData(knowledgeSources, outlineSources, options));
         } catch (RuntimeException e) {
             result.put("knowledgeError", e.getMessage());
             timer.failed(e);
@@ -343,9 +347,9 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
     }
 
     private String buildPrompt(Map<String, Object> summary, String businessMarkdown, Map<String, Object> sources) {
-        return "请基于区域统计、热点和知识库来源生成区域养护建议草稿。\n\n【区域统计】\n" + summary +
+        return "请基于区域统计、热点和公路养护知识来源生成区域养护建议草稿。只允许引用与道路养护、病害处置、技术状况评定、低分单元或区域养护直接相关的资料；忽略 Outline 产品说明、编辑器说明、入门说明、API 集成说明等无关资料。\n\n【区域统计】\n" + summary +
                 "\n\n【业务分析】\n" + businessMarkdown +
-                "\n\n【来源】\n" + sources;
+                "\n\n【已过滤的可用来源】\n" + buildSourceContext(sources);
     }
 
     private List<Map<String, Object>> buildSourceSummaries(Map<String, Object> summary, Map<String, Object> sources, AiTraceContext trace) {
@@ -422,6 +426,97 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
             }
         }
         return result;
+    }
+
+    private List<KnowledgeSearchResult> filterKnowledgeSources(List<KnowledgeSearchResult> sources, boolean allowOutline, int limit) {
+        List<KnowledgeSearchResult> result = new ArrayList<>();
+        if (sources == null || sources.isEmpty()) {
+            return result;
+        }
+        for (KnowledgeSearchResult source : sources) {
+            if (source == null) {
+                continue;
+            }
+            String sourceType = safe(source.getSourceType()).toUpperCase(Locale.ROOT);
+            boolean outlineSource = "OUTLINE".equals(sourceType);
+            if (outlineSource && !allowOutline) {
+                continue;
+            }
+            if (AiSolutionReferenceSourceGuard.isIrrelevantOutlineDoc(source.getTitle(), source.getContent())) {
+                continue;
+            }
+            if (!AiSolutionReferenceSourceGuard.isRoadMaintenanceText(source.getTitle(), source.getHeading(), source.getContent())) {
+                continue;
+            }
+            result.add(source);
+            if (result.size() >= limit) {
+                break;
+            }
+        }
+        return result;
+    }
+
+    private List<OutlineSearchResult> filterOutlineSources(List<OutlineSearchResult> sources, int limit) {
+        List<OutlineSearchResult> result = new ArrayList<>();
+        if (sources == null || sources.isEmpty()) {
+            return result;
+        }
+        for (OutlineSearchResult source : sources) {
+            if (source == null) {
+                continue;
+            }
+            if (AiSolutionReferenceSourceGuard.isIrrelevantOutlineDoc(source.getTitle(), source.getText())) {
+                continue;
+            }
+            if (!AiSolutionReferenceSourceGuard.isRoadMaintenanceText(source.getTitle(), source.getText())) {
+                continue;
+            }
+            result.add(source);
+            if (result.size() >= limit) {
+                break;
+            }
+        }
+        return result;
+    }
+
+    private Map<String, Object> sourceFilterTraceData(List<KnowledgeSearchResult> knowledgeSources,
+                                                      List<OutlineSearchResult> outlineSources,
+                                                      RagOptions options) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("knowledgeCount", knowledgeSources == null ? 0 : knowledgeSources.size());
+        data.put("outlineCount", outlineSources == null ? 0 : outlineSources.size());
+        data.put("useOutline", options != null && options.isUseOutline());
+        data.put("filter", "ROAD_MAINTENANCE_RELEVANCE_ONLY");
+        return data;
+    }
+
+    private String buildSourceContext(Map<String, Object> sources) {
+        StringBuilder sb = new StringBuilder();
+        Object knowledgeRaw = sources == null ? null : sources.get("knowledgeSources");
+        int index = 1;
+        if (knowledgeRaw instanceof List) {
+            for (Object raw : (List<?>) knowledgeRaw) {
+                if (raw instanceof KnowledgeSearchResult) {
+                    KnowledgeSearchResult item = (KnowledgeSearchResult) raw;
+                    sb.append(index++).append(". [KNOWLEDGE] ").append(safe(item.getTitle()));
+                    if (!safe(item.getHeading()).isEmpty()) {
+                        sb.append(" / ").append(safe(item.getHeading()));
+                    }
+                    sb.append("：").append(shortText(item.getContent(), 260)).append("\n");
+                }
+            }
+        }
+        Object outlineRaw = sources == null ? null : sources.get("outlineSources");
+        if (outlineRaw instanceof List) {
+            for (Object raw : (List<?>) outlineRaw) {
+                if (raw instanceof OutlineSearchResult) {
+                    OutlineSearchResult item = (OutlineSearchResult) raw;
+                    sb.append(index++).append(". [OUTLINE] ").append(safe(item.getTitle()))
+                            .append("：").append(shortText(item.getText(), 260)).append("\n");
+                }
+            }
+        }
+        return sb.length() == 0 ? "无可用专业知识来源，本次仅使用区域业务统计和热点识别结果。" : sb.toString();
     }
 
     private String queryValue(MapRegionSolutionRequest request, String key) {

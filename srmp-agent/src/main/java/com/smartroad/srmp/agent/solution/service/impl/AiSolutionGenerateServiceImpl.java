@@ -11,6 +11,7 @@ import com.smartroad.srmp.agent.solution.dto.AiSolutionGenerateRequest;
 import com.smartroad.srmp.agent.solution.dto.AiSolutionTaskQuery;
 import com.smartroad.srmp.agent.solution.service.AiSolutionGenerateService;
 import com.smartroad.srmp.agent.solution.service.AiSolutionTemplatePipelineService;
+import com.smartroad.srmp.agent.solution.support.AiSolutionReferenceSourceGuard;
 import com.smartroad.srmp.agent.solution.template.SolutionTemplateContext;
 import com.smartroad.srmp.agent.solution.template.TemplatePipelineResult;
 import com.smartroad.srmp.tenant.context.TenantContextHolder;
@@ -143,11 +144,12 @@ public class AiSolutionGenerateServiceImpl implements AiSolutionGenerateService 
                 .addValue("tenantId", TenantContextHolder.getTenantId())
                 .addValue("taskId", taskId);
 
-        return namedParameterJdbcTemplate.queryForList(
+        List<Map<String, Object>> rows = namedParameterJdbcTemplate.queryForList(
                 "select id, tenant_id, task_id, source_type, source_title, source_id, source_url, content_excerpt, created_at " +
                         "from ai_solution_source where tenant_id=:tenantId and task_id=:taskId order by created_at asc",
                 params
         );
+        return AiSolutionReferenceSourceGuard.filterIrrelevantOutlineSources(rows);
     }
 
     private List<KnowledgeSearchResult> searchKnowledge(AiSolutionGenerateRequest request, String context) {
@@ -155,10 +157,39 @@ public class AiSolutionGenerateServiceImpl implements AiSolutionGenerateService 
             return Collections.emptyList();
         }
 
+        int topK = readInt(request.getOptions(), "topK", 5);
         KnowledgeSearchRequest searchRequest = new KnowledgeSearchRequest();
         searchRequest.setQuery(request.getRouteCode() + " " + request.getYear() + " 技术状况 评定 病害 PCI MQI 养护建议 " + context);
-        searchRequest.setTopK(readInt(request.getOptions(), "topK", 5));
-        return knowledgeService.search(searchRequest);
+        // 多取一些再做领域过滤，避免 Outline 默认说明类文档挤占真正的道路养护资料。
+        searchRequest.setTopK(Math.max(topK, Math.min(topK * 3, 20)));
+        return filterKnowledgeSources(knowledgeService.search(searchRequest), readBoolean(request.getOptions(), "useOutline", false), topK);
+    }
+
+    private List<KnowledgeSearchResult> filterKnowledgeSources(List<KnowledgeSearchResult> sources, boolean allowOutline, int limit) {
+        List<KnowledgeSearchResult> result = new ArrayList<>();
+        if (sources == null || sources.isEmpty()) {
+            return result;
+        }
+        for (KnowledgeSearchResult item : sources) {
+            if (item == null) {
+                continue;
+            }
+            String sourceType = safe(item.getSourceType()).toUpperCase(Locale.ROOT);
+            if ("OUTLINE".equals(sourceType) && !allowOutline) {
+                continue;
+            }
+            if (AiSolutionReferenceSourceGuard.isIrrelevantOutlineDoc(item.getTitle(), item.getContent())) {
+                continue;
+            }
+            if (!AiSolutionReferenceSourceGuard.isRoadMaintenanceText(item.getTitle(), item.getHeading(), item.getContent())) {
+                continue;
+            }
+            result.add(item);
+            if (result.size() >= limit) {
+                break;
+            }
+        }
+        return result;
     }
 
     private String buildLowScoreSections(String assessmentSummary) {
