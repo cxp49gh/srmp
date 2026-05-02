@@ -64,7 +64,7 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
             List<Map<String, Object>> hotspots = runHotspotStep(trace, regionSummary);
             String businessMarkdown = runBusinessAnalysis(trace, request, regionSummary, hotspots);
             Map<String, Object> sources = runKnowledgeRetrieve(trace, request, businessMarkdown);
-            String llmMarkdown = runSolutionGenerate(trace, regionSummary, businessMarkdown, sources);
+            String llmMarkdown = runSolutionGenerate(trace, request, regionSummary, businessMarkdown, sources);
             TemplatePipelineResult pipelineResult = runTemplatePipeline(trace, request, regionSummary, hotspots, businessMarkdown, llmMarkdown, sources);
             String markdown = pipelineResult.getMarkdown();
             Map<String, Object> quality = runQualityCheck(trace, regionSummary, markdown);
@@ -74,6 +74,7 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
             response.setRegionSummary(regionSummary);
             response.setQualityCheck(quality);
             response.setTemplateMeta(pipelineResult.getTemplateMeta());
+            response.setAnswerMeta(buildAnswerMeta(sources));
             response.setSourceSummaries(mergeSources(buildSourceSummaries(regionSummary, sources, trace), pipelineResult.getSourceSummaries()));
             trace.setMode(Boolean.TRUE.equals(sources.get("llmSuccess")) ? "MAP_REGION_LLM" : "MAP_REGION_FALLBACK");
             trace.setStatus("SUCCESS");
@@ -174,8 +175,10 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
         return result;
     }
 
-    private String runSolutionGenerate(AiTraceContext trace, Map<String, Object> summary, String businessMarkdown, Map<String, Object> sources) {
+    private String runSolutionGenerate(AiTraceContext trace, MapRegionSolutionRequest request, Map<String, Object> summary, String businessMarkdown, Map<String, Object> sources) {
         String prompt = buildPrompt(summary, businessMarkdown, sources);
+        boolean requireAi = optionBoolean(request, "requireAi", "aiRequired", "forceAi");
+        sources.put("requireAi", requireAi);
 
         AiTraceContext.StepTimer promptTimer = trace.step("region_prompt_build", "区域方案 Prompt 构建");
         Map<String, Object> promptData = new LinkedHashMap<>();
@@ -184,6 +187,7 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
         promptData.put("businessMarkdownChars", safe(businessMarkdown).length());
         promptData.put("knowledgeCount", listSize(sources == null ? null : sources.get("knowledgeSources")));
         promptData.put("outlineCount", listSize(sources == null ? null : sources.get("outlineSources")));
+        promptData.put("requireAi", requireAi);
         promptTimer.success(1, promptData);
 
         AiTraceContext.StepTimer llmTimer = trace.step("llm_answer", "大模型生成区域养护建议");
@@ -196,7 +200,13 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
             sources.put("llmSuccess", false);
             sources.put("llmSkipped", true);
             sources.put("llmError", reason);
+            sources.put("answerSource", "BUSINESS_FALLBACK");
+            sources.put("fallbackReason", reason);
+            beforeDiag.put("requireAi", requireAi);
             llmTimer.skipped(beforeDiag);
+            if (requireAi) {
+                throw new IllegalStateException("区域养护建议要求调用 AI，但 " + reason);
+            }
             return businessMarkdown;
         }
 
@@ -208,7 +218,10 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
             sources.put("llmDiagnostics", llmData);
 
             if (success) {
+                sources.put("llmSkipped", false);
+                sources.put("answerSource", "LLM");
                 llmData.put("answerChars", answer.length());
+                llmData.put("requireAi", requireAi);
                 llmTimer.success(1, llmData);
                 return sanitize(answer);
             }
@@ -216,18 +229,33 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
             String reason = firstNonBlank(safe(llmData.get("errorMessage")), "LLM 未返回内容，区域养护建议使用业务统计模板兜底");
             sources.put("llmSkipped", false);
             sources.put("llmError", reason);
+            sources.put("answerSource", "BUSINESS_FALLBACK");
+            sources.put("fallbackReason", reason);
             llmData.put("reason", reason);
+            llmData.put("requireAi", requireAi);
             llmTimer.failed(new RuntimeException(reason), llmData);
+            if (requireAi) {
+                throw new IllegalStateException("区域养护建议要求调用 AI，但 " + reason);
+            }
             return businessMarkdown;
         } catch (RuntimeException e) {
+            if (requireAi && safe(e.getMessage()).startsWith("区域养护建议要求调用 AI")) {
+                throw e;
+            }
             Map<String, Object> llmData = new LinkedHashMap<>(llmClient.diagnostics());
             llmData.put("exception", e.getClass().getSimpleName());
             llmData.put("exceptionMessage", e.getMessage());
             sources.put("llmSuccess", false);
             sources.put("llmSkipped", false);
             sources.put("llmError", e.getMessage());
+            sources.put("answerSource", "BUSINESS_FALLBACK");
+            sources.put("fallbackReason", e.getMessage());
             sources.put("llmDiagnostics", llmData);
+            llmData.put("requireAi", requireAi);
             llmTimer.failed(e, llmData);
+            if (requireAi) {
+                throw new IllegalStateException("区域养护建议要求调用 AI，但 LLM 调用失败：" + e.getMessage(), e);
+            }
             return businessMarkdown;
         }
     }
@@ -304,6 +332,21 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
         precision.put("knowledgeError", sources == null ? "" : safe(sources.get("knowledgeError")));
         precision.put("llmError", sources == null ? "" : safe(sources.get("llmError")));
         return precision;
+    }
+
+
+    private Map<String, Object> buildAnswerMeta(Map<String, Object> sources) {
+        Map<String, Object> meta = new LinkedHashMap<>();
+        boolean llmSuccess = sources != null && Boolean.TRUE.equals(sources.get("llmSuccess"));
+        meta.put("answerSource", sources == null ? "BUSINESS_FALLBACK" : firstNonBlank(safe(sources.get("answerSource")), llmSuccess ? "LLM" : "BUSINESS_FALLBACK"));
+        meta.put("llmSuccess", llmSuccess);
+        meta.put("llmSkipped", sources != null && Boolean.TRUE.equals(sources.get("llmSkipped")));
+        meta.put("requireAi", sources != null && Boolean.TRUE.equals(sources.get("requireAi")));
+        meta.put("fallback", !llmSuccess);
+        meta.put("fallbackReason", sources == null ? "" : firstNonBlank(safe(sources.get("fallbackReason")), safe(sources.get("llmError"))));
+        meta.put("llmDiagnostics", sources == null ? new LinkedHashMap<>() : sources.get("llmDiagnostics"));
+        meta.put("llmDiagnosticsBeforeCall", sources == null ? new LinkedHashMap<>() : sources.get("llmDiagnosticsBeforeCall"));
+        return meta;
     }
 
     private int qualityItem(List<Map<String, Object>> items, boolean passed, String code, String message, int penalty) {
@@ -574,6 +617,24 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private boolean optionBoolean(MapRegionSolutionRequest request, String... keys) {
+        Map<String, Object> options = request == null ? null : request.getOptions();
+        if (options == null || keys == null) {
+            return false;
+        }
+        for (String key : keys) {
+            Object value = options.get(key);
+            if (value instanceof Boolean) {
+                return (Boolean) value;
+            }
+            String text = safe(value);
+            if ("true".equalsIgnoreCase(text) || "1".equals(text) || "yes".equalsIgnoreCase(text) || "Y".equalsIgnoreCase(text)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Map<String, Object> mapValue(Object value) {

@@ -17,6 +17,15 @@
 
       <TemplateMetaCard :meta="(solution as any)?.templateMeta || (solution as any)?.template_meta || null" show-empty />
 
+      <el-alert
+        v-if="answerNotice"
+        class="answer-notice"
+        :type="answerNotice.type"
+        show-icon
+        :closable="false"
+        :title="answerNotice.title"
+      />
+
       <section v-if="solution.qualityCheck" class="quality-check">
         <div class="quality-header">
           <strong>质量检查</strong>
@@ -140,6 +149,16 @@ const summaryItems = computed(() => {
 const renderedMarkdown = computed(() => renderMarkdown(props.solution?.markdown || ''))
 const traceDrawerVisible = ref(false)
 const activeTrace = computed(() => props.trace || (props.solution as any)?.trace || null)
+
+const answerNotice = computed(() => {
+  const meta = (props.solution as any)?.answerMeta || (props.solution as any)?.answer_meta || {}
+  if (!meta || Object.keys(meta).length === 0) return null
+  if (meta.llmSuccess === true || meta.answerSource === 'LLM') {
+    return { type: 'success' as const, title: '本次区域养护建议已调用大模型生成。' }
+  }
+  const reason = meta.fallbackReason || meta.llmError || '大模型未返回有效内容，当前为业务统计模板兜底结果。'
+  return { type: 'warning' as const, title: `本次未使用大模型生成：${reason}` }
+})
 
 const qualityItems = computed(() => {
   const items = (props.solution as any)?.qualityCheck?.items
@@ -265,7 +284,8 @@ function renderMarkdown(value: string) {
   background: #eff6ff;
 }
 
-.saved-task {
+.saved-task,
+.answer-notice {
   margin-bottom: 12px;
 }
 

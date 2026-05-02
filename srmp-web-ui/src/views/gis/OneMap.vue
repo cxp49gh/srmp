@@ -583,7 +583,7 @@ async function generateRegionSolution() {
       geometry: regionGeometry.value,
       query: { ...query },
       layers: activeLayerNames(),
-      options: { useBusinessData: true, useKnowledge: true, useOutline: false, topK: 5 }
+      options: { useBusinessData: true, useKnowledge: true, useOutline: false, topK: 5, requireAi: true }
     })) as MapRegionSolutionResponse
     regionSolution.value = result
     if (result.regionSummary) {
@@ -591,7 +591,7 @@ async function generateRegionSolution() {
     }
     regionSavedTask.value = null
     regionPreviewVisible.value = true
-    ElMessage.success('区域养护建议已生成')
+    ElMessage.success(result.answerMeta?.llmSuccess ? '区域养护建议已由 AI 生成' : '区域养护建议已生成（未使用 AI）')
   } catch (error: any) {
     ElMessage.error(error?.message || '生成区域养护建议失败')
   } finally {

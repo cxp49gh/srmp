@@ -34,6 +34,7 @@ export interface MapRegionSolutionResponse {
   regionSummary?: Record<string, any>
   qualityCheck?: Record<string, any>
   templateMeta?: Record<string, any>
+  answerMeta?: Record<string, any>
   sourceSummaries?: Record<string, any>[]
   trace?: Record<string, any>
 }
