@@ -18,5 +18,16 @@ public class AiKnowledgeIngestMarkdownRequest {
      */
     private Boolean force;
 
+    /**
+     * 是否在入库时同步生成向量。默认 true。
+     */
+    private Boolean vectorize = true;
+
+    /**
+     * 向量化失败时是否让整篇文档入库失败。默认 true。
+     * 手工导入默认严格失败；Outline 同步可设为 false，先保留文档和切片，再记录向量化失败。
+     */
+    private Boolean failOnEmbeddingError = true;
+
     private Map<String, Object> metadata;
 }

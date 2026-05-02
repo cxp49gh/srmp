@@ -67,8 +67,11 @@ public class AiKnowledgeIngestServiceImpl implements AiKnowledgeIngestService {
             skipped.put("chunkCount", 0);
             skipped.put("skipped", true);
             skipped.put("skipReason", "内容未变化，跳过重建向量");
-            skipped.put("embeddingModel", embeddingClient.model());
-            skipped.put("embeddingDimensions", embeddingClient.dimensions());
+            skipped.put("embeddedChunkCount", 0);
+            skipped.put("embeddingFailedCount", 0);
+            skipped.put("embeddingErrors", Collections.emptyList());
+            skipped.put("embeddingModel", embeddingClient == null ? null : embeddingClient.model());
+            skipped.put("embeddingDimensions", embeddingClient == null ? null : embeddingClient.dimensions());
             return skipped;
         }
 
@@ -83,14 +86,19 @@ public class AiKnowledgeIngestServiceImpl implements AiKnowledgeIngestService {
             );
         }
 
-        int chunkCount = insertChunks(tenantId, documentId, sourceType, sourceId, title, content, metadataJson);
+        boolean vectorize = request.getVectorize() == null || Boolean.TRUE.equals(request.getVectorize());
+        boolean failOnEmbeddingError = request.getFailOnEmbeddingError() == null || Boolean.TRUE.equals(request.getFailOnEmbeddingError());
+        IngestChunkStats chunkStats = insertChunks(tenantId, documentId, sourceType, sourceId, title, content, metadataJson, vectorize, failOnEmbeddingError);
 
         Map<String, Object> result = baseResult(documentId, sourceType, sourceId, contentHash);
-        result.put("chunkCount", chunkCount);
+        result.put("chunkCount", chunkStats.totalCount);
         result.put("skipped", false);
         result.put("updated", existingDocument != null);
-        result.put("embeddingModel", embeddingClient.model());
-        result.put("embeddingDimensions", embeddingClient.dimensions());
+        result.put("embeddedChunkCount", chunkStats.embeddedCount);
+        result.put("embeddingFailedCount", chunkStats.failedCount);
+        result.put("embeddingErrors", chunkStats.errors);
+        result.put("embeddingModel", embeddingClient == null ? null : embeddingClient.model());
+        result.put("embeddingDimensions", embeddingClient == null ? null : embeddingClient.dimensions());
         return result;
     }
 
@@ -148,40 +156,65 @@ public class AiKnowledgeIngestServiceImpl implements AiKnowledgeIngestService {
         );
     }
 
-    private int insertChunks(String tenantId, String documentId, String sourceType, String sourceId, String title, String content, String metadataJson) {
+    
+    private IngestChunkStats insertChunks(String tenantId, String documentId, String sourceType, String sourceId, String title, String content, String metadataJson, boolean vectorize, boolean failOnEmbeddingError) {
         List<String> chunks = textChunkSplitter.split(content);
         if (chunks == null || chunks.isEmpty()) {
             chunks = Collections.singletonList(content);
         }
-        int index = 0;
+        int total = 0, embedded = 0, failed = 0;
+        List<String> errors = new ArrayList<>();
         for (String chunk : chunks) {
             String chunkText = safe(chunk);
-            if (chunkText.length() == 0) {
-                continue;
+            if (chunkText.length() == 0) continue;
+            String chunkHeading = extractHeading(chunkText);
+            total++;
+            try {
+                List<Float> embedding = null;
+                if (vectorize) {
+                    embedding = embeddingClient.embed(chunkText);
+                }
+                MapSqlParameterSource p = new MapSqlParameterSource()
+                        .addValue("id", uuid())
+                        .addValue("tenantId", tenantId)
+                        .addValue("documentId", documentId)
+                        .addValue("sourceType", sourceType)
+                        .addValue("sourceId", sourceId)
+                        .addValue("title", title)
+                        .addValue("sectionTitle", chunkHeading)
+                        .addValue("chunkIndex", total - 1)
+                        .addValue("content", chunkText)
+                        .addValue("metadata", metadataJson)
+                        .addValue("embedding", embedding != null ? vectorLiteral(embedding) : null)
+                        .addValue("embeddingProvider", embedding != null ? (embeddingProperties == null ? null : embeddingProperties.getProvider()) : null)
+                        .addValue("embeddingModel", embedding != null ? embeddingClient.model() : null)
+                        .addValue("embeddingDimensions", embedding != null ? embeddingClient.dimensions() : null);
+                namedParameterJdbcTemplate.update(
+                        "insert into ai_knowledge_chunk(id, tenant_id, document_id, source_type, source_id, title, section_title, chunk_index, content, metadata, embedding, embedding_provider, embedding_model, embedding_dimensions, embedded_at, created_at, updated_at) " +
+                                "values(:id,:tenantId,:documentId,:sourceType,:sourceId,:title,:sectionTitle,:chunkIndex,:content,cast(:metadata as jsonb),cast(:embedding as vector),:embeddingProvider,:embeddingModel,:embeddingDimensions,now(),now(),now())",
+                        p
+                );
+                if (embedding != null) embedded++;
+            } catch (Exception e) {
+                failed++;
+                String errMsg = "chunk[" + (total - 1) + "] " + e.getMessage();
+                errors.add(errMsg);
+                if (failOnEmbeddingError) {
+                    throw new RuntimeException("向量生成失败: " + errMsg, e);
+                }
             }
-            List<Float> embedding = embeddingClient.embed(chunkText);
-            MapSqlParameterSource p = new MapSqlParameterSource()
-                    .addValue("id", uuid())
-                    .addValue("tenantId", tenantId)
-                    .addValue("documentId", documentId)
-                    .addValue("sourceType", sourceType)
-                    .addValue("sourceId", sourceId)
-                    .addValue("title", title)
-                    .addValue("sectionTitle", extractHeading(chunkText))
-                    .addValue("chunkIndex", index++)
-                    .addValue("content", chunkText)
-                    .addValue("metadata", metadataJson)
-                    .addValue("embedding", vectorLiteral(embedding))
-                    .addValue("embeddingProvider", embeddingProperties == null ? null : embeddingProperties.getProvider())
-                    .addValue("embeddingModel", embeddingClient.model())
-                    .addValue("embeddingDimensions", embeddingClient.dimensions());
-            namedParameterJdbcTemplate.update(
-                    "insert into ai_knowledge_chunk(id, tenant_id, document_id, source_type, source_id, title, section_title, chunk_index, content, metadata, embedding, embedding_provider, embedding_model, embedding_dimensions, embedded_at, created_at, updated_at) " +
-                            "values(:id,:tenantId,:documentId,:sourceType,:sourceId,:title,:sectionTitle,:chunkIndex,:content,cast(:metadata as jsonb),cast(:embedding as vector),:embeddingProvider,:embeddingModel,:embeddingDimensions,now(),now(),now())",
-                    p
-            );
         }
-        return index;
+        return new IngestChunkStats(total, embedded, failed, errors);
+    }
+
+    private static class IngestChunkStats {
+        final int totalCount;
+        final int embeddedCount;
+        final int failedCount;
+        final List<String> errors;
+        IngestChunkStats(int total, int embedded, int failed, List<String> errors) {
+            this.totalCount = total; this.embeddedCount = embedded; this.failedCount = failed; this.errors = errors;
+        }
     }
 
     private Map<String, Object> baseResult(String documentId, String sourceType, String sourceId, String contentHash) {
