@@ -5,9 +5,13 @@
     <div class="top-toolbar">
       <MapToolbar
         :query="query"
+        :region-mode="regionMode"
+        :has-region="!!regionGeometry"
         @search="handleSearch"
         @reset="handleReset"
         @fit="handleFitAll"
+        @start-region="startRegionDraw"
+        @clear-region="clearRegion"
       />
     </div>
 
@@ -16,18 +20,14 @@
       :statistics="statistics"
       :layer-counts="layerCounts"
       :loading="loading"
-      :region-mode="regionMode"
-      :has-region="!!regionGeometry"
       @change="reloadLayers"
       @reload="reloadLayers"
       @fit="handleFitAll"
-      @start-region="startRegionDraw"
-      @clear-region="clearRegion"
     />
 
-    <GisRightWorkbench
-      v-if="!agentVisible"
-      v-model:active-tab="rightWorkbenchTab"
+    <LegendPanel class="map-legend-fixed" />
+
+    <MapAnalysisDock
       :detail="selectedDetail"
       :region-summary="regionSummary"
       :region-loading="regionLoading || regionSummaryLoading"
@@ -105,8 +105,9 @@ import { layerStyle } from '../../utils/leafletStyle'
 import type { GeoJsonFeatureCollection } from '../../types/geojson'
 import { type LayerState } from './components/LayerDrawer.vue'
 import GisLeftWorkbench from './components/GisLeftWorkbench.vue'
-import GisRightWorkbench from './components/GisRightWorkbench.vue'
 import AgentChatFloat from './components/AgentChatFloat.vue'
+import LegendPanel from './components/LegendPanel.vue'
+import MapAnalysisDock from './components/MapAnalysisDock.vue'
 import SolutionPreviewDialog from './components/SolutionPreviewDialog.vue'
 import AiTraceDrawer from '../agent/components/AiTraceDrawer.vue'
 import { buildRegionUnifiedContext, buildUnifiedAnalysisTargets, sourceToMapTarget, type GisSourceMapTarget } from '../../utils/gisUnifiedContext'
@@ -132,7 +133,6 @@ const selectedFeatureProperties = ref<Record<string, any> | null>(null)
 const loading = ref(false)
 const agentVisible = ref(false)
 const pendingAiQuestion = ref('')
-const rightWorkbenchTab = ref<'object' | 'region' | 'ai'>('ai')
 const regionMode = ref<'NONE' | 'RECTANGLE' | 'POLYGON'>('NONE')
 const regionGeometryType = ref<'RECTANGLE' | 'POLYGON'>('RECTANGLE')
 const regionGeometry = ref<Record<string, any> | null>(null)
@@ -365,7 +365,6 @@ async function handleFeatureClick(layerKey: string, feature: any, layer: L.Layer
 
   selectedFeatureProperties.value = properties
   selectedDetail.value = properties
-  rightWorkbenchTab.value = 'object'
   highlightLayer(layer)
 
   await loadObjectDetail(properties)
@@ -444,7 +443,6 @@ function openAiForSelected() {
     ElMessage.warning('请先在地图上选择一个对象')
     return
   }
-  rightWorkbenchTab.value = 'ai'
   agentVisible.value = true
   pendingAiQuestion.value = '分析当前地图选中对象，说明主要问题、成因判断，并给出养护处置建议'
 }
@@ -454,7 +452,6 @@ function askAiForRegion() {
     ElMessage.warning('请先框选一个区域')
     return
   }
-  rightWorkbenchTab.value = 'ai'
   agentVisible.value = true
   pendingAiQuestion.value = '综合分析当前区域内线路、路段、评定单元、病害和评定结果，判断养护重点、风险原因与处置优先级'
 }
@@ -479,7 +476,6 @@ function startRegionDraw(mode: 'RECTANGLE' | 'POLYGON') {
   clearRegion()
   regionMode.value = mode
   regionGeometryType.value = mode
-  rightWorkbenchTab.value = 'region'
   selectedDetail.value = null
   selectedFeatureProperties.value = null
   polygonPoints.value = []
@@ -529,7 +525,6 @@ function setRegionLayer(layer: L.Layer, geometry: Record<string, any>, geometryT
   regionSolution.value = null
   regionSavedTask.value = null
   regionMode.value = 'NONE'
-  rightWorkbenchTab.value = 'region'
   map.dragging.enable()
   map.doubleClickZoom.enable()
   loadRegionSummary(geometry)
@@ -869,6 +864,12 @@ function handleFitAll() {
   z-index: 930;
 }
 
+.map-legend-fixed {
+  position: absolute;
+  left: 24px;
+  bottom: 34px;
+  z-index: 925;
+}
 
 .ai-float-button {
   position: absolute;
@@ -912,7 +913,11 @@ function handleFitAll() {
     right: 76px;
   }
 
+  .map-legend-fixed {
+    bottom: 120px;
+  }
 }
+
 
 @media (max-width: 960px) {
   .top-toolbar {

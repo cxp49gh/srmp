@@ -1,7 +1,7 @@
 <template>
   <transition name="chat">
     <div v-if="visible" class="agent-chat-float srmp-card">
-      <div class="chat-header">
+      <div class="chat-header compact">
         <div class="title-box">
           <strong>AI 养护助手</strong>
           <p>{{ contextText }}</p>
@@ -9,56 +9,70 @@
         <button type="button" class="close-btn" @click="emit('update:visible', false)">×</button>
       </div>
 
-      <div v-if="hasStructuredContext" class="map-context-banner" :class="contextMode.toLowerCase()">
-        <div class="map-context-main">
-          <strong>{{ contextMode === 'REGION' ? '当前区域分析上下文' : '当前地图对象上下文' }}</strong>
-          <span>{{ mapContextLabel }}</span>
-          <em v-if="analysisTargetText">{{ analysisTargetText }}</em>
+      <div v-if="hasStructuredContext" class="compact-context" :class="contextMode.toLowerCase()">
+        <div class="context-chip-row">
+          <span v-for="chip in contextChips" :key="chip" class="context-chip">{{ chip }}</span>
         </div>
-        <div class="map-context-actions">
-          <template v-if="activeMapObject">
-            <el-button size="small" type="primary" plain :loading="loading" @click="analyzeCurrentObject">
-              重新分析
-            </el-button>
-            <el-button size="small" plain :loading="loading" @click="suggestForCurrentObject">
-              处置建议
-            </el-button>
-            <el-button
-              v-for="action in solutionActions"
-              :key="action.type"
-              size="small"
-              plain
-              :type="action.primary ? 'success' : undefined"
-              :loading="solutionLoading && activeSolutionType === action.type"
-              :disabled="solutionLoading || loading"
-              @click="generateSolutionDraft(action.type)"
-            >
-              {{ action.label }}
-            </el-button>
-          </template>
-          <template v-else-if="activeRegionContext">
-            <el-button size="small" type="primary" plain :loading="loading" @click="analyzeCurrentRegion">
-              区域综合分析
-            </el-button>
-            <el-button size="small" plain :loading="loading" @click="suggestForCurrentRegion">
-              区域处置建议
-            </el-button>
-          </template>
+        <div class="context-action-line">
+          <el-button
+            v-if="activeMapObject"
+            size="small"
+            type="primary"
+            plain
+            :loading="loading"
+            @click="analyzeCurrentObject"
+          >重新分析</el-button>
+          <el-button
+            v-else-if="activeRegionContext"
+            size="small"
+            type="primary"
+            plain
+            :loading="loading"
+            @click="analyzeCurrentRegion"
+          >区域综合分析</el-button>
+          <el-dropdown trigger="click" @command="handleContextCommand">
+            <el-button size="small" plain>更多操作</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item v-if="activeMapObject" command="suggest-object">生成处置建议</el-dropdown-item>
+                <el-dropdown-item v-if="activeRegionContext" command="suggest-region">生成区域建议</el-dropdown-item>
+                <el-dropdown-item
+                  v-for="action in solutionActions"
+                  :key="action.type"
+                  :command="`solution:${action.type}`"
+                  :disabled="!activeMapObject || solutionLoading || loading"
+                >{{ action.label }}</el-dropdown-item>
+                <el-dropdown-item divided command="copy-context">复制上下文</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </div>
 
-      <div class="option-row">
-        <el-checkbox v-model="options.useBusinessData">业务数据</el-checkbox>
-        <el-checkbox v-model="options.useKnowledge">知识库</el-checkbox>
-        <el-checkbox v-model="options.useOutline">Outline</el-checkbox>
-        <el-checkbox v-model="useAgentTools">Agent工具</el-checkbox>
+      <div class="fold-panel">
+        <button type="button" class="fold-trigger" @click="showToolsPanel = !showToolsPanel">
+          数据源与工具：{{ optionSummary }}
+          <span>{{ showToolsPanel ? '收起' : '展开' }}</span>
+        </button>
+        <div v-if="showToolsPanel" class="option-row compact-options">
+          <el-checkbox v-model="options.useBusinessData">业务数据</el-checkbox>
+          <el-checkbox v-model="options.useKnowledge">知识库</el-checkbox>
+          <el-checkbox v-model="options.useOutline">Outline</el-checkbox>
+          <el-checkbox v-model="useAgentTools">Agent工具</el-checkbox>
+        </div>
       </div>
 
-      <div class="quick-list">
-        <button type="button" @click="quickAsk('分析当前路线整体路况')">分析路线</button>
-        <button type="button" @click="quickAsk('找出次差路段')">次差路段</button>
-        <button type="button" @click="quickAsk('解释 PCI 指标')">解释 PCI</button>
-        <button type="button" @click="quickAsk('生成评定报告草稿')">报告草稿</button>
+      <div class="fold-panel">
+        <button type="button" class="fold-trigger" @click="showQuickPanel = !showQuickPanel">
+          快捷提问
+          <span>{{ showQuickPanel ? '收起' : '展开' }}</span>
+        </button>
+        <div v-if="showQuickPanel" class="quick-list compact-quick-list">
+          <button type="button" @click="quickAsk('分析当前路线整体路况')">分析路线</button>
+          <button type="button" @click="quickAsk('找出次差路段')">次差路段</button>
+          <button type="button" @click="quickAsk('解释 PCI 指标')">解释 PCI</button>
+          <button type="button" @click="quickAsk('生成评定报告草稿')">报告草稿</button>
+        </div>
       </div>
 
       <div class="message-list">
@@ -199,12 +213,52 @@ const savedSolutionTask = ref<Record<string, any> | null>(null)
 const traceDrawerVisible = ref(false)
 const activeTrace = ref<Record<string, any> | null>(null)
 const useAgentTools = ref(true)
+const showToolsPanel = ref(false)
+const showQuickPanel = ref(false)
 
 const options = reactive({
   useBusinessData: true,
   useKnowledge: true,
   useOutline: false,
   topK: 5
+})
+
+const optionSummary = computed(() => {
+  const parts: string[] = []
+  if (options.useBusinessData) parts.push('业务数据')
+  if (options.useKnowledge) parts.push('知识库')
+  if (options.useOutline) parts.push('Outline')
+  if (useAgentTools.value) parts.push('Agent工具')
+  return parts.length ? parts.join('、') : '未启用'
+})
+
+const contextChips = computed(() => {
+  if (activeRegionContext.value) {
+    const summary = activeRegionSummary.value || {}
+    const chips = ['区域']
+    const label = activeRegionContext.value.label || ''
+    if (label) chips.push(label)
+    const query = props.context?.query || {}
+    if (query.routeCode) chips.push(String(query.routeCode))
+    const targets = analysisTargets.value.length ? `对象 ${analysisTargets.value.length} 类` : ''
+    if (targets) chips.push(targets)
+    const count = summary.diseaseSummary?.disease_count || summary.diseaseSummary?.diseaseCount || summary.disease_count || summary.diseaseCount
+    if (count !== undefined && count !== null && count !== '') chips.push(`病害 ${count}`)
+    return chips.slice(0, 6)
+  }
+
+  const obj: any = activeMapObject.value || {}
+  const type = normalizeObjectType(obj)
+  const chips = [mapObjectTypeLabel(type)]
+  const disease = obj.diseaseName || obj.disease_name || obj.diseaseType || obj.disease_type
+  const route = obj.routeCode || obj.route_code
+  const severity = obj.severity
+  const stake = formatStake(obj.startStake ?? obj.start_stake, obj.endStake ?? obj.end_stake)
+  const score = obj.mqi !== undefined && obj.mqi !== null ? `MQI ${obj.mqi}` : (obj.pci !== undefined && obj.pci !== null ? `PCI ${obj.pci}` : '')
+  ;[disease, severity, route, stake, score].forEach((it) => {
+    if (it !== undefined && it !== null && it !== '') chips.push(String(it))
+  })
+  return chips.slice(0, 6)
 })
 
 const activeMapObject = computed(() => {
@@ -379,6 +433,33 @@ function analyzeCurrentRegion() {
 function suggestForCurrentRegion() {
   if (!activeRegionContext.value) return
   quickAsk('基于当前区域分析结果，生成区域养护处置建议、优先级和可落地实施步骤')
+}
+
+async function handleContextCommand(command: string) {
+  if (command === 'suggest-object') {
+    suggestForCurrentObject()
+    return
+  }
+  if (command === 'suggest-region') {
+    suggestForCurrentRegion()
+    return
+  }
+  if (command === 'copy-context') {
+    await copyCurrentContext()
+    return
+  }
+  if (command.startsWith('solution:')) {
+    generateSolutionDraft(command.replace('solution:', '') as MapObjectSolutionType)
+  }
+}
+
+async function copyCurrentContext() {
+  try {
+    await copyText(JSON.stringify(buildMapAiContext(''), null, 2))
+    ElMessage.success('当前地图上下文已复制')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '复制失败')
+  }
 }
 
 /**
@@ -673,14 +754,14 @@ function openTrace(trace: Record<string, any>) {
 <style scoped>
 .agent-chat-float {
   position: absolute;
-  top: 96px;
+  top: 92px;
   right: 18px;
   z-index: 950;
   display: flex;
   flex-direction: column;
-  width: min(430px, calc(100vw - 36px));
-  max-height: calc(100vh - 124px);
-  padding: 14px;
+  width: min(438px, calc(100vw - 36px));
+  max-height: calc(100vh - 116px);
+  padding: 12px;
   border: 1px solid rgba(226, 232, 240, 0.9);
   background: rgba(255, 255, 255, 0.97);
   box-shadow: 0 24px 50px rgba(15, 23, 42, 0.16);
@@ -691,7 +772,11 @@ function openTrace(trace: Record<string, any>) {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+}
+
+.chat-header.compact {
+  align-items: center;
 }
 
 .title-box {
@@ -719,6 +804,73 @@ function openTrace(trace: Record<string, any>) {
   color: #64748b;
   font-size: 22px;
   cursor: pointer;
+}
+
+.compact-context {
+  margin-bottom: 8px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.compact-context.region {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.context-chip-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.context-chip {
+  max-width: 128px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-action-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+}
+
+.fold-panel {
+  border-top: 1px solid #eef2f7;
+}
+
+.fold-trigger {
+  width: 100%;
+  padding: 7px 0;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #475569;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.fold-trigger span {
+  color: #2563eb;
+}
+
+.compact-options,
+.compact-quick-list {
+  margin-bottom: 8px;
 }
 
 .map-context-banner {
@@ -781,8 +933,8 @@ function openTrace(trace: Record<string, any>) {
 
 .message-list {
   flex: 1;
-  min-height: 180px;
-  max-height: min(52vh, 480px);
+  min-height: 220px;
+  max-height: min(58vh, 560px);
   overflow-y: auto;
   padding-right: 4px;
 }
