@@ -34,6 +34,7 @@
       :region-trace="regionSolution?.trace || null"
       :geometry-type="regionGeometryType"
       :has-region="!!regionGeometry"
+      :agent-visible="agentVisible"
       @close-detail="clearSelection"
       @ai-analyze-object="openAiForSelected"
       @ai-analyze-region="askAiForRegion"
@@ -867,7 +868,7 @@ function handleFitAll() {
 .map-legend-fixed {
   position: absolute;
   left: 24px;
-  bottom: 34px;
+  bottom: 32px;
   z-index: 925;
 }
 

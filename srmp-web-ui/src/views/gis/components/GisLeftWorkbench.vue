@@ -122,17 +122,19 @@ function format(value: any) {
 <style scoped>
 .gis-left-workbench {
   position: absolute;
-  top: 92px;
+  top: 96px;
   left: 18px;
+  bottom: 216px;
   z-index: 920;
   width: 286px;
-  max-height: calc(100vh - 210px);
-  padding: 14px;
+  max-height: none;
+  padding: 12px;
   border: 1px solid rgba(226, 232, 240, 0.9);
   background: rgba(255, 255, 255, 0.97);
   box-shadow: 0 16px 36px rgba(15, 23, 42, 0.14);
-  overflow: auto;
-  transition: width 0.18s ease, padding 0.18s ease;
+  overflow-y: auto;
+  overflow-x: hidden;
+  transition: width 0.18s ease, padding 0.18s ease, bottom 0.18s ease;
 }
 
 .gis-left-workbench.collapsed {
@@ -146,7 +148,7 @@ function format(value: any) {
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .workbench-header strong {
@@ -173,7 +175,7 @@ function format(value: any) {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .layer-group + .layer-group,
@@ -193,7 +195,7 @@ function format(value: any) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 30px;
+  height: 28px;
 }
 
 .layer-count {
@@ -209,11 +211,11 @@ function format(value: any) {
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
 .stat-card {
-  padding: 8px;
+  padding: 7px 8px;
   border-radius: 10px;
   background: #f8fafc;
 }
@@ -228,7 +230,7 @@ function format(value: any) {
   display: block;
   margin-top: 3px;
   color: #0f172a;
-  font-size: 16px;
+  font-size: 15px;
 }
 
 .layer-tip {
@@ -245,8 +247,9 @@ function format(value: any) {
   .gis-left-workbench {
     top: 132px;
     left: 10px;
+    bottom: 176px;
     width: min(286px, calc(100vw - 20px));
-    max-height: 45vh;
+    max-height: none;
   }
 }
 </style>

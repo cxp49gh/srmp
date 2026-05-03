@@ -1,19 +1,21 @@
 <template>
-  <section class="map-analysis-dock srmp-card">
-    <div class="dock-main">
-      <div class="dock-title">
-        <strong>一张图分析</strong>
-        <el-tag size="small" :type="scopeTagType">{{ scopeLabel }}</el-tag>
+  <section class="map-analysis-dock srmp-card" :class="{ 'with-agent': agentVisible }">
+    <div class="dock-top-row">
+      <div class="dock-main">
+        <div class="dock-title">
+          <strong>一张图分析</strong>
+          <el-tag size="small" :type="scopeTagType">{{ scopeLabel }}</el-tag>
+        </div>
+        <div class="dock-summary">
+          {{ summaryText }}
+        </div>
       </div>
-      <div class="dock-summary">
-        {{ summaryText }}
-      </div>
-    </div>
 
-    <div class="dock-metrics" v-if="metricItems.length">
-      <span v-for="item in metricItems" :key="item.key">
-        {{ item.label }} <strong>{{ item.value }}</strong>
-      </span>
+      <div class="dock-metrics" v-if="metricItems.length">
+        <span v-for="item in metricItems" :key="item.key">
+          {{ item.label }} <strong>{{ item.value }}</strong>
+        </span>
+      </div>
     </div>
 
     <div class="dock-actions">
@@ -38,6 +40,7 @@ const props = defineProps<{
   regionTrace?: Record<string, any> | null
   geometryType: 'RECTANGLE' | 'POLYGON'
   hasRegion?: boolean
+  agentVisible?: boolean
 }>()
 
 defineEmits<{
@@ -140,17 +143,31 @@ function formatStake(start: any, end?: any) {
   left: 50%;
   bottom: 26px;
   z-index: 930;
-  display: grid;
-  grid-template-columns: minmax(260px, 1fr) auto auto;
-  align-items: center;
-  gap: 14px;
-  width: min(820px, calc(100vw - 660px));
-  min-height: 72px;
-  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  width: min(860px, calc(100vw - 720px));
+  min-height: 116px;
+  max-height: 168px;
+  padding: 12px 14px;
   transform: translateX(-50%);
   border: 1px solid rgba(226, 232, 240, 0.92);
-  background: rgba(255, 255, 255, 0.96);
+  background: rgba(255, 255, 255, 0.97);
   box-shadow: 0 18px 42px rgba(15, 23, 42, 0.14);
+  overflow: hidden;
+}
+
+.map-analysis-dock.with-agent {
+  left: calc(50% - 92px);
+  width: min(760px, calc(100vw - 930px));
+}
+
+.dock-top-row {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  min-width: 0;
 }
 
 .dock-main {
@@ -161,7 +178,7 @@ function formatStake(start: any, end?: any) {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .dock-title strong {
@@ -171,24 +188,27 @@ function formatStake(start: any, end?: any) {
 .dock-summary {
   color: #475569;
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .dock-metrics {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  min-width: 148px;
+  justify-content: flex-end;
+  min-width: 176px;
+  max-width: 260px;
 }
 
 .dock-metrics span {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 8px;
+  padding: 4px 9px;
   border-radius: 999px;
   background: #f1f5f9;
   color: #64748b;
@@ -202,14 +222,34 @@ function formatStake(start: any, end?: any) {
 .dock-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid #eef2f7;
 }
 
-@media (max-width: 1360px) {
+@media (max-width: 1440px) {
   .map-analysis-dock {
-    width: min(760px, calc(100vw - 420px));
-    grid-template-columns: minmax(240px, 1fr) auto;
+    width: min(760px, calc(100vw - 620px));
+  }
+
+  .map-analysis-dock.with-agent {
+    left: calc(50% - 86px);
+    width: min(680px, calc(100vw - 860px));
+  }
+
+  .dock-metrics {
+    max-width: 220px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .map-analysis-dock,
+  .map-analysis-dock.with-agent {
+    left: 50%;
+    width: min(680px, calc(100vw - 360px));
+    transform: translateX(-50%);
   }
 
   .dock-metrics {
@@ -218,17 +258,23 @@ function formatStake(start: any, end?: any) {
 }
 
 @media (max-width: 960px) {
-  .map-analysis-dock {
+  .map-analysis-dock,
+  .map-analysis-dock.with-agent {
     left: 10px;
     right: 10px;
     bottom: 16px;
     width: auto;
+    min-height: 126px;
+    max-height: 190px;
     transform: none;
+  }
+
+  .dock-top-row {
     grid-template-columns: 1fr;
   }
 
-  .dock-summary {
-    white-space: normal;
+  .dock-actions {
+    justify-content: flex-start;
   }
 }
 </style>
