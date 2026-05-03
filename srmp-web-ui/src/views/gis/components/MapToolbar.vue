@@ -39,8 +39,6 @@
       <el-form-item class="toolbar-actions">
         <el-button type="primary" @click="emitSearch">查询</el-button>
         <el-button @click="emitReset">重置</el-button>
-        <el-button @click="$emit('fit')">全图</el-button>
-        <span class="region-divider" />
         <el-dropdown trigger="click" @command="handleRegionCommand">
           <el-button plain>
             区域工具
@@ -56,19 +54,14 @@
         </el-dropdown>
       </el-form-item>
     </el-form>
-
-    <div class="metric-hint compact">
-      <span class="metric-pill">{{ activeMetric.shortName }}</span>
-      <span v-if="activeGradeText" class="grade-filter">{{ activeGradeText }}</span>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, watch } from 'vue'
+import { reactive, watch } from 'vue'
 import { ArrowDown } from '@element-plus/icons-vue'
 import type { GisLayerQuery } from '../../../api/gis'
-import { ROAD_CONDITION_GRADES, ROAD_CONDITION_METRICS, getGradeMeta, getMetricMeta } from '../../../utils/roadConditionMetrics'
+import { ROAD_CONDITION_GRADES, ROAD_CONDITION_METRICS } from '../../../utils/roadConditionMetrics'
 
 const props = defineProps<{
   query: GisLayerQuery
@@ -87,12 +80,6 @@ const emit = defineEmits<{
 const localQuery = reactive<GisLayerQuery>({ ...props.query })
 const metricOptions = ROAD_CONDITION_METRICS
 const gradeOptions = ROAD_CONDITION_GRADES
-
-const activeMetric = computed(() => getMetricMeta(localQuery.indexCode))
-const activeGradeText = computed(() => {
-  const grade = getGradeMeta(localQuery.grade)
-  return grade ? `${grade.label}（${grade.rangeText}）` : ''
-})
 
 watch(
   () => props.query,
@@ -120,7 +107,7 @@ function handleRegionCommand(command: string) {
 <style scoped>
 .map-toolbar {
   position: relative;
-  padding: 8px 12px;
+  padding: 8px 10px;
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(8px);
   border: 1px solid rgba(226, 232, 240, 0.82);
@@ -131,24 +118,24 @@ function handleRegionCommand(command: string) {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  column-gap: 8px;
+  column-gap: 6px;
   row-gap: 2px;
 }
 
 .route-input {
-  width: 132px;
+  width: 110px;
 }
 
 .year-input {
-  width: 90px;
+  width: 82px;
 }
 
 .metric-select {
-  width: 236px;
+  width: 206px;
 }
 
 .grade-select {
-  width: 126px;
+  width: 112px;
 }
 
 .metric-option {
@@ -191,52 +178,17 @@ function handleRegionCommand(command: string) {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+}
+
+.toolbar-actions :deep(.el-button) {
+  padding-left: 10px;
+  padding-right: 10px;
 }
 
 .toolbar-actions {
   margin-left: auto;
 }
-
-.region-divider {
-  width: 1px;
-  height: 22px;
-  margin: 0 2px;
-  background: #e2e8f0;
-}
-
-.metric-hint {
-  position: absolute;
-  left: 58px;
-  bottom: -25px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 20px;
-  color: #64748b;
-  font-size: 12px;
-  line-height: 1.4;
-  pointer-events: none;
-}
-
-.metric-pill,
-.grade-filter {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 999px;
-  white-space: nowrap;
-  background: #eff6ff;
-  color: #2563eb;
-  font-weight: 700;
-}
-
-.grade-filter {
-  background: #f8fafc;
-  color: #475569;
-  font-weight: 600;
-}
-
 
 :deep(.el-form-item) {
   margin-right: 0;
@@ -258,9 +210,6 @@ function handleRegionCommand(command: string) {
     width: 188px;
   }
 
-  .metric-hint {
-    display: none;
-  }
 }
 
 @media (max-width: 1180px) {

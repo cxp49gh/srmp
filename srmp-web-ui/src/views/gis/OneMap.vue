@@ -15,18 +15,20 @@
       />
     </div>
 
-    <GisLeftWorkbench
-      v-model:layers="layers"
-      :statistics="statistics"
-      :layer-counts="layerCounts"
-      :query="query"
-      :loading="loading"
-      @change="reloadLayers"
-      @reload="reloadLayers"
-      @fit="handleFitAll"
-    />
+    <div class="left-map-stack">
+      <GisLeftWorkbench
+        v-model:layers="layers"
+        :statistics="statistics"
+        :layer-counts="layerCounts"
+        :query="query"
+        :loading="loading"
+        @change="reloadLayers"
+        @reload="reloadLayers"
+        @fit="handleFitAll"
+      />
 
-    <LegendPanel class="map-legend-fixed" :index-code="query.indexCode" />
+      <LegendPanel class="map-legend-fixed" :index-code="query.indexCode" />
+    </div>
 
     <AgentChatFloat
       v-model:visible="agentVisible"
@@ -916,16 +918,42 @@ function handleFitAll() {
   position: absolute;
   top: 16px;
   left: 16px;
-  right: 104px;
   z-index: 930;
-  max-width: calc(100vw - 136px);
+  width: min(960px, calc(100vw - 592px));
+  min-width: 760px;
+}
+
+.left-map-stack {
+  position: absolute;
+  top: 108px;
+  left: 18px;
+  bottom: 32px;
+  z-index: 920;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 292px;
+  min-height: 0;
+}
+
+.left-map-stack :deep(.gis-left-workbench) {
+  position: relative;
+  top: auto;
+  left: auto;
+  bottom: auto;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  max-height: none;
 }
 
 .map-legend-fixed {
-  position: absolute;
-  left: 24px;
-  bottom: 50px;
-  z-index: 935;
+  position: relative;
+  left: auto;
+  bottom: auto;
+  z-index: auto;
+  flex: 0 0 auto;
+  width: 100%;
 }
 
 .ai-float-button {
@@ -975,11 +1003,12 @@ function handleFitAll() {
 
 @media (max-width: 1280px) {
   .top-toolbar {
-    right: 76px;
+    width: min(900px, calc(100vw - 560px));
+    min-width: 700px;
   }
 
-  .map-legend-fixed {
-    bottom: 156px;
+  .left-map-stack {
+    bottom: 24px;
   }
 
   .one-map-page.agent-open :deep(.leaflet-bottom.leaflet-right) {
@@ -992,7 +1021,14 @@ function handleFitAll() {
 @media (max-width: 960px) {
   .top-toolbar {
     left: 10px;
-    right: 10px;
+    width: calc(100vw - 20px);
+    min-width: 0;
+  }
+
+  .left-map-stack {
+    left: 10px;
+    bottom: 24px;
+    width: min(292px, calc(100vw - 20px));
   }
 }
 </style>
