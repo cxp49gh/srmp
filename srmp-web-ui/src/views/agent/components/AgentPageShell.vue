@@ -4,7 +4,7 @@
       <div class="brand">智路养护平台</div>
       <div class="subtitle">AI 知识库增强</div>
 
-      <nav>
+      <nav class="sidebar-nav">
         <router-link to="/gis/one-map">GIS 一张图</router-link>
         <router-link to="/agent/chat">AI 问答</router-link>
         <router-link to="/agent/ai-traces">AI 调用监控</router-link>
@@ -60,6 +60,11 @@ defineProps<{
   padding: 20px 16px;
   background: #0f172a;
   color: #fff;
+  height: 100vh;
+  box-sizing: border-box;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .brand {
@@ -73,23 +78,26 @@ defineProps<{
   font-size: 12px;
 }
 
-nav {
+.sidebar-nav {
   margin-top: 28px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
-nav a {
+.sidebar-nav a {
   color: #cbd5e1;
   text-decoration: none;
   padding: 10px 12px;
   border-radius: 10px;
   font-size: 14px;
+  flex: 0 0 auto;
 }
 
-nav a.router-link-active,
-nav a:hover {
+.sidebar-nav a.router-link-active,
+.sidebar-nav a:hover {
   background: #1e293b;
   color: #fff;
 }
@@ -122,4 +130,37 @@ p {
 .content {
   min-height: calc(100vh - 110px);
 }
+@media (max-width: 900px) {
+  .agent-page {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    height: auto;
+    max-height: 190px;
+  }
+
+  .sidebar-nav {
+    margin-top: 14px;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 6px;
+  }
+
+  .sidebar-nav a {
+    white-space: nowrap;
+  }
+
+  .main {
+    padding: 14px;
+  }
+
+  .page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 </style>

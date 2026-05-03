@@ -79,6 +79,26 @@
       />
     </el-card>
 
+
+    <el-card class="block-card">
+      <template #header>前端运行时配置</template>
+      <el-descriptions :column="2" border>
+        <el-descriptions-item label="VITE_API_BASE_URL">{{ runtimeConfig.apiBaseUrl || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="VITE_TENANT_ID">{{ runtimeConfig.tenantId || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="VITE_API_TIMEOUT">{{ runtimeConfig.apiTimeout }} ms</el-descriptions-item>
+        <el-descriptions-item label="VITE_AI_TIMEOUT">{{ runtimeConfig.aiTimeout }} ms</el-descriptions-item>
+        <el-descriptions-item label="VITE_LONG_TIMEOUT">{{ runtimeConfig.longTimeout }} ms</el-descriptions-item>
+        <el-descriptions-item label="VITE_WEBHOOK_BASE_URL">{{ runtimeConfig.webhookBaseUrl || '-' }}</el-descriptions-item>
+      </el-descriptions>
+      <el-alert
+        v-if="frontendTimeoutRisk"
+        class="tip"
+        type="warning"
+        show-icon
+        title="前端 AI 超时时间小于后端 LLM read-timeout，浏览器可能先报 ECONNABORTED；建议把 VITE_AI_TIMEOUT / VITE_LONG_TIMEOUT 调到不小于后端读取超时。"
+      />
+    </el-card>
+
     <el-card class="block-card">
       <template #header>Embedding Provider</template>
       <el-descriptions :column="2" border>
@@ -141,6 +161,21 @@ const probingLlm = ref(false)
 const llm = reactive<Record<string, any>>({})
 const embedding = reactive<Record<string, any>>({})
 const knowledge = reactive<Record<string, any>>({})
+
+const runtimeConfig = computed(() => ({
+  apiBaseUrl: import.meta.env.VITE_API_BASE_URL || '',
+  tenantId: import.meta.env.VITE_TENANT_ID || 'default',
+  apiTimeout: Number(import.meta.env.VITE_API_TIMEOUT || 60000),
+  aiTimeout: Number(import.meta.env.VITE_AI_TIMEOUT || 300000),
+  longTimeout: Number(import.meta.env.VITE_LONG_TIMEOUT || 300000),
+  webhookBaseUrl: import.meta.env.VITE_WEBHOOK_BASE_URL || import.meta.env.VITE_API_BASE_URL || ''
+}))
+
+const frontendTimeoutRisk = computed(() => {
+  const readTimeout = Number(llm.readTimeoutMs || 0)
+  if (!readTimeout) return false
+  return runtimeConfig.value.aiTimeout < readTimeout || runtimeConfig.value.longTimeout < readTimeout
+})
 
 const llmTagType = computed(() => {
   const status = String(llm.status || '')
