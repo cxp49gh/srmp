@@ -272,21 +272,24 @@ const analysisScopeDescription = computed(() => {
 })
 
 const analysisMetricItems = computed(() => {
+  if (activeMapObject.value) return objectScopeMetricItems(activeMapObject.value)
+
   const items: Array<{ key: string; label: string; value: string }> = []
   const stats: any = props.context?.statistics || {}
+  const summary: any = activeRegionSummary.value || {}
   if (activeMetricDisplay.value) items.push({ key: 'activeMetric', label: activeMetricMeta.value.code, value: activeMetricDisplay.value })
-  const routeCount = firstDisplayValue(stats.routeCount, stats.route_count, stats.routes, stats.totalRouteCount)
-  const sectionCount = firstDisplayValue(stats.sectionCount, stats.section_count, stats.sections, stats.totalSectionCount)
+  const routeCount = firstDisplayValue(summary.routeCount, summary.route_count, summary.roadRouteCount, summary.road_route_count, stats.routeCount, stats.route_count, stats.routes, stats.totalRouteCount)
+  const sectionCount = firstDisplayValue(summary.sectionCount, summary.section_count, summary.roadSectionCount, summary.road_section_count, stats.sectionCount, stats.section_count, stats.sections, stats.totalSectionCount)
   const diseaseCount = firstDisplayValue(
-    activeRegionSummary.value?.diseaseSummary?.disease_count,
-    activeRegionSummary.value?.diseaseSummary?.diseaseCount,
-    activeRegionSummary.value?.disease_count,
-    activeRegionSummary.value?.diseaseCount,
+    summary.diseaseSummary?.disease_count,
+    summary.diseaseSummary?.diseaseCount,
+    summary.disease_count,
+    summary.diseaseCount,
     stats.diseaseCount,
     stats.disease_count
   )
-  const assessmentCount = firstDisplayValue(stats.assessmentCount, stats.assessment_count, stats.evaluationCount, stats.evaluation_count)
-  const avgMetric = firstDisplayValue(stats[`avg${activeMetricMeta.value.code}`], stats[`avg_${String(activeMetricMeta.value.code).toLowerCase()}`], stats.avgMqi, stats.avg_mqi)
+  const assessmentCount = firstDisplayValue(summary.assessmentCount, summary.assessment_count, summary.evaluationCount, summary.evaluation_count, stats.assessmentCount, stats.assessment_count, stats.evaluationCount, stats.evaluation_count)
+  const avgMetric = firstDisplayValue(summary[`avg${activeMetricMeta.value.code}`], summary[`avg_${String(activeMetricMeta.value.code).toLowerCase()}`], stats[`avg${activeMetricMeta.value.code}`], stats[`avg_${String(activeMetricMeta.value.code).toLowerCase()}`], stats.avgMqi, stats.avg_mqi)
   if (routeCount !== '') items.push({ key: 'routeCount', label: '路线', value: String(routeCount) })
   if (sectionCount !== '') items.push({ key: 'sectionCount', label: '路段', value: String(sectionCount) })
   if (diseaseCount !== '') items.push({ key: 'diseaseCount', label: '病害', value: String(diseaseCount) })
@@ -294,6 +297,70 @@ const analysisMetricItems = computed(() => {
   if (!activeMetricDisplay.value && avgMetric !== '') items.push({ key: 'avgMetric', label: `均值${activeMetricMeta.value.code}`, value: formatMetricValue(avgMetric) })
   return items.slice(0, 5)
 })
+
+function objectScopeMetricItems(mapObject: Record<string, any>) {
+  const items: Array<{ key: string; label: string; value: string }> = []
+  if (activeMetricDisplay.value) items.push({ key: 'activeMetric', label: activeMetricMeta.value.code, value: activeMetricDisplay.value })
+
+  const type = normalizeObjectType(mapObject)
+  const routeCount = hasRouteContext(mapObject) || ['ROAD_ROUTE', 'ROAD_SECTION', 'EVALUATION_UNIT', 'DISEASE', 'ASSESSMENT_RESULT'].includes(type) ? '1' : ''
+  const sectionCount = firstDisplayValue(
+    mapObject.relatedSectionCount,
+    mapObject.related_section_count,
+    mapObject.sectionCount,
+    mapObject.section_count,
+    type === 'ROAD_ROUTE' ? '' : (hasSectionContext(mapObject) || ['ROAD_SECTION', 'EVALUATION_UNIT', 'DISEASE', 'ASSESSMENT_RESULT'].includes(type) ? '1' : '')
+  )
+  const diseaseCount = firstDisplayValue(
+    mapObject.relatedDiseaseCount,
+    mapObject.related_disease_count,
+    mapObject.diseaseCount,
+    mapObject.disease_count,
+    type === 'DISEASE' ? '1' : ''
+  )
+  const evaluationUnitCount = firstDisplayValue(
+    mapObject.relatedEvaluationUnitCount,
+    mapObject.related_evaluation_unit_count,
+    mapObject.evaluationUnitCount,
+    mapObject.evaluation_unit_count,
+    type === 'EVALUATION_UNIT' ? '1' : ''
+  )
+  const assessmentCount = firstDisplayValue(
+    mapObject.relatedAssessmentCount,
+    mapObject.related_assessment_count,
+    mapObject.assessmentCount,
+    mapObject.assessment_count,
+    type === 'ASSESSMENT_RESULT' ? '1' : ''
+  )
+
+  if (routeCount !== '') items.push({ key: 'routeCount', label: '路线', value: String(routeCount) })
+  if (sectionCount !== '') items.push({ key: 'sectionCount', label: '路段', value: String(sectionCount) })
+  if (diseaseCount !== '') items.push({ key: 'diseaseCount', label: '病害', value: String(diseaseCount) })
+  if (evaluationUnitCount !== '') items.push({ key: 'evaluationUnitCount', label: '评定单元', value: String(evaluationUnitCount) })
+  if (assessmentCount !== '') items.push({ key: 'assessmentCount', label: '评定', value: String(assessmentCount) })
+
+  if (items.length <= 1) {
+    items.push({ key: 'objectCount', label: mapObjectTypeLabel(type) || '对象', value: '1' })
+  }
+  return items.slice(0, 5)
+}
+
+function hasRouteContext(mapObject: Record<string, any>) {
+  return Boolean(mapObject.routeCode || mapObject.route_code || mapObject.routeName || mapObject.route_name)
+}
+
+function hasSectionContext(mapObject: Record<string, any>) {
+  return Boolean(
+    mapObject.sectionId ||
+    mapObject.section_id ||
+    mapObject.sectionCode ||
+    mapObject.section_code ||
+    mapObject.startStake ||
+    mapObject.start_stake ||
+    mapObject.endStake ||
+    mapObject.end_stake
+  )
+}
 
 function firstDisplayValue(...values: any[]) {
   const value = values.find((it) => it !== undefined && it !== null && it !== '')

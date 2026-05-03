@@ -199,9 +199,9 @@ const selectedMapObject = computed(() => {
     pqi: firstValue(props.pqi, raw.pqi),
     pci: firstValue(props.pci, raw.pci),
     grade: firstValue(props.grade, raw.grade),
-    activeIndexCode: getMetricMeta(query.indexCode).code,
-    activeMetricValue: getMetricValue(props, query.indexCode),
-    activeMetricGrade: getMetricGrade(props, query.indexCode),
+    activeIndexCode: getMetricMeta(query.indexCode || 'MQI').code,
+    activeMetricValue: getMetricValue(props, query.indexCode || 'MQI'),
+    activeMetricGrade: getMetricGrade(props, query.indexCode || 'MQI'),
     metrics: {
       MQI: getMetricValue(props, 'MQI'),
       PQI: getMetricValue(props, 'PQI'),
@@ -285,8 +285,17 @@ onMounted(async () => {
   handleFitAll()
 })
 
+function isBlankQueryValue(value: any) {
+  return value === undefined || value === null || String(value).trim() === ''
+}
+
 function layerQuery(): GisLayerQuery {
-  return { ...query }
+  const next: Record<string, any> = {}
+  Object.entries(query).forEach(([key, value]) => {
+    if (isBlankQueryValue(value)) return
+    next[key] = typeof value === 'string' ? value.trim() : value
+  })
+  return next as GisLayerQuery
 }
 
 async function handleSearch(nextQuery?: GisLayerQuery) {
@@ -353,9 +362,9 @@ async function loadLayer(layerKey: string, loader: () => Promise<GeoJsonFeatureC
   if (!collection || !collection.features || collection.features.length === 0) return
 
   const geoLayer = L.geoJSON(collection as any, {
-    style: (feature: any) => layerStyle(feature?.properties || feature, query.indexCode),
+    style: (feature: any) => layerStyle(feature?.properties || feature, query.indexCode || 'MQI'),
     pointToLayer: (feature, latlng) => {
-      const style = layerStyle(feature?.properties || feature, query.indexCode) as any
+      const style = layerStyle(feature?.properties || feature, query.indexCode || 'MQI') as any
       return L.circleMarker(latlng, {
         radius: style.radius || 5,
         color: style.color || '#2563eb',
@@ -391,7 +400,7 @@ async function handleFeatureClick(layerKey: string, feature: any, layer: L.Layer
 function highlightLayer(layer: L.Layer) {
   if (selectedLayer && (selectedLayer as any).setStyle) {
     const feature = (selectedLayer as any).feature
-    ;(selectedLayer as any).setStyle(layerStyle(feature?.properties || feature, query.indexCode))
+    ;(selectedLayer as any).setStyle(layerStyle(feature?.properties || feature, query.indexCode || 'MQI'))
   }
 
   selectedLayer = layer
@@ -451,7 +460,7 @@ function clearSelection() {
   selectedFeatureProperties.value = null
   if (selectedLayer && (selectedLayer as any).setStyle) {
     const feature = (selectedLayer as any).feature
-    ;(selectedLayer as any).setStyle(layerStyle(feature?.properties || feature, query.indexCode))
+    ;(selectedLayer as any).setStyle(layerStyle(feature?.properties || feature, query.indexCode || 'MQI'))
   }
   selectedLayer = null
 }
