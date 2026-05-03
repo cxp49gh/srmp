@@ -13,7 +13,11 @@
 
     <LayerDrawer
       v-model:layers="layers"
+      :status="layerStatus"
+      :loading="loading"
       @change="reloadLayers"
+      @refresh="reloadLayers"
+      @fit="handleFitAll"
     />
 
     <LegendPanel class="fixed-legend" />
@@ -22,6 +26,8 @@
       v-model:visible="detailVisible"
       :detail="selectedDetail"
       @ai-analyze="openAiForSelected"
+      @copy-context="copySelectedContext"
+      @locate="locateSelectedObject"
     />
 
     <RegionSelectionPanel
@@ -88,6 +94,7 @@
 import L, { GeoJSON, LatLngBounds, Map as LeafletMap } from 'leaflet'
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { copyText } from '../../utils/clipboard'
 import { Loading } from '@element-plus/icons-vue'
 import MapToolbar from './components/MapToolbar.vue'
 import {
@@ -106,7 +113,7 @@ import {
 } from '../../api/gis'
 import { layerStyle } from '../../utils/leafletStyle'
 import type { GeoJsonFeatureCollection } from '../../types/geojson'
-import LayerDrawer, { type LayerState } from './components/LayerDrawer.vue'
+import LayerDrawer, { type LayerState, type LayerLoadStatus } from './components/LayerDrawer.vue'
 import LegendPanel from './components/LegendPanel.vue'
 import ObjectDetailDrawer from './components/ObjectDetailDrawer.vue'
 import MapStatisticsBar from './components/MapStatisticsBar.vue'
@@ -128,6 +135,22 @@ const layers = reactive<LayerState>({
   evaluationUnit: false,
   disease: true,
   assessment: true
+})
+
+const layerLabels: Record<string, string> = {
+  roadRoute: '路线',
+  roadSection: '路段',
+  evaluationUnit: '评定单元',
+  disease: '病害',
+  assessment: '评定专题'
+}
+
+const layerStatus = reactive<Record<string, LayerLoadStatus>>({
+  roadRoute: { key: 'roadRoute', label: layerLabels.roadRoute, count: 0 },
+  roadSection: { key: 'roadSection', label: layerLabels.roadSection, count: 0 },
+  evaluationUnit: { key: 'evaluationUnit', label: layerLabels.evaluationUnit, count: 0 },
+  disease: { key: 'disease', label: layerLabels.disease, count: 0 },
+  assessment: { key: 'assessment', label: layerLabels.assessment, count: 0 }
 })
 
 const statistics = ref<Record<string, any>>({})
@@ -180,12 +203,36 @@ const selectedMapObject = computed(() => {
   const objectType = normalizeObjectType(
     firstValue(props.objectType, props.object_type, props.type, props.layerType)
   )
-  const objectId = firstValue(props.objectId, props.object_id, props.id, raw.objectId, raw.object_id, raw.id)
+  const objectId = firstValue(
+    props.objectId,
+    props.object_id,
+    props.id,
+    raw.objectId,
+    raw.object_id,
+    raw.id,
+    props.__srmpFeatureId,
+    raw.__srmpFeatureId
+  )
+  const objectName = firstValue(
+    props.objectName,
+    props.name,
+    props.routeName,
+    props.route_name,
+    props.sectionName,
+    props.section_name,
+    props.unitCode,
+    props.unit_code,
+    props.diseaseName,
+    props.disease_name,
+    props.routeCode,
+    props.route_code
+  )
 
-  return {
+  const mapObject = {
     objectType,
     objectId,
     id: objectId,
+    objectName,
     routeCode: firstValue(props.routeCode, props.route_code, raw.routeCode, raw.route_code, query.routeCode),
     year: Number(firstValue(props.year, query.year, 2026)),
     startStake: firstValue(props.startStake, props.start_stake, raw.startStake, raw.start_stake),
@@ -203,7 +250,13 @@ const selectedMapObject = computed(() => {
     pqi: firstValue(props.pqi, raw.pqi),
     pci: firstValue(props.pci, raw.pci),
     grade: firstValue(props.grade, raw.grade),
+    layerKey: firstValue(props.layerKey, raw.layerKey),
     raw: props
+  }
+
+  return {
+    ...mapObject,
+    label: buildMapObjectLabel(mapObject)
   }
 })
 
@@ -211,7 +264,12 @@ const agentContext = computed(() => ({
   query: { ...query },
   selected: selectedDetail.value,
   mapObject: selectedMapObject.value,
-  selectedMapObject: selectedMapObject.value
+  selectedMapObject: selectedMapObject.value,
+  selectedLayers: activeLayerNames(),
+  viewport: getCurrentViewport(),
+  layerStatus: Object.fromEntries(
+    Object.entries(layerStatus).map(([key, value]) => [key, { count: value.count || 0, error: value.error || '' }])
+  )
 }))
 
 onMounted(async () => {
@@ -293,28 +351,62 @@ function clearLayers() {
 }
 
 async function loadLayer(layerKey: string, loader: () => Promise<GeoJsonFeatureCollection>) {
-  const collection: any = await loader()
-  if (!collection || !collection.features || collection.features.length === 0) return
+  setLayerStatus(layerKey, { loading: true, error: '', count: 0 })
 
-  const geoLayer = L.geoJSON(collection as any, {
-    style: (feature: any) => layerStyle(feature?.properties || feature),
-    pointToLayer: (feature, latlng) => {
-      const style = layerStyle(feature?.properties || feature) as any
-      return L.circleMarker(latlng, {
-        radius: style.radius || 5,
-        color: style.color || '#2563eb',
-        weight: style.weight || 2,
-        fillColor: style.fillColor || style.color || '#2563eb',
-        fillOpacity: style.fillOpacity ?? 0.85
-      })
-    },
-    onEachFeature: (feature: any, layer: L.Layer) => {
-      layer.on('click', () => handleFeatureClick(layerKey, feature, layer))
+  try {
+    const collection: any = await loader()
+    const features = Array.isArray(collection?.features) ? collection.features : []
+
+    features.forEach((feature: any, index: number) => {
+      feature.properties = feature.properties || {}
+      const realId = firstValue(feature.properties.objectId, feature.properties.object_id, feature.properties.id, feature.id)
+      feature.properties.__srmpFeatureId = realId || `${layerKey}-${index + 1}`
+      feature.properties.layerKey = layerKey
+      feature.properties.objectType = feature.properties.objectType || feature.properties.object_type || layerKeyToObjectType(layerKey)
+    })
+
+    if (!collection || features.length === 0) {
+      setLayerStatus(layerKey, { loading: false, error: '', count: 0, loadedAt: new Date().toISOString() })
+      return
     }
-  })
 
-  geoLayer.addTo(map)
-  layerMap.set(layerKey, geoLayer)
+    const geoLayer = L.geoJSON(collection as any, {
+      style: (feature: any) => layerStyle(feature?.properties || feature),
+      pointToLayer: (feature, latlng) => {
+        const style = layerStyle(feature?.properties || feature) as any
+        return L.circleMarker(latlng, {
+          radius: style.radius || 5,
+          color: style.color || '#2563eb',
+          weight: style.weight || 2,
+          fillColor: style.fillColor || style.color || '#2563eb',
+          fillOpacity: style.fillOpacity ?? 0.85
+        })
+      },
+      onEachFeature: (feature: any, layer: L.Layer) => {
+        layer.on('click', () => handleFeatureClick(layerKey, feature, layer))
+      }
+    })
+
+    geoLayer.addTo(map)
+    layerMap.set(layerKey, geoLayer)
+    setLayerStatus(layerKey, { loading: false, error: '', count: features.length, loadedAt: new Date().toISOString() })
+  } catch (error: any) {
+    setLayerStatus(layerKey, {
+      loading: false,
+      error: error?.message || `${layerLabels[layerKey] || layerKey}加载失败`,
+      count: 0,
+      loadedAt: new Date().toISOString()
+    })
+  }
+}
+
+function setLayerStatus(layerKey: string, patch: Partial<LayerLoadStatus>) {
+  layerStatus[layerKey] = {
+    ...(layerStatus[layerKey] || {}),
+    ...patch,
+    key: layerKey,
+    label: layerLabels[layerKey] || layerKey
+  }
 }
 
 async function handleFeatureClick(layerKey: string, feature: any, layer: L.Layer) {
@@ -326,7 +418,7 @@ async function handleFeatureClick(layerKey: string, feature: any, layer: L.Layer
   }
 
   selectedFeatureProperties.value = properties
-  selectedDetail.value = properties
+  selectedDetail.value = enrichObjectDetail(properties)
   detailVisible.value = true
   highlightLayer(layer)
 
@@ -365,29 +457,30 @@ async function loadObjectDetail(properties: Record<string, any>) {
   const objectType = normalizeObjectType(
     firstValue(properties.objectType, properties.object_type, properties.type, properties.layerType)
   )
-  const id = firstValue(properties.objectId, properties.object_id, properties.id)
+  const backendId = firstValue(properties.objectId, properties.object_id, properties.id)
+  const id = firstValue(backendId, properties.__srmpFeatureId)
 
-  if (!objectType || !id) {
-    selectedDetail.value = { ...properties, objectType, objectId: id, id }
+  if (!objectType || !backendId) {
+    selectedDetail.value = enrichObjectDetail({ ...properties, objectType, objectId: id, id })
     return
   }
 
   try {
-    const detail = await getObjectDetail({ objectType, id })
-    selectedDetail.value = {
+    const detail = await getObjectDetail({ objectType, id: backendId })
+    selectedDetail.value = enrichObjectDetail({
       ...properties,
       ...(detail || {}),
       objectType,
       objectId: id,
       id
-    }
+    })
   } catch {
-    selectedDetail.value = {
+    selectedDetail.value = enrichObjectDetail({
       ...properties,
       objectType,
       objectId: id,
       id
-    }
+    })
   }
 }
 
@@ -397,7 +490,80 @@ function openAiForSelected() {
     return
   }
   agentVisible.value = true
-  pendingAiQuestion.value = '分析当前地图选中对象，说明主要问题、成因判断，并给出养护处置建议'
+  pendingAiQuestion.value = '【基于当前地图对象】分析当前地图选中对象，说明主要问题、成因判断，并给出养护处置建议'
+}
+
+
+function buildMapObjectLabel(obj: Record<string, any>) {
+  const type = normalizeObjectType(firstValue(obj.objectType, obj.object_type))
+  const route = firstValue(obj.routeCode, obj.route_code, query.routeCode)
+  const stake = formatStake(firstValue(obj.startStake, obj.start_stake), firstValue(obj.endStake, obj.end_stake))
+  const name = firstValue(obj.objectName, obj.name, obj.routeName, obj.sectionName, obj.unitCode, obj.diseaseName, obj.diseaseType)
+  return [type, name, route, stake].filter(Boolean).join('｜')
+}
+
+function formatStake(start: any, end?: any) {
+  if (start === undefined || start === null || start === '') return ''
+  const startText = String(start).startsWith('K') ? String(start) : `K${start}`
+  if (end === undefined || end === null || end === '') return startText
+  const endText = String(end).startsWith('K') ? String(end) : `K${end}`
+  return `${startText} ~ ${endText}`
+}
+
+function enrichObjectDetail(detail: Record<string, any>) {
+  return {
+    ...detail,
+    objectName: firstValue(
+      detail.objectName,
+      detail.name,
+      detail.routeName,
+      detail.route_name,
+      detail.sectionName,
+      detail.section_name,
+      detail.unitCode,
+      detail.unit_code,
+      detail.diseaseName,
+      detail.disease_name
+    ),
+    contextLabel: buildMapObjectLabel(detail)
+  }
+}
+
+async function copySelectedContext() {
+  const obj = selectedMapObject.value || selectedDetail.value
+  if (!obj) {
+    ElMessage.warning('请先在地图上选择一个对象')
+    return
+  }
+  const ok = await copyText(JSON.stringify(obj, null, 2))
+  ElMessage[ok ? 'success' : 'error'](ok ? '已复制当前地图上下文' : '复制失败，请手动复制')
+}
+
+function locateSelectedObject() {
+  if (!selectedLayer || !map) {
+    ElMessage.warning('当前对象没有可定位图形')
+    return
+  }
+  if ((selectedLayer as any).getBounds) {
+    const bounds = (selectedLayer as any).getBounds()
+    if (bounds?.isValid?.()) {
+      map.fitBounds(bounds, { padding: [80, 80], maxZoom: 17 })
+      return
+    }
+  }
+  if ((selectedLayer as any).getLatLng) {
+    map.setView((selectedLayer as any).getLatLng(), Math.max(map.getZoom(), 16))
+  }
+}
+
+function getCurrentViewport() {
+  if (!map) return null
+  const bounds = map.getBounds()
+  return {
+    zoom: map.getZoom(),
+    bbox: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
+    center: [map.getCenter().lng, map.getCenter().lat]
+  }
 }
 
 function startRegionDraw(mode: 'RECTANGLE' | 'POLYGON') {

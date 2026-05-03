@@ -16,7 +16,10 @@
         </div>
         <div class="map-context-actions">
           <el-button size="small" type="primary" plain :loading="loading" @click="analyzeCurrentObject">
-            重新分析
+            重新分析当前对象
+          </el-button>
+          <el-button size="small" plain @click="copyCurrentMapContext">
+            复制上下文
           </el-button>
           <el-button size="small" plain :loading="loading" @click="suggestForCurrentObject">
             处置建议
@@ -55,7 +58,9 @@
           <div class="role">{{ item.role === 'user' ? '我' : 'AI' }}</div>
           <div class="content" v-html="renderMarkdown(item.content)" />
           <div v-if="item.meta" class="message-meta">
-            <el-tag v-if="item.meta.mapObjectUsed" size="small" type="success">地图上下文</el-tag>
+            <el-tag v-if="item.meta.mapObjectUsed" size="small" type="success">已使用地图上下文</el-tag>
+            <el-tag v-else-if="item.meta.mapObjectExpected" size="small" type="warning">未确认地图上下文</el-tag>
+            <el-tag v-if="item.meta.knowledgeRetrieved" size="small" type="success" effect="plain">知识库检索</el-tag>
             <el-tag v-if="item.meta.answerSourceLabel" size="small">{{ item.meta.answerSourceLabel }}</el-tag>
             <el-tag v-if="item.meta.fallback" size="small" type="warning">降级</el-tag>
           </div>
@@ -128,6 +133,7 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { copyText } from '../../../utils/clipboard'
 import {
   chat,
   mapAgentChat,
@@ -313,12 +319,18 @@ function quickAsk(text: string) {
 
 function analyzeCurrentObject() {
   if (!activeMapObject.value) return
-  quickAsk('分析当前地图选中对象，说明主要问题、成因判断，并给出养护处置建议')
+  quickAsk('【基于当前地图对象】分析当前地图选中对象，说明主要问题、成因判断，并给出养护处置建议')
 }
 
 function suggestForCurrentObject() {
   if (!activeMapObject.value) return
-  quickAsk('基于当前地图选中对象，生成养护处置建议和优先级判断')
+  quickAsk('【基于当前地图对象】生成养护处置建议和优先级判断')
+}
+
+async function copyCurrentMapContext() {
+  const context = buildMapAiContext(input.value || '复制当前地图上下文')
+  const ok = await copyText(JSON.stringify(context, null, 2))
+  ElMessage[ok ? 'success' : 'error'](ok ? '已复制地图 AI 上下文' : '复制失败，请手动复制')
 }
 
 /**
@@ -332,9 +344,11 @@ function buildMapAiContext(message: string) {
     routeCode: query.routeCode || activeMapObject.value?.routeCode || activeMapObject.value?.route_code,
     year: Number(query.year || activeMapObject.value?.year || 2026),
     mapObject: activeMapObject.value,
+    mapObjectLabel: mapContextLabel.value,
     regionSummary: activeRegionSummary.value,
     viewport: props.context?.viewport || props.context?.bounds || null,
     selectedLayers: props.context?.selectedLayers || [],
+    layerStatus: props.context?.layerStatus || {},
     nearbyObjects: props.context?.nearbyObjects || [],
     userQuestion: message,
     extra: { rawContext: props.context || {} }
@@ -475,8 +489,12 @@ async function send() {
   loading.value = true
 
   try {
+    const messageForAi = activeMapObject.value && !text.includes('基于当前地图对象')
+      ? `【基于当前地图对象】${text}`
+      : text
+    const mapContext = buildMapAiContext(messageForAi)
     const requestPayload = {
-      message: text,
+      message: messageForAi,
       context: props.context,
       mapObject: activeMapObject.value,
       options: { ...options, useTools: useAgentTools.value }
@@ -485,31 +503,35 @@ async function send() {
     const res: any = useAgentTools.value
       ? await mapAgentChat({
           ...requestPayload,
-          mapContext: buildMapAiContext(text)
+          mapContext
         })
       : await chat(requestPayload)
 
     const payload = normalizeResponse(res)
     const answer = String(payload.answer || payload.data?.answer || '未返回内容')
+    const sources = normalizeSources(payload)
+    const toolResults = normalizeToolResults(payload)
     const meta = payload.data?.answerMeta || {
-      answerSourceLabel: payload.data?.answerSourceLabel,
-      fallback: payload.data?.fallback,
-      mapObjectUsed: payload.data?.mapObjectUsed
+      answerSourceLabel: payload.data?.answerSourceLabel || payload.answerSourceLabel,
+      fallback: payload.data?.fallback || payload.fallback,
+      mapObjectUsed: payload.data?.mapObjectUsed || payload.mapObjectUsed
     }
 
     messages.value.push({
       role: 'assistant',
       content: answer,
       trace: payload.data?.trace || payload.trace || null,
-      sources: payload.data?.sources || payload.sources || payload.data?.knowledgeHits || [],
-      toolResults: payload.data?.toolResults || payload.toolResults || payload.data?.tools || [],
+      sources,
+      toolResults,
       meta: {
         ...meta,
+        mapObjectExpected: Boolean(activeMapObject.value),
+        knowledgeRetrieved: hasKnowledgeRetrieve(toolResults),
         mapObjectUsed: payload.data?.mapObjectUsed || payload.mapObjectUsed || meta?.mapObjectUsed
       }
     })
 
-    sourceSummary.value = buildSourceSummary(payload.data || {})
+    sourceSummary.value = buildSourceSummary({ ...(payload.data || {}), ...(payload || {}), toolResults, sources })
   } catch (error: any) {
     ElMessage.error(error?.message || 'AI 问答失败')
     messages.value.push({
@@ -528,6 +550,31 @@ function normalizeResponse(res: any) {
   return res || {}
 }
 
+
+function normalizeSources(payload: any) {
+  return payload?.data?.sources
+    || payload?.sources
+    || payload?.knowledgeSources
+    || payload?.data?.knowledgeSources
+    || payload?.data?.knowledgeHits
+    || []
+}
+
+function normalizeToolResults(payload: any) {
+  return payload?.data?.toolResults
+    || payload?.toolResults
+    || payload?.data?.tools
+    || payload?.tools
+    || []
+}
+
+function hasKnowledgeRetrieve(toolResults: any[]) {
+  return (toolResults || []).some((tool: any) => {
+    const name = String(tool.toolName || tool.name || '')
+    return name === 'knowledge.retrieve' || name.includes('knowledge') || name.includes('retrieve')
+  })
+}
+
 function normalizeSolutionResponse(res: any): MapObjectSolutionResponse {
   if (res?.data?.markdown) return res.data
   return res
@@ -540,7 +587,8 @@ function normalizeYear(value: any) {
 
 function buildSourceSummary(data: Record<string, any>) {
   const parts: string[] = []
-  if (data.usedKnowledge) parts.push('已使用知识库')
+  const tools = Array.isArray(data.toolResults) ? data.toolResults : []
+  if (data.usedKnowledge || hasKnowledgeRetrieve(tools) || (data.sources || []).length > 0) parts.push('已使用知识库')
   if (data.usedOutline) parts.push('已使用 Outline')
   if (data.mapObjectUsed) parts.push('已使用地图对象')
   return parts.join('｜')

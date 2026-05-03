@@ -8,22 +8,35 @@
     </div>
 
     <div v-show="!collapsed" class="drawer-content">
+      <div class="drawer-actions">
+        <el-button size="small" plain :loading="loading" @click="emit('refresh')">刷新图层</el-button>
+        <el-button size="small" plain @click="emit('fit')">全图</el-button>
+      </div>
+
       <div class="group-title">道路资产</div>
-      <el-checkbox v-model="localLayers.roadRoute" @change="emitChange">路线</el-checkbox>
-      <el-checkbox v-model="localLayers.roadSection" @change="emitChange">路段</el-checkbox>
-      <el-checkbox v-model="localLayers.evaluationUnit" @change="emitChange">评定单元</el-checkbox>
+      <layer-row label="路线" layer-key="roadRoute" :layers="localLayers" :status="statusMap.roadRoute" @change="emitChange" />
+      <layer-row label="路段" layer-key="roadSection" :layers="localLayers" :status="statusMap.roadSection" @change="emitChange" />
+      <layer-row label="评定单元" layer-key="evaluationUnit" :layers="localLayers" :status="statusMap.evaluationUnit" @change="emitChange" />
 
       <el-divider />
 
       <div class="group-title">业务图层</div>
-      <el-checkbox v-model="localLayers.disease" @change="emitChange">病害</el-checkbox>
-      <el-checkbox v-model="localLayers.assessment" @change="emitChange">评定专题</el-checkbox>
+      <layer-row label="病害" layer-key="disease" :layers="localLayers" :status="statusMap.disease" @change="emitChange" />
+      <layer-row label="评定专题" layer-key="assessment" :layers="localLayers" :status="statusMap.assessment" @change="emitChange" />
+
+      <div v-if="errorItems.length" class="layer-errors">
+        <div class="error-title">加载异常</div>
+        <div v-for="item in errorItems" :key="item.key" class="error-item">
+          <span>{{ item.label }}</span>
+          <em>{{ item.error }}</em>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { computed, defineComponent, h, reactive, ref, watch, type PropType } from 'vue'
 
 export interface LayerState {
   roadRoute?: boolean
@@ -34,17 +47,92 @@ export interface LayerState {
   assessmentResult?: boolean
 }
 
+export interface LayerLoadStatus {
+  key: string
+  label?: string
+  count?: number
+  loading?: boolean
+  error?: string
+  loadedAt?: string
+}
+
+const layerLabels: Record<string, string> = {
+  roadRoute: '路线',
+  roadSection: '路段',
+  evaluationUnit: '评定单元',
+  disease: '病害',
+  assessment: '评定专题'
+}
+
+const LayerRow = defineComponent({
+  name: 'LayerRow',
+  props: {
+    label: { type: String, required: true },
+    layerKey: { type: String, required: true },
+    layers: { type: Object as PropType<LayerState>, required: true },
+    status: { type: Object as PropType<LayerLoadStatus>, default: () => ({}) }
+  },
+  emits: ['change'],
+  setup(props, { emit }) {
+    return () => {
+      const layerKey = props.layerKey as keyof LayerState
+      const status = props.status || {}
+      const checked = Boolean(props.layers[layerKey])
+      const count = typeof status.count === 'number' ? status.count : 0
+      const tagType = status.error ? 'danger' : checked && count > 0 ? 'success' : 'info'
+      const tagText = status.loading
+        ? '加载中'
+        : status.error
+          ? '异常'
+          : checked
+            ? `${count} 条`
+            : '隐藏'
+
+      return h('div', { class: 'layer-row' }, [
+        h('label', { class: 'layer-check' }, [
+          h('input', {
+            type: 'checkbox',
+            checked,
+            onChange: (event: Event) => {
+              props.layers[layerKey] = (event.target as HTMLInputElement).checked
+              emit('change')
+            }
+          }),
+          h('span', props.label)
+        ]),
+        h('span', { class: ['layer-status', tagType] }, tagText)
+      ])
+    }
+  }
+})
+
 const props = defineProps<{
   layers: LayerState
+  status?: Record<string, LayerLoadStatus>
+  loading?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'update:layers', value: LayerState): void
   (e: 'change', value: LayerState): void
+  (e: 'refresh'): void
+  (e: 'fit'): void
 }>()
 
 const collapsed = ref(false)
 const localLayers = reactive<LayerState>({ ...props.layers })
+
+const statusMap = computed<Record<string, LayerLoadStatus>>(() => props.status || {})
+
+const errorItems = computed(() => {
+  return Object.entries(statusMap.value)
+    .filter(([, status]) => !!status?.error)
+    .map(([key, status]) => ({
+      key,
+      label: status.label || layerLabels[key] || key,
+      error: status.error || ''
+    }))
+})
 
 watch(
   () => props.layers,
@@ -65,7 +153,7 @@ function emitChange() {
   top: 92px;
   left: 18px;
   z-index: 920;
-  width: 236px;
+  width: 270px;
   padding: 14px;
   border: 1px solid rgba(226, 232, 240, 0.9);
   background: rgba(255, 255, 255, 0.96);
@@ -97,6 +185,13 @@ function emitChange() {
   flex-direction: column;
 }
 
+.drawer-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
 .collapse-btn {
   border: none;
   background: transparent;
@@ -118,10 +213,86 @@ function emitChange() {
   color: #475569;
 }
 
-:deep(.el-checkbox) {
+.layer-row {
   display: flex;
-  margin-right: 0;
-  height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 30px;
+}
+
+.layer-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  cursor: pointer;
+  color: #334155;
+  font-size: 14px;
+}
+
+.layer-check input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+.layer-status {
+  flex-shrink: 0;
+  min-width: 52px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.layer-status.success {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.layer-status.info {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.layer-status.danger {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.layer-errors {
+  margin-top: 10px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 12px;
+}
+
+.error-title {
+  margin-bottom: 4px;
+  font-weight: 700;
+}
+
+.error-item {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.error-item span {
+  flex-shrink: 0;
+  font-weight: 700;
+}
+
+.error-item em {
+  font-style: normal;
+  color: #c2410c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 :deep(.el-divider--horizontal) {
@@ -132,7 +303,7 @@ function emitChange() {
   .layer-drawer {
     top: 132px;
     left: 10px;
-    width: min(236px, calc(100vw - 20px));
+    width: min(270px, calc(100vw - 20px));
   }
 
   .layer-drawer.collapsed {
