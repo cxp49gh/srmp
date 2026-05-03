@@ -9,33 +9,41 @@
         <button type="button" class="close-btn" @click="emit('update:visible', false)">×</button>
       </div>
 
-      <div v-if="activeMapObject" class="map-context-banner">
+      <div v-if="hasStructuredContext" class="map-context-banner" :class="contextMode.toLowerCase()">
         <div class="map-context-main">
-          <strong>当前地图上下文</strong>
+          <strong>{{ contextMode === 'REGION' ? '当前区域分析上下文' : '当前地图对象上下文' }}</strong>
           <span>{{ mapContextLabel }}</span>
+          <em v-if="analysisTargetText">{{ analysisTargetText }}</em>
         </div>
         <div class="map-context-actions">
-          <el-button size="small" type="primary" plain :loading="loading" @click="analyzeCurrentObject">
-            重新分析当前对象
-          </el-button>
-          <el-button size="small" plain @click="copyCurrentMapContext">
-            复制上下文
-          </el-button>
-          <el-button size="small" plain :loading="loading" @click="suggestForCurrentObject">
-            处置建议
-          </el-button>
-          <el-button
-            v-for="action in solutionActions"
-            :key="action.type"
-            size="small"
-            plain
-            :type="action.primary ? 'success' : undefined"
-            :loading="solutionLoading && activeSolutionType === action.type"
-            :disabled="solutionLoading || loading"
-            @click="generateSolutionDraft(action.type)"
-          >
-            {{ action.label }}
-          </el-button>
+          <template v-if="activeMapObject">
+            <el-button size="small" type="primary" plain :loading="loading" @click="analyzeCurrentObject">
+              重新分析
+            </el-button>
+            <el-button size="small" plain :loading="loading" @click="suggestForCurrentObject">
+              处置建议
+            </el-button>
+            <el-button
+              v-for="action in solutionActions"
+              :key="action.type"
+              size="small"
+              plain
+              :type="action.primary ? 'success' : undefined"
+              :loading="solutionLoading && activeSolutionType === action.type"
+              :disabled="solutionLoading || loading"
+              @click="generateSolutionDraft(action.type)"
+            >
+              {{ action.label }}
+            </el-button>
+          </template>
+          <template v-else-if="activeRegionContext">
+            <el-button size="small" type="primary" plain :loading="loading" @click="analyzeCurrentRegion">
+              区域综合分析
+            </el-button>
+            <el-button size="small" plain :loading="loading" @click="suggestForCurrentRegion">
+              区域处置建议
+            </el-button>
+          </template>
         </div>
       </div>
 
@@ -58,21 +66,28 @@
           <div class="role">{{ item.role === 'user' ? '我' : 'AI' }}</div>
           <div class="content" v-html="renderMarkdown(item.content)" />
           <div v-if="item.meta" class="message-meta">
-            <el-tag v-if="item.meta.mapObjectUsed" size="small" type="success">已使用地图上下文</el-tag>
-            <el-tag v-else-if="item.meta.mapObjectExpected" size="small" type="warning">未确认地图上下文</el-tag>
-            <el-tag v-if="item.meta.knowledgeRetrieved" size="small" type="success" effect="plain">知识库检索</el-tag>
+            <el-tag v-if="item.meta.mapObjectUsed" size="small" type="success">对象上下文</el-tag>
+            <el-tag v-if="item.meta.regionUsed || item.meta.mapRegionUsed" size="small" type="success">区域上下文</el-tag>
             <el-tag v-if="item.meta.answerSourceLabel" size="small">{{ item.meta.answerSourceLabel }}</el-tag>
             <el-tag v-if="item.meta.fallback" size="small" type="warning">降级</el-tag>
           </div>
           <div v-if="item.role === 'assistant' && item.sources && item.sources.length" class="source-panel">
-            <div class="source-title">参考资料</div>
-            <div v-for="(source, sIdx) in item.sources" :key="sIdx" class="source-item">
-              <span class="source-index">{{ sIdx + 1 }}</span>
-              <span class="source-main">
-                {{ source.title || source.docTitle || source.documentTitle || '知识片段' }}
-                <template v-if="source.sectionTitle || source.section"> / {{ source.sectionTitle || source.section }}</template>
-              </span>
-              <span v-if="source.score !== undefined && source.score !== null" class="source-score">{{ formatScore(source.score) }}</span>
+            <div class="source-title">参考资料 / 地图关联</div>
+            <div v-for="(source, sIdx) in item.sources" :key="sIdx" class="source-card">
+              <div class="source-card-main">
+                <span class="source-index">{{ sIdx + 1 }}</span>
+                <span class="source-main">
+                  {{ source.title || source.docTitle || source.documentTitle || '知识片段' }}
+                  <template v-if="source.sectionTitle || source.section"> / {{ source.sectionTitle || source.section }}</template>
+                </span>
+                <span v-if="source.score !== undefined && source.score !== null" class="source-score">{{ formatScore(source.score) }}</span>
+              </div>
+              <div class="source-map-target">{{ sourceMapTargetLabel(source) }}</div>
+              <div class="source-card-actions">
+                <el-button size="small" link :disabled="!canLocateSource(source)" @click="locateSource(source)">地图定位</el-button>
+                <el-button size="small" link @click="askWithSource(source)">围绕来源追问</el-button>
+                <el-button size="small" link @click="copySource(source)">复制来源</el-button>
+              </div>
             </div>
           </div>
           <div v-if="item.role === 'assistant' && item.toolResults && item.toolResults.length" class="tool-panel">
@@ -133,7 +148,6 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { copyText } from '../../../utils/clipboard'
 import {
   chat,
   mapAgentChat,
@@ -146,6 +160,8 @@ import SolutionPreviewDialog from './SolutionPreviewDialog.vue'
 import AiTraceButton from '../../agent/components/AiTraceButton.vue'
 import AiTraceDrawer from '../../agent/components/AiTraceDrawer.vue'
 import AiEvidencePanel from './AiEvidencePanel.vue'
+import { copyText } from '../../../utils/clipboard'
+import { gisContextTypeLabel, hasLocatableTarget, mapTargetLabel, sourceToMapTarget, type GisSourceMapTarget } from '../../../utils/gisUnifiedContext'
 
 interface MessageItem {
   role: 'user' | 'assistant'
@@ -166,6 +182,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:visible', value: boolean): void
   (e: 'auto-question-consumed'): void
+  (e: 'locate-source', value: GisSourceMapTarget): void
+  (e: 'ask-with-source', value: Record<string, any>): void
 }>()
 
 const input = ref('')
@@ -193,13 +211,35 @@ const activeMapObject = computed(() => {
   return props.mapObject || props.context?.mapObject || props.context?.selectedMapObject || props.context?.selected || null
 })
 
+const activeRegionContext = computed(() => {
+  return props.context?.regionContext || props.context?.region || null
+})
+
 const activeRegionSummary = computed(() => {
-  return props.context?.regionSummary || props.context?.region || null
+  return props.context?.regionSummary || activeRegionContext.value?.summary || activeRegionContext.value || null
+})
+
+const hasStructuredContext = computed(() => Boolean(activeMapObject.value || activeRegionContext.value))
+
+const analysisTargets = computed(() => {
+  const list = props.context?.analysisTargets
+  return Array.isArray(list) ? list : []
+})
+
+const analysisTargetText = computed(() => {
+  if (!analysisTargets.value.length) return ''
+  return analysisTargets.value
+    .slice(0, 6)
+    .map((it: any) => {
+      const suffix = it.count !== undefined ? ` ${it.count}` : (it.score !== undefined ? ` ${it.score}` : '')
+      return `${gisContextTypeLabel(it.type)}${suffix}`
+    })
+    .join(' / ')
 })
 
 const contextMode = computed(() => {
   if (activeMapObject.value) return 'OBJECT'
-  if (activeRegionSummary.value) return 'REGION'
+  if (activeRegionContext.value || activeRegionSummary.value) return 'REGION'
   if (props.context?.viewport || props.context?.bounds) return 'VIEWPORT'
   if (props.context?.query?.routeCode || props.context?.routeCode) return 'ROUTE'
   return 'FREE'
@@ -253,6 +293,10 @@ function formatStake(start: any, end?: any) {
 }
 
 const mapContextLabel = computed(() => {
+  if (activeRegionContext.value) {
+    return activeRegionContext.value.label || '地图区域｜区域养护分析'
+  }
+
   const obj: any = activeMapObject.value || {}
   const type = String(obj.objectType || obj.object_type || '').toUpperCase()
   const typeLabel = mapObjectTypeLabel(type)
@@ -291,7 +335,7 @@ const mapContextLabel = computed(() => {
 })
 
 const contextText = computed(() => {
-  if (activeMapObject.value) return mapContextLabel.value
+  if (activeMapObject.value || activeRegionContext.value) return mapContextLabel.value
   if (activeRegionSummary.value) return '框选区域｜区域养护分析'
   const query = props.context?.query || {}
   const route = query.routeCode || '全部路线'
@@ -319,18 +363,22 @@ function quickAsk(text: string) {
 
 function analyzeCurrentObject() {
   if (!activeMapObject.value) return
-  quickAsk('【基于当前地图对象】分析当前地图选中对象，说明主要问题、成因判断，并给出养护处置建议')
+  quickAsk('分析当前地图选中对象，说明主要问题、成因判断，并给出养护处置建议')
 }
 
 function suggestForCurrentObject() {
   if (!activeMapObject.value) return
-  quickAsk('【基于当前地图对象】生成养护处置建议和优先级判断')
+  quickAsk('基于当前地图选中对象，生成养护处置建议和优先级判断')
 }
 
-async function copyCurrentMapContext() {
-  const context = buildMapAiContext(input.value || '复制当前地图上下文')
-  const ok = await copyText(JSON.stringify(context, null, 2))
-  ElMessage[ok ? 'success' : 'error'](ok ? '已复制地图 AI 上下文' : '复制失败，请手动复制')
+function analyzeCurrentRegion() {
+  if (!activeRegionContext.value) return
+  quickAsk('综合分析当前区域内线路、路段、评定单元、病害和评定结果，说明区域养护重点和风险成因')
+}
+
+function suggestForCurrentRegion() {
+  if (!activeRegionContext.value) return
+  quickAsk('基于当前区域分析结果，生成区域养护处置建议、优先级和可落地实施步骤')
 }
 
 /**
@@ -344,14 +392,19 @@ function buildMapAiContext(message: string) {
     routeCode: query.routeCode || activeMapObject.value?.routeCode || activeMapObject.value?.route_code,
     year: Number(query.year || activeMapObject.value?.year || 2026),
     mapObject: activeMapObject.value,
-    mapObjectLabel: mapContextLabel.value,
+    region: activeRegionContext.value,
     regionSummary: activeRegionSummary.value,
+    regionGeometry: props.context?.regionGeometry || activeRegionContext.value?.geometry || null,
     viewport: props.context?.viewport || props.context?.bounds || null,
     selectedLayers: props.context?.selectedLayers || [],
-    layerStatus: props.context?.layerStatus || {},
+    analysisTargets: analysisTargets.value,
     nearbyObjects: props.context?.nearbyObjects || [],
     userQuestion: message,
-    extra: { rawContext: props.context || {} }
+    extra: {
+      rawContext: props.context || {},
+      contextScope: props.context?.contextScope || contextMode.value,
+      unifiedContextVersion: 'phase48-v2'
+    }
   }
 }
 
@@ -489,12 +542,8 @@ async function send() {
   loading.value = true
 
   try {
-    const messageForAi = activeMapObject.value && !text.includes('基于当前地图对象')
-      ? `【基于当前地图对象】${text}`
-      : text
-    const mapContext = buildMapAiContext(messageForAi)
     const requestPayload = {
-      message: messageForAi,
+      message: text,
       context: props.context,
       mapObject: activeMapObject.value,
       options: { ...options, useTools: useAgentTools.value }
@@ -503,35 +552,32 @@ async function send() {
     const res: any = useAgentTools.value
       ? await mapAgentChat({
           ...requestPayload,
-          mapContext
+          mapContext: buildMapAiContext(text)
         })
       : await chat(requestPayload)
 
     const payload = normalizeResponse(res)
     const answer = String(payload.answer || payload.data?.answer || '未返回内容')
-    const sources = normalizeSources(payload)
-    const toolResults = normalizeToolResults(payload)
     const meta = payload.data?.answerMeta || {
-      answerSourceLabel: payload.data?.answerSourceLabel || payload.answerSourceLabel,
-      fallback: payload.data?.fallback || payload.fallback,
-      mapObjectUsed: payload.data?.mapObjectUsed || payload.mapObjectUsed
+      answerSourceLabel: payload.data?.answerSourceLabel,
+      fallback: payload.data?.fallback,
+      mapObjectUsed: payload.data?.mapObjectUsed
     }
 
     messages.value.push({
       role: 'assistant',
       content: answer,
       trace: payload.data?.trace || payload.trace || null,
-      sources,
-      toolResults,
+      sources: payload.data?.sources || payload.sources || payload.data?.knowledgeHits || [],
+      toolResults: payload.data?.toolResults || payload.toolResults || payload.data?.tools || [],
       meta: {
         ...meta,
-        mapObjectExpected: Boolean(activeMapObject.value),
-        knowledgeRetrieved: hasKnowledgeRetrieve(toolResults),
-        mapObjectUsed: payload.data?.mapObjectUsed || payload.mapObjectUsed || meta?.mapObjectUsed
+        mapObjectUsed: payload.data?.mapObjectUsed || payload.mapObjectUsed || meta?.mapObjectUsed,
+        regionUsed: payload.data?.regionUsed || payload.data?.mapRegionUsed || payload.mapRegionUsed || meta?.regionUsed
       }
     })
 
-    sourceSummary.value = buildSourceSummary({ ...(payload.data || {}), ...(payload || {}), toolResults, sources })
+    sourceSummary.value = buildSourceSummary(payload.data || {})
   } catch (error: any) {
     ElMessage.error(error?.message || 'AI 问答失败')
     messages.value.push({
@@ -550,31 +596,6 @@ function normalizeResponse(res: any) {
   return res || {}
 }
 
-
-function normalizeSources(payload: any) {
-  return payload?.data?.sources
-    || payload?.sources
-    || payload?.knowledgeSources
-    || payload?.data?.knowledgeSources
-    || payload?.data?.knowledgeHits
-    || []
-}
-
-function normalizeToolResults(payload: any) {
-  return payload?.data?.toolResults
-    || payload?.toolResults
-    || payload?.data?.tools
-    || payload?.tools
-    || []
-}
-
-function hasKnowledgeRetrieve(toolResults: any[]) {
-  return (toolResults || []).some((tool: any) => {
-    const name = String(tool.toolName || tool.name || '')
-    return name === 'knowledge.retrieve' || name.includes('knowledge') || name.includes('retrieve')
-  })
-}
-
 function normalizeSolutionResponse(res: any): MapObjectSolutionResponse {
   if (res?.data?.markdown) return res.data
   return res
@@ -587,10 +608,10 @@ function normalizeYear(value: any) {
 
 function buildSourceSummary(data: Record<string, any>) {
   const parts: string[] = []
-  const tools = Array.isArray(data.toolResults) ? data.toolResults : []
-  if (data.usedKnowledge || hasKnowledgeRetrieve(tools) || (data.sources || []).length > 0) parts.push('已使用知识库')
+  if (data.usedKnowledge) parts.push('已使用知识库')
   if (data.usedOutline) parts.push('已使用 Outline')
   if (data.mapObjectUsed) parts.push('已使用地图对象')
+  if (data.regionUsed || data.mapRegionUsed) parts.push('已使用区域分析')
   return parts.join('｜')
 }
 
@@ -616,6 +637,31 @@ function renderMarkdown(value: string) {
 function formatScore(score: any) {
   const num = Number(score)
   return Number.isFinite(num) ? num.toFixed(3) : String(score)
+}
+
+function sourceMapTargetLabel(source: any) {
+  return mapTargetLabel(sourceToMapTarget(source))
+}
+
+function canLocateSource(source: any) {
+  return hasLocatableTarget(sourceToMapTarget(source))
+}
+
+function locateSource(source: any) {
+  emit('locate-source', sourceToMapTarget(source))
+}
+
+function askWithSource(source: any) {
+  emit('ask-with-source', source)
+}
+
+async function copySource(source: any) {
+  try {
+    await copyText(JSON.stringify(sourceToMapTarget(source), null, 2))
+    ElMessage.success('来源地图上下文已复制')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '复制失败')
+  }
 }
 
 function openTrace(trace: Record<string, any>) {
@@ -821,7 +867,7 @@ function openTrace(trace: Record<string, any>) {
   color: #334155;
 }
 
-.source-item,
+.source-card-main,
 .tool-item {
   display: flex;
   align-items: center;
@@ -852,6 +898,38 @@ function openTrace(trace: Record<string, any>) {
 
 .source-score {
   color: #64748b;
+}
+
+.source-card {
+  margin: 6px 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #eef2f7;
+}
+
+.source-map-target {
+  margin: 4px 0 0 24px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.source-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: 20px;
+  flex-wrap: wrap;
+}
+
+.map-context-main em {
+  color: #64748b;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.map-context-banner.region {
+  background: #ecfdf5;
+  color: #047857;
 }
 
 .tool-name {

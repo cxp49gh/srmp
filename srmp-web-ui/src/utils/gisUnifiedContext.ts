@@ -1,0 +1,178 @@
+export interface GisSourceMapTarget {
+  objectType?: string
+  objectId?: string
+  id?: string
+  routeCode?: string
+  startStake?: string | number
+  endStake?: string | number
+  geometry?: Record<string, any>
+  bbox?: number[]
+  title?: string
+  sourceType?: string
+  raw?: Record<string, any>
+}
+
+export function pickValue(source: any, ...keys: string[]) {
+  if (!source || typeof source !== 'object') return undefined
+  for (const key of keys) {
+    const value = source[key]
+    if (value !== undefined && value !== null && value !== '') return value
+  }
+  return undefined
+}
+
+export function firstPresent(...values: any[]) {
+  return values.find((it) => it !== undefined && it !== null && it !== '')
+}
+
+export function normalizeGisContextType(rawType: any) {
+  const type = String(rawType || '').trim().toUpperCase()
+  if (!type) return ''
+  if (type === 'ASSESSMENT' || type === 'ASSESSMENT_RESULT_RECORD') return 'ASSESSMENT_RESULT'
+  if (type === 'DISEASE_RECORD') return 'DISEASE'
+  if (type === 'ROADROUTE') return 'ROAD_ROUTE'
+  if (type === 'ROADSECTION') return 'ROAD_SECTION'
+  if (type === 'EVALUATIONUNIT') return 'EVALUATION_UNIT'
+  if (type === 'REGION' || type === 'MAP_REGION_CONTEXT') return 'MAP_REGION'
+  return type
+}
+
+export function gisContextTypeLabel(type: any) {
+  const value = normalizeGisContextType(type)
+  const map: Record<string, string> = {
+    MAP_REGION: '区域',
+    ROAD_ROUTE: '线路',
+    ROAD_SECTION: '路段',
+    EVALUATION_UNIT: '评定单元',
+    DISEASE: '病害',
+    ASSESSMENT_RESULT: '评定结果',
+    VIEWPORT: '视窗',
+    ROUTE: '线路筛选',
+    FREE: '自由问答'
+  }
+  return map[value] || String(value || '地图对象')
+}
+
+export function formatStakeRange(start: any, end?: any) {
+  if (start === undefined || start === null || start === '') return ''
+  const normalize = (value: any) => String(value).startsWith('K') ? String(value) : `K${value}`
+  const s = normalize(start)
+  return end !== undefined && end !== null && end !== '' ? `${s}—${normalize(end)}` : s
+}
+
+export function buildRegionUnifiedContext(args: {
+  geometry?: Record<string, any> | null
+  geometryType?: string
+  summary?: Record<string, any> | null
+  query?: Record<string, any>
+  layers?: string[]
+}) {
+  const summary = unwrapApiData(args.summary) || {}
+  const diseaseSummary = pickValue(summary, 'diseaseSummary', 'disease_summary') || {}
+  const assessmentSummary = pickValue(summary, 'assessmentSummary', 'assessment_summary') || {}
+  const routeCode = args.query?.routeCode || pickValue(summary, 'routeCode', 'route_code')
+  return {
+    objectType: 'MAP_REGION',
+    type: 'MAP_REGION',
+    label: buildRegionLabel(summary, args.geometryType, routeCode),
+    routeCode,
+    year: args.query?.year,
+    geometry: args.geometry || pickValue(summary, 'geometry'),
+    geometryType: args.geometryType,
+    summary,
+    layers: args.layers || [],
+    metrics: {
+      routeCount: pickValue(summary, 'routeCount', 'route_count'),
+      sectionCount: pickValue(summary, 'sectionCount', 'section_count'),
+      unitCount: pickValue(summary, 'unitCount', 'unit_count'),
+      diseaseCount: pickValue(diseaseSummary, 'diseaseCount', 'disease_count'),
+      heavyDiseaseCount: pickValue(diseaseSummary, 'heavyCount', 'heavy_count'),
+      avgMqi: pickValue(assessmentSummary, 'avgMqi', 'avg_mqi'),
+      avgPci: pickValue(assessmentSummary, 'avgPci', 'avg_pci')
+    },
+    hotspots: Array.isArray(pickValue(summary, 'hotspots', 'hot_spots')) ? pickValue(summary, 'hotspots', 'hot_spots') : []
+  }
+}
+
+export function buildUnifiedAnalysisTargets(args: {
+  mapObject?: Record<string, any> | null
+  regionContext?: Record<string, any> | null
+  query?: Record<string, any>
+}) {
+  if (args.regionContext) {
+    const metrics: any = args.regionContext.metrics || {}
+    const routeCode = args.regionContext.routeCode
+    return [
+      { type: 'MAP_REGION', label: args.regionContext.label || '区域', routeCode, raw: args.regionContext },
+      { type: 'ROAD_ROUTE', label: '区域内线路', count: metrics.routeCount, routeCode },
+      { type: 'ROAD_SECTION', label: '区域内路段', count: metrics.sectionCount, routeCode },
+      { type: 'EVALUATION_UNIT', label: '区域内评定单元', count: metrics.unitCount, routeCode },
+      { type: 'DISEASE', label: '区域内病害', count: metrics.diseaseCount, routeCode },
+      { type: 'ASSESSMENT_RESULT', label: '区域内评定结果', score: metrics.avgMqi || metrics.avgPci, routeCode }
+    ].filter((it) => it.count !== undefined || it.score !== undefined || it.type === 'MAP_REGION')
+  }
+  if (args.mapObject) {
+    const type = normalizeGisContextType(pickValue(args.mapObject, 'objectType', 'object_type', 'type', 'layerType'))
+    return [{ type, label: gisContextTypeLabel(type), routeCode: pickValue(args.mapObject, 'routeCode', 'route_code') || args.query?.routeCode, raw: args.mapObject }]
+  }
+  return [{ type: 'ROUTE', label: args.query?.routeCode ? `线路筛选｜${args.query.routeCode}` : '全图筛选', routeCode: args.query?.routeCode, raw: args.query || {} }]
+}
+
+export function sourceToMapTarget(source: any): GisSourceMapTarget {
+  const raw = unwrapApiData(source) || {}
+  const metadata = pickValue(raw, 'metadata', 'meta') || {}
+  const objectType = normalizeGisContextType(firstPresent(
+    pickValue(raw, 'objectType', 'object_type', 'targetType', 'target_type', 'sourceObjectType'),
+    pickValue(metadata, 'objectType', 'object_type', 'targetType', 'target_type')
+  ))
+  const objectId = firstPresent(
+    pickValue(raw, 'objectId', 'object_id', 'targetId', 'target_id', 'sourceObjectId', 'sourceId', 'id'),
+    pickValue(metadata, 'objectId', 'object_id', 'targetId', 'target_id', 'sourceObjectId', 'sourceId')
+  )
+  return {
+    objectType,
+    objectId: objectId !== undefined ? String(objectId) : undefined,
+    id: objectId !== undefined ? String(objectId) : undefined,
+    routeCode: firstPresent(pickValue(raw, 'routeCode', 'route_code'), pickValue(metadata, 'routeCode', 'route_code')),
+    startStake: firstPresent(pickValue(raw, 'startStake', 'start_stake'), pickValue(metadata, 'startStake', 'start_stake')),
+    endStake: firstPresent(pickValue(raw, 'endStake', 'end_stake'), pickValue(metadata, 'endStake', 'end_stake')),
+    geometry: firstPresent(pickValue(raw, 'geometry'), pickValue(metadata, 'geometry')),
+    bbox: firstPresent(pickValue(raw, 'bbox'), pickValue(metadata, 'bbox')),
+    title: pickValue(raw, 'title', 'docTitle', 'documentTitle', 'sourceTitle'),
+    sourceType: pickValue(raw, 'sourceType', 'source_type'),
+    raw
+  }
+}
+
+export function mapTargetLabel(target: GisSourceMapTarget | any) {
+  const normalized = target?.raw ? target : sourceToMapTarget(target)
+  const parts = [
+    gisContextTypeLabel(normalized.objectType),
+    normalized.title,
+    normalized.routeCode,
+    formatStakeRange(normalized.startStake, normalized.endStake)
+  ].filter(Boolean)
+  return parts.length ? parts.join('｜') : '未绑定地图对象'
+}
+
+export function hasLocatableTarget(target: GisSourceMapTarget | any) {
+  const normalized = target?.raw ? target : sourceToMapTarget(target)
+  return Boolean(normalized.objectId || normalized.geometry || normalized.bbox || normalized.routeCode)
+}
+
+export function unwrapApiData(value: any) {
+  if (value && typeof value === 'object' && typeof value.code !== 'undefined' && 'data' in value) return value.data
+  return value
+}
+
+function buildRegionLabel(summary: any, geometryType?: string, routeCode?: any) {
+  const typeLabel = geometryType === 'RECTANGLE' ? '矩形区域' : geometryType === 'POLYGON' ? '多边形区域' : '地图区域'
+  const sectionCount = pickValue(summary, 'sectionCount', 'section_count')
+  const diseaseSummary = pickValue(summary, 'diseaseSummary', 'disease_summary') || {}
+  const diseaseCount = pickValue(diseaseSummary, 'diseaseCount', 'disease_count')
+  const parts = [typeLabel]
+  if (routeCode) parts.push(String(routeCode))
+  if (sectionCount !== undefined) parts.push(`路段 ${sectionCount}`)
+  if (diseaseCount !== undefined) parts.push(`病害 ${diseaseCount}`)
+  return parts.join('｜')
+}

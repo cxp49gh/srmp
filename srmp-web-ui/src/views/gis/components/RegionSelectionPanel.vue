@@ -25,6 +25,7 @@
 
       <div class="actions">
         <el-button size="small" @click="$emit('clear')">清除选区</el-button>
+        <el-button size="small" plain :loading="loading" @click="$emit('ai-analyze')">用区域问 AI</el-button>
         <el-button size="small" type="primary" :loading="loading" @click="$emit('generate')">生成区域养护建议</el-button>
         <el-button v-if="trace?.traceId || trace?.trace_id" size="small" plain @click="$emit('trace')">查看 AI Trace</el-button>
       </div>
@@ -46,6 +47,7 @@ const props = defineProps<{
 defineEmits<{
   (e: 'clear'): void
   (e: 'generate'): void
+  (e: 'ai-analyze'): void
   (e: 'trace'): void
 }>()
 
