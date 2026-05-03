@@ -1,5 +1,5 @@
 <template>
-  <div class="one-map-page">
+  <div class="one-map-page" :class="{ 'agent-open': agentVisible, 'region-active': !!regionGeometry }">
     <div id="map" class="map"></div>
 
     <div class="top-toolbar">
@@ -888,13 +888,14 @@ function handleFitAll() {
   left: 16px;
   right: 104px;
   z-index: 930;
+  max-width: calc(100vw - 136px);
 }
 
 .map-legend-fixed {
   position: absolute;
   left: 24px;
-  bottom: 32px;
-  z-index: 925;
+  bottom: 36px;
+  z-index: 935;
 }
 
 .ai-float-button {
@@ -933,6 +934,14 @@ function handleFitAll() {
   bottom: 36px;
 }
 
+.one-map-page.agent-open :deep(.leaflet-bottom.leaflet-right) {
+  right: 472px;
+}
+
+.one-map-page.agent-open .ai-float-button {
+  display: none;
+}
+
 
 @media (max-width: 1280px) {
   .top-toolbar {
@@ -940,7 +949,12 @@ function handleFitAll() {
   }
 
   .map-legend-fixed {
-    bottom: 120px;
+    bottom: 126px;
+  }
+
+  .one-map-page.agent-open :deep(.leaflet-bottom.leaflet-right) {
+    right: 18px;
+    bottom: 220px;
   }
 }
 

@@ -174,11 +174,11 @@ function formatPercent(value: any) {
 <style scoped>
 .gis-left-workbench {
   position: absolute;
-  top: 104px;
+  top: 108px;
   left: 18px;
-  bottom: 216px;
+  bottom: 252px;
   z-index: 920;
-  width: 296px;
+  width: 292px;
   max-height: none;
   padding: 12px;
   border: 1px solid rgba(226, 232, 240, 0.9);
@@ -186,11 +186,12 @@ function formatPercent(value: any) {
   box-shadow: 0 16px 36px rgba(15, 23, 42, 0.14);
   overflow-y: auto;
   overflow-x: hidden;
-  transition: width 0.18s ease, padding 0.18s ease, bottom 0.18s ease;
+  transition: width 0.18s ease, padding 0.18s ease, bottom 0.18s ease, top 0.18s ease;
+  scrollbar-width: thin;
 }
 
 .gis-left-workbench.collapsed {
-  width: 64px;
+  width: 62px;
   padding: 10px;
   overflow: hidden;
 }
@@ -313,7 +314,7 @@ function formatPercent(value: any) {
 }
 
 .stat-card {
-  padding: 7px 8px;
+  padding: 6px 8px;
   border-radius: 10px;
   background: #f8fafc;
 }
@@ -332,8 +333,8 @@ function formatPercent(value: any) {
 }
 
 .layer-tip {
-  margin-top: 10px;
-  padding: 8px;
+  margin-top: 8px;
+  padding: 7px 8px;
   border-radius: 8px;
   color: #64748b;
   background: #f8fafc;
@@ -341,11 +342,26 @@ function formatPercent(value: any) {
   line-height: 1.45;
 }
 
+.gis-left-workbench::-webkit-scrollbar {
+  width: 6px;
+}
+
+.gis-left-workbench::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.62);
+}
+
+@media (max-width: 1280px) {
+  .gis-left-workbench {
+    bottom: 272px;
+  }
+}
+
 @media (max-width: 960px) {
   .gis-left-workbench {
-    top: 144px;
+    top: 150px;
     left: 10px;
-    bottom: 176px;
+    bottom: 220px;
     width: min(296px, calc(100vw - 20px));
     max-height: none;
   }

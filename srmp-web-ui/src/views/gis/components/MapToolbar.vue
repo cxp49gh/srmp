@@ -1,6 +1,6 @@
 <template>
   <div class="map-toolbar srmp-card">
-    <el-form :inline="true" :model="localQuery" size="small" class="toolbar-form">
+    <el-form :inline="true" :model="localQuery" size="small" class="toolbar-form" @submit.prevent>
       <el-form-item label="路线">
         <el-input v-model="localQuery.routeCode" placeholder="如 G210" clearable class="route-input" />
       </el-form-item>
@@ -109,18 +109,23 @@ function emitReset() {
 
 <style scoped>
 .map-toolbar {
-  padding: 8px 12px 8px;
+  padding: 9px 12px 8px;
   background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(226, 232, 240, 0.82);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.1);
 }
 
 .toolbar-form {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
 }
 
 .route-input {
-  width: 130px;
+  width: 132px;
 }
 
 .year-input {
@@ -178,6 +183,10 @@ function emitReset() {
   flex-wrap: wrap;
 }
 
+.toolbar-actions {
+  margin-left: auto;
+}
+
 .region-divider {
   width: 1px;
   height: 22px;
@@ -222,10 +231,21 @@ function emitReset() {
 }
 
 :deep(.el-form-item) {
+  margin-right: 0;
   margin-bottom: 6px;
 }
 
+:deep(.el-form-item__label) {
+  padding-right: 7px;
+  color: #334155;
+  font-weight: 600;
+}
+
 @media (max-width: 1320px) {
+  .toolbar-actions {
+    margin-left: 0;
+  }
+
   .metric-select {
     width: 168px;
   }
@@ -238,6 +258,24 @@ function emitReset() {
 @media (max-width: 1180px) {
   .toolbar-actions :deep(.el-form-item__content) {
     gap: 4px;
+  }
+
+  .map-toolbar {
+    max-height: 132px;
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 960px) {
+  .route-input,
+  .year-input,
+  .metric-select,
+  .grade-select {
+    width: 100%;
+  }
+
+  :deep(.el-form-item) {
+    min-width: 136px;
   }
 }
 </style>
