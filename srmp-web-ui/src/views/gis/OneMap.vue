@@ -28,6 +28,12 @@
       />
 
       <LegendPanel class="map-legend-fixed" :index-code="query.indexCode" />
+
+      <div class="map-zoom-panel srmp-card" aria-label="地图缩放控制">
+        <button type="button" title="放大" @click="zoomInMap">+</button>
+        <span>级别 {{ currentZoom }}</span>
+        <button type="button" title="缩小" @click="zoomOutMap">−</button>
+      </div>
     </div>
 
     <div v-if="regionMode !== 'NONE'" class="region-draw-tip">
@@ -121,7 +127,7 @@ const query = reactive<GisLayerQuery>({
 const layers = reactive<LayerState>({
   roadRoute: true,
   roadSection: true,
-  evaluationUnit: false,
+  evaluationUnit: true,
   disease: true,
   assessment: true
 })
@@ -130,7 +136,7 @@ const statistics = ref<Record<string, any>>({})
 const selectedDetail = ref<Record<string, any> | null>(null)
 const selectedFeatureProperties = ref<Record<string, any> | null>(null)
 const loading = ref(false)
-const agentVisible = ref(false)
+const agentVisible = ref(true)
 const pendingAiQuestion = ref('')
 const regionMode = ref<'NONE' | 'RECTANGLE' | 'POLYGON'>('NONE')
 const regionGeometryType = ref<'RECTANGLE' | 'POLYGON'>('RECTANGLE')
@@ -155,6 +161,7 @@ const layerCounts = reactive<Record<string, number>>({
 let map: LeafletMap
 const layerMap = new Map<string, GeoJSON>()
 let selectedLayer: L.Layer | null = null
+const currentZoom = ref(11)
 let regionLayer: L.Layer | null = null
 let regionPreviewLayer: L.Layer | null = null
 let aiSourceHighlightLayer: L.Layer | null = null
@@ -273,15 +280,19 @@ onMounted(async () => {
     center: [26.65, 106.63],
     zoom: 11,
     preferCanvas: true,
-    zoomControl: false
+    zoomControl: false,
+    attributionControl: false
   })
 
-  L.control.zoom({ position: 'bottomright' }).addTo(map)
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors'
+    attribution: ''
   }).addTo(map)
 
+  currentZoom.value = map.getZoom()
+  map.on('zoomend', () => {
+    currentZoom.value = map.getZoom()
+  })
   map.on('moveend', loadStatistics)
   map.on('mousedown', handleRegionMouseDown)
   map.on('mousemove', handleRegionMouseMove)
@@ -410,8 +421,10 @@ async function handleFeatureClick(layerKey: string, feature: any, layer: L.Layer
   selectedFeatureProperties.value = properties
   selectedDetail.value = properties
   highlightLayer(layer)
+  openFeaturePopup(layer, properties)
 
   await loadObjectDetail(properties)
+  if (selectedDetail.value) openFeaturePopup(layer, selectedDetail.value)
 }
 
 function highlightLayer(layer: L.Layer) {
@@ -429,6 +442,86 @@ function highlightLayer(layer: L.Layer) {
       fillOpacity: 0.95
     })
   }
+}
+
+
+function openFeaturePopup(layer: L.Layer, properties: Record<string, any>) {
+  if (!map) return
+  const center = layerCenter(layer)
+  if (!center) return
+  L.popup({
+    closeButton: true,
+    autoPan: true,
+    maxWidth: 300,
+    className: 'map-object-popup'
+  })
+    .setLatLng(center)
+    .setContent(buildFeaturePopupHtml(properties))
+    .openOn(map)
+}
+
+function layerCenter(layer: L.Layer) {
+  const anyLayer: any = layer
+  if (anyLayer.getLatLng) return anyLayer.getLatLng()
+  if (anyLayer.getBounds && anyLayer.getBounds().isValid()) return anyLayer.getBounds().getCenter()
+  return null
+}
+
+function buildFeaturePopupHtml(properties: Record<string, any>) {
+  const type = normalizeObjectType(firstValue(properties.objectType, properties.object_type, properties.type, properties.layerType))
+  const label = objectTypeText(type)
+  const route = firstValue(properties.routeCode, properties.route_code, query.routeCode, '-')
+  const stake = stakeRangeText(properties)
+  const metric = getMetricMeta(query.indexCode || 'MQI')
+  const metricValue = getMetricValue(properties, metric.code)
+  const grade = getMetricGrade(properties, metric.code) || firstValue(properties.grade, properties.level)
+  const disease = firstValue(properties.diseaseName, properties.disease_name, properties.diseaseType, properties.disease_type)
+  const severity = firstValue(properties.severity, properties.severityText, properties.severity_text)
+  const rows = [
+    ['类型', label],
+    ['路线', route],
+    ['桩号', stake],
+    [metric.code, metricValue === undefined || metricValue === null || metricValue === '' ? '-' : metricValue],
+    ['等级', grade || '-']
+  ]
+  if (disease) rows.splice(1, 0, ['病害', disease])
+  if (severity) rows.push(['严重程度', severity])
+  return `
+    <div class="object-popup-card">
+      <div class="object-popup-title">${escapeHtml(label)}详情</div>
+      <div class="object-popup-grid">
+        ${rows.map(([k, v]) => `<span>${escapeHtml(k)}</span><strong>${escapeHtml(v)}</strong>`).join('')}
+      </div>
+      <div class="object-popup-tip">已同步到右侧 AI 养护助手，可继续分析或生成建议。</div>
+    </div>
+  `
+}
+
+function objectTypeText(type: string) {
+  const map: Record<string, string> = {
+    ROAD_ROUTE: '路线',
+    ROAD_SECTION: '路段',
+    EVALUATION_UNIT: '评定单元',
+    DISEASE: '病害',
+    ASSESSMENT_RESULT: '评定结果'
+  }
+  return map[type] || '地图对象'
+}
+
+function stakeRangeText(properties: Record<string, any>) {
+  const start = firstValue(properties.startStake, properties.start_stake, properties.beginStake, properties.begin_stake)
+  const end = firstValue(properties.endStake, properties.end_stake, properties.finishStake, properties.finish_stake)
+  if (start && end) return `${start}—${end}`
+  return start || end || '-'
+}
+
+function escapeHtml(value: any) {
+  return String(value ?? '-')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 function layerKeyToObjectType(layerKey: string) {
@@ -473,6 +566,7 @@ async function loadObjectDetail(properties: Record<string, any>) {
 }
 
 function clearSelection() {
+  if (map) map.closePopup()
   selectedDetail.value = null
   selectedFeatureProperties.value = null
   if (selectedLayer && (selectedLayer as any).setStyle) {
@@ -979,6 +1073,14 @@ function zoomToLayer(layer: L.Layer) {
   if (anyLayer.getLatLng) map.setView(anyLayer.getLatLng(), Math.max(map.getZoom(), 16))
 }
 
+function zoomInMap() {
+  if (map) map.zoomIn()
+}
+
+function zoomOutMap() {
+  if (map) map.zoomOut()
+}
+
 async function loadStatistics() {
   try {
     statistics.value = await getMapStatistics(layerQuery())
@@ -1064,6 +1166,99 @@ function handleFitAll() {
   z-index: auto;
   flex: 0 0 auto;
   width: 100%;
+}
+
+.left-map-stack:has(.gis-left-workbench.collapsed) {
+  width: 62px;
+}
+
+.left-map-stack:has(.gis-left-workbench.collapsed) .map-legend-fixed,
+.left-map-stack:has(.gis-left-workbench.collapsed) .map-zoom-panel {
+  display: none;
+}
+
+.map-zoom-panel {
+  display: grid;
+  grid-template-columns: 32px 1fr 32px;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
+}
+
+.map-zoom-panel button {
+  width: 32px;
+  height: 30px;
+  border: 1px solid #dbeafe;
+  border-radius: 9px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.map-zoom-panel span {
+  min-width: 0;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+}
+
+:deep(.leaflet-control-attribution) {
+  display: none !important;
+}
+
+:deep(.map-object-popup .leaflet-popup-content-wrapper) {
+  border-radius: 14px;
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.22);
+}
+
+:deep(.map-object-popup .leaflet-popup-content) {
+  min-width: 230px;
+  margin: 12px;
+}
+
+:deep(.object-popup-title) {
+  margin-bottom: 8px;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+:deep(.object-popup-grid) {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 5px 8px;
+}
+
+:deep(.object-popup-grid span) {
+  color: #64748b;
+  font-size: 12px;
+}
+
+:deep(.object-popup-grid strong) {
+  min-width: 0;
+  color: #0f172a;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:deep(.object-popup-tip) {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid #eef2f7;
+  color: #64748b;
+  font-size: 12px;
 }
 
 .region-draw-tip {

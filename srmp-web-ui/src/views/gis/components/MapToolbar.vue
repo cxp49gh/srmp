@@ -48,7 +48,9 @@
             aria-label="矩形框选"
             @click="emitRegion('RECTANGLE')"
           >
-            <span class="region-icon region-rect">□</span>
+            <svg class="region-icon region-rect" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="5" y="6" width="14" height="12" rx="2" />
+            </svg>
           </el-button>
           <el-button
             :type="regionMode === 'POLYGON' ? 'primary' : ''"
@@ -58,7 +60,14 @@
             aria-label="多边形框选"
             @click="emitRegion('POLYGON')"
           >
-            <span class="region-icon region-poly">◇</span>
+            <svg class="region-icon region-poly" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7.5 4.5 17 6.2l3 8.2-6.3 5.1-8.8-3.2-1-7.5Z" />
+              <circle cx="7.5" cy="4.5" r="1.35" />
+              <circle cx="17" cy="6.2" r="1.35" />
+              <circle cx="20" cy="14.4" r="1.35" />
+              <circle cx="13.7" cy="19.5" r="1.35" />
+              <circle cx="4.9" cy="16.3" r="1.35" />
+            </svg>
           </el-button>
           <el-button
             plain
@@ -68,7 +77,12 @@
             :disabled="!hasRegion && regionMode === 'NONE'"
             @click="emitClearRegion"
           >
-            <span class="region-icon region-clear">×</span>
+            <svg class="region-icon region-clear" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 6.5h10" />
+              <path d="M9 6.5V5.2c0-.7.5-1.2 1.2-1.2h3.6c.7 0 1.2.5 1.2 1.2v1.3" />
+              <path d="M9 9.5v7.8c0 .9.7 1.7 1.7 1.7h2.7c.9 0 1.7-.7 1.7-1.7V9.5" />
+              <path d="m7 17 10-10" />
+            </svg>
           </el-button>
         </div>
       </el-form-item>
@@ -215,23 +229,23 @@ function emitClearRegion() {
 }
 
 .region-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   width: 18px;
   height: 18px;
-  font-size: 18px;
-  line-height: 1;
-  font-weight: 800;
+  color: currentColor;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.region-poly {
-  transform: rotate(45deg);
-  font-size: 16px;
+.region-poly circle {
+  fill: currentColor;
+  stroke: none;
 }
 
 .region-clear {
-  font-size: 20px;
+  stroke-width: 1.9;
 }
 
 .toolbar-actions :deep(.el-button) {
