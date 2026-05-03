@@ -489,13 +489,20 @@ function handleAskAiSource(source: Record<string, any>) {
   pendingAiQuestion.value = `结合参考来源「${label}」，继续分析其与当前地图范围、线路、路段、病害和评定结果的关系，并给出下一步处置建议`
 }
 
-function handleLocateAiSource(source: Record<string, any>) {
-  const target = sourceToMapTarget(source)
+function handleLocateAiSource(source: Record<string, any> | GisSourceMapTarget) {
+  const target = normalizeIncomingMapTarget(source)
   if (locateMapTarget(target)) {
     ElMessage.success('已定位到来源关联的地图对象/区域')
   } else {
-    ElMessage.warning('该来源暂未携带可定位的 objectId、桩号、bbox 或 geometry')
+    ElMessage.warning('该来源暂未携带可定位的对象编号、路线桩号、bbox 或 geometry；需要后端 sources 补齐地图关联字段')
   }
+}
+
+function normalizeIncomingMapTarget(source: Record<string, any> | GisSourceMapTarget): GisSourceMapTarget {
+  if (source && (source as GisSourceMapTarget).raw && ((source as GisSourceMapTarget).objectId || (source as GisSourceMapTarget).routeCode || (source as GisSourceMapTarget).geometry || (source as GisSourceMapTarget).bbox)) {
+    return source as GisSourceMapTarget
+  }
+  return sourceToMapTarget(source)
 }
 
 function startRegionDraw(mode: 'RECTANGLE' | 'POLYGON') {
@@ -773,10 +780,10 @@ function locateMapTarget(target: GisSourceMapTarget) {
     if (bounds.isValid()) map.fitBounds(bounds, { padding: [80, 80], maxZoom: 16 })
     return true
   }
-  if (Array.isArray(target.bbox) && target.bbox.length === 4) {
-    const bounds = L.latLngBounds([target.bbox[1], target.bbox[0]], [target.bbox[3], target.bbox[2]])
-    aiSourceHighlightLayer = L.rectangle(bounds, { color: '#f97316', weight: 3, fillOpacity: 0.1 }).addTo(map)
-    map.fitBounds(bounds, { padding: [80, 80], maxZoom: 16 })
+  const bboxBounds = bboxToBounds(target.bbox)
+  if (bboxBounds) {
+    aiSourceHighlightLayer = L.rectangle(bboxBounds, { color: '#f97316', weight: 3, fillOpacity: 0.1 }).addTo(map)
+    map.fitBounds(bboxBounds, { padding: [80, 80], maxZoom: 16 })
     return true
   }
   const matched = findLayerByTarget(target)
@@ -788,6 +795,20 @@ function locateMapTarget(target: GisSourceMapTarget) {
   zoomToLayer(matched.layer)
   loadObjectDetail(props)
   return true
+}
+
+function bboxToBounds(bbox: any) {
+  if (!Array.isArray(bbox) || bbox.length !== 4) return null
+  const nums = bbox.map((it: any) => Number(it))
+  if (nums.some((it: number) => !Number.isFinite(it))) return null
+  const [a, b, c, d] = nums
+  const looksLatLng = Math.abs(a) <= 90 && Math.abs(b) > 90
+  const south = looksLatLng ? a : b
+  const west = looksLatLng ? b : a
+  const north = looksLatLng ? c : d
+  const east = looksLatLng ? d : c
+  const bounds = L.latLngBounds([south, west], [north, east])
+  return bounds.isValid() ? bounds : null
 }
 
 function findLayerByTarget(target: GisSourceMapTarget): { layer: L.Layer; layerKey: string; feature: any } | null {
@@ -807,25 +828,44 @@ function featureMatchesTarget(layerKey: string, feature: any, target: GisSourceM
   const props = feature?.properties || {}
   const featureType = normalizeObjectType(firstValue(props.objectType, props.object_type, props.type, props.layerType, layerKeyToObjectType(layerKey)))
   const targetType = normalizeObjectType(target.objectType)
-  if (targetType && featureType && targetType !== featureType) return false
   const targetId = firstValue(target.objectId, target.id)
   const featureId = firstValue(props.objectId, props.object_id, props.id, props.featureId, props.sourceId)
   if (targetId && featureId && String(targetId) === String(featureId)) return true
+
+  if (isConcreteMapObjectType(targetType) && featureType && targetType !== featureType) return false
+
   const targetRoute = target.routeCode
   const featureRoute = firstValue(props.routeCode, props.route_code, query.routeCode)
   if (targetRoute && featureRoute && String(targetRoute) !== String(featureRoute)) return false
-  const targetStart = normalizeStake(target.startStake)
-  const targetEnd = normalizeStake(target.endStake)
-  const featureStart = normalizeStake(firstValue(props.startStake, props.start_stake))
-  const featureEnd = normalizeStake(firstValue(props.endStake, props.end_stake))
-  if (targetRoute && !targetStart && !targetEnd) return Boolean(featureRoute)
-  if (targetStart && featureStart && targetStart === featureStart) return !targetEnd || !featureEnd || targetEnd === featureEnd
+
+  const targetStart = stakeToNumber(target.startStake)
+  const targetEnd = stakeToNumber(target.endStake)
+  const featureStart = stakeToNumber(firstValue(props.startStake, props.start_stake))
+  const featureEnd = stakeToNumber(firstValue(props.endStake, props.end_stake))
+
+  if (Number.isFinite(targetStart) && Number.isFinite(featureStart)) {
+    const tEnd = Number.isFinite(targetEnd) ? targetEnd : targetStart
+    const fEnd = Number.isFinite(featureEnd) ? featureEnd : featureStart
+    return Math.max(targetStart, featureStart) <= Math.min(tEnd, fEnd) + 0.0001
+  }
+
+  if (targetRoute && !Number.isFinite(targetStart) && !Number.isFinite(targetEnd)) {
+    return targetType === 'ROAD_ROUTE' ? featureType === 'ROAD_ROUTE' : Boolean(featureRoute)
+  }
+
   return false
 }
 
-function normalizeStake(value: any) {
-  if (value === undefined || value === null || value === '') return ''
-  return String(value).replace(/^K/i, '').replace(/\s+/g, '')
+function isConcreteMapObjectType(type: string) {
+  return ['ROAD_ROUTE', 'ROAD_SECTION', 'EVALUATION_UNIT', 'DISEASE', 'ASSESSMENT_RESULT'].includes(type)
+}
+
+function stakeToNumber(value: any) {
+  if (value === undefined || value === null || value === '') return Number.NaN
+  const text = String(value).replace(/^K/i, '').replace(/\s+/g, '')
+  const normalized = text.includes('+') ? text.replace('+', '.') : text
+  const num = Number(normalized)
+  return Number.isFinite(num) ? num : Number.NaN
 }
 
 function zoomToLayer(layer: L.Layer) {
@@ -894,7 +934,7 @@ function handleFitAll() {
 .map-legend-fixed {
   position: absolute;
   left: 24px;
-  bottom: 36px;
+  bottom: 50px;
   z-index: 935;
 }
 
@@ -931,11 +971,11 @@ function handleFitAll() {
 
 :deep(.leaflet-bottom.leaflet-right) {
   right: 18px;
-  bottom: 36px;
+  bottom: 50px;
 }
 
 .one-map-page.agent-open :deep(.leaflet-bottom.leaflet-right) {
-  right: 472px;
+  right: 454px;
 }
 
 .one-map-page.agent-open .ai-float-button {
@@ -949,7 +989,7 @@ function handleFitAll() {
   }
 
   .map-legend-fixed {
-    bottom: 126px;
+    bottom: 156px;
   }
 
   .one-map-page.agent-open :deep(.leaflet-bottom.leaflet-right) {

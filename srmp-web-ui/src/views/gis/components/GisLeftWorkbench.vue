@@ -174,13 +174,13 @@ function formatPercent(value: any) {
 <style scoped>
 .gis-left-workbench {
   position: absolute;
-  top: 108px;
+  top: 112px;
   left: 18px;
-  bottom: 252px;
+  bottom: 328px;
   z-index: 920;
-  width: 292px;
+  width: 276px;
   max-height: none;
-  padding: 12px;
+  padding: 10px;
   border: 1px solid rgba(226, 232, 240, 0.9);
   background: rgba(255, 255, 255, 0.97);
   box-shadow: 0 16px 36px rgba(15, 23, 42, 0.14);
@@ -201,7 +201,7 @@ function formatPercent(value: any) {
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .workbench-header strong {
@@ -232,7 +232,7 @@ function formatPercent(value: any) {
 }
 
 .indicator-card {
-  padding: 10px;
+  padding: 8px;
   border-radius: 12px;
   background: linear-gradient(135deg, #eff6ff, #f8fafc);
   border: 1px solid #dbeafe;
@@ -251,10 +251,14 @@ function formatPercent(value: any) {
 }
 
 .indicator-card p {
-  margin: 6px 0 8px;
+  margin: 5px 0 6px;
   color: #64748b;
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.42;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .indicator-value-row span {
@@ -279,12 +283,12 @@ function formatPercent(value: any) {
 
 .layer-group + .layer-group,
 .stats-section {
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 .group-title,
 .section-title {
-  margin: 8px 0 6px;
+  margin: 6px 0 5px;
   color: #475569;
   font-size: 12px;
   font-weight: 700;
@@ -294,7 +298,7 @@ function formatPercent(value: any) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 28px;
+  height: 26px;
 }
 
 .layer-count {
@@ -310,11 +314,11 @@ function formatPercent(value: any) {
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  gap: 5px;
 }
 
 .stat-card {
-  padding: 6px 8px;
+  padding: 5px 7px;
   border-radius: 10px;
   background: #f8fafc;
 }
@@ -333,8 +337,8 @@ function formatPercent(value: any) {
 }
 
 .layer-tip {
-  margin-top: 8px;
-  padding: 7px 8px;
+  margin-top: 7px;
+  padding: 6px 8px;
   border-radius: 8px;
   color: #64748b;
   background: #f8fafc;
@@ -353,7 +357,7 @@ function formatPercent(value: any) {
 
 @media (max-width: 1280px) {
   .gis-left-workbench {
-    bottom: 272px;
+    bottom: 342px;
   }
 }
 
@@ -361,7 +365,7 @@ function formatPercent(value: any) {
   .gis-left-workbench {
     top: 150px;
     left: 10px;
-    bottom: 220px;
+    bottom: 260px;
     width: min(296px, calc(100vw - 20px));
     max-height: none;
   }

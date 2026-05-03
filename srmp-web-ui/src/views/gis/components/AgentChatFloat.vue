@@ -85,39 +85,13 @@
             <el-tag v-if="item.meta.answerSourceLabel" size="small">{{ item.meta.answerSourceLabel }}</el-tag>
             <el-tag v-if="item.meta.fallback" size="small" type="warning">降级</el-tag>
           </div>
-          <div v-if="item.role === 'assistant' && item.sources && item.sources.length" class="source-panel">
-            <div class="source-title">参考资料 / 地图关联</div>
-            <div v-for="(source, sIdx) in item.sources" :key="sIdx" class="source-card">
-              <div class="source-card-main">
-                <span class="source-index">{{ sIdx + 1 }}</span>
-                <span class="source-main">
-                  {{ source.title || source.docTitle || source.documentTitle || '知识片段' }}
-                  <template v-if="source.sectionTitle || source.section"> / {{ source.sectionTitle || source.section }}</template>
-                </span>
-                <span v-if="source.score !== undefined && source.score !== null" class="source-score">{{ formatScore(source.score) }}</span>
-              </div>
-              <div class="source-map-target">{{ sourceMapTargetLabel(source) }}</div>
-              <div class="source-card-actions">
-                <el-button size="small" link :disabled="!canLocateSource(source)" @click="locateSource(source)">地图定位</el-button>
-                <el-button size="small" link @click="askWithSource(source)">围绕来源追问</el-button>
-                <el-button size="small" link @click="copySource(source)">复制来源</el-button>
-              </div>
-            </div>
-          </div>
-          <div v-if="item.role === 'assistant' && item.toolResults && item.toolResults.length" class="tool-panel">
-            <div class="source-title">工具调用</div>
-            <div v-for="(tool, tIdx) in item.toolResults" :key="tIdx" class="tool-item">
-              <span class="tool-name">{{ tool.toolName || tool.name || 'tool' }}</span>
-              <el-tag size="small" :type="tool.success === false ? 'danger' : 'success'" effect="plain">
-                {{ tool.success === false ? '失败' : '成功' }}
-              </el-tag>
-              <span class="tool-summary">
-                {{ tool.summary || '' }}
-                <template v-if="tool.count !== undefined && tool.count !== null">（{{ tool.count }}条）</template>
-              </span>
-            </div>
-          </div>
-          <AiEvidencePanel v-if="item.role === 'assistant'" :message="item" :map-context="props.context" />
+          <AiEvidencePanel
+            v-if="item.role === 'assistant'"
+            :message="item"
+            :map-context="props.context"
+            @locate-source="locateEvidenceSource"
+            @ask-with-source="askWithSource"
+          />
           <div v-if="item.role === 'assistant' && activeMapObject" class="assistant-action-row">
             <el-button
               size="small"
@@ -134,7 +108,6 @@
         </div>
       </div>
 
-      <div v-if="sourceSummary" class="source-summary">{{ sourceSummary }}</div>
 
       <div class="input-row">
         <el-input
@@ -175,7 +148,7 @@ import AiTraceButton from '../../agent/components/AiTraceButton.vue'
 import AiTraceDrawer from '../../agent/components/AiTraceDrawer.vue'
 import AiEvidencePanel from './AiEvidencePanel.vue'
 import { copyText } from '../../../utils/clipboard'
-import { gisContextTypeLabel, hasLocatableTarget, mapTargetLabel, sourceToMapTarget, type GisSourceMapTarget } from '../../../utils/gisUnifiedContext'
+import { gisContextTypeLabel, sourceToMapTarget, type GisSourceMapTarget } from '../../../utils/gisUnifiedContext'
 
 interface MessageItem {
   role: 'user' | 'assistant'
@@ -720,29 +693,12 @@ function formatScore(score: any) {
   return Number.isFinite(num) ? num.toFixed(3) : String(score)
 }
 
-function sourceMapTargetLabel(source: any) {
-  return mapTargetLabel(sourceToMapTarget(source))
-}
-
-function canLocateSource(source: any) {
-  return hasLocatableTarget(sourceToMapTarget(source))
-}
-
-function locateSource(source: any) {
-  emit('locate-source', sourceToMapTarget(source))
+function locateEvidenceSource(target: GisSourceMapTarget) {
+  emit('locate-source', target)
 }
 
 function askWithSource(source: any) {
   emit('ask-with-source', source)
-}
-
-async function copySource(source: any) {
-  try {
-    await copyText(JSON.stringify(sourceToMapTarget(source), null, 2))
-    ElMessage.success('来源地图上下文已复制')
-  } catch (error: any) {
-    ElMessage.error(error?.message || '复制失败')
-  }
 }
 
 function openTrace(trace: Record<string, any>) {

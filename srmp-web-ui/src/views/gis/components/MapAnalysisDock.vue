@@ -181,11 +181,11 @@ function formatStake(start: any, end?: any) {
   z-index: 930;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  width: min(920px, calc(100vw - 560px));
-  min-height: 136px;
-  max-height: 190px;
-  padding: 14px 16px;
+  gap: 8px;
+  width: min(760px, calc(100vw - 640px));
+  min-height: 118px;
+  max-height: 166px;
+  padding: 12px 14px;
   transform: translateX(-50%);
   border: 1px solid rgba(226, 232, 240, 0.94);
   background: rgba(255, 255, 255, 0.98);
@@ -194,16 +194,16 @@ function formatStake(start: any, end?: any) {
 }
 
 .map-analysis-dock.with-agent {
-  left: calc(50% - 110px);
-  width: min(760px, calc(100vw - 900px));
-  min-height: 146px;
+  left: calc(50% - 150px);
+  width: min(640px, calc(100vw - 920px));
+  min-height: 118px;
 }
 
 .dock-top-row {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(180px, auto);
+  grid-template-columns: minmax(260px, 1fr) minmax(160px, auto);
   align-items: stretch;
-  gap: 14px;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -216,7 +216,7 @@ function formatStake(start: any, end?: any) {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 7px;
+  margin-bottom: 5px;
 }
 
 .dock-title strong {
@@ -238,7 +238,7 @@ function formatStake(start: any, end?: any) {
 .dock-summary {
   color: #475569;
   font-size: 13px;
-  line-height: 1.62;
+  line-height: 1.48;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -248,9 +248,9 @@ function formatStake(start: any, end?: any) {
 .dock-metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(76px, 1fr));
-  gap: 8px;
-  min-width: 190px;
-  max-width: 300px;
+  gap: 6px;
+  min-width: 170px;
+  max-width: 260px;
 }
 
 .metric-item {
@@ -258,7 +258,7 @@ function formatStake(start: any, end?: any) {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-  padding: 7px 10px;
+  padding: 6px 8px;
   border-radius: 12px;
   background: #f8fafc;
   border: 1px solid #eef2f7;
@@ -283,8 +283,8 @@ function formatStake(start: any, end?: any) {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  padding-top: 10px;
+  gap: 10px;
+  padding-top: 8px;
   border-top: 1px solid #eef2f7;
 }
 
@@ -307,12 +307,12 @@ function formatStake(start: any, end?: any) {
 
 @media (max-width: 1440px) {
   .map-analysis-dock {
-    width: min(820px, calc(100vw - 520px));
+    width: min(720px, calc(100vw - 500px));
   }
 
   .map-analysis-dock.with-agent {
-    left: calc(50% - 96px);
-    width: min(700px, calc(100vw - 820px));
+    left: calc(50% - 150px);
+    width: min(600px, calc(100vw - 820px));
   }
 
   .dock-metrics {
