@@ -11,36 +11,36 @@
       />
     </div>
 
-    <LayerDrawer
+    <GisLeftWorkbench
       v-model:layers="layers"
+      :statistics="statistics"
+      :layer-counts="layerCounts"
+      :loading="loading"
+      :region-mode="regionMode"
+      :has-region="!!regionGeometry"
       @change="reloadLayers"
+      @reload="reloadLayers"
+      @fit="handleFitAll"
+      @start-region="startRegionDraw"
+      @clear-region="clearRegion"
     />
 
-    <LegendPanel class="fixed-legend" />
-
-    <ObjectDetailDrawer
-      v-model:visible="detailVisible"
+    <GisRightWorkbench
+      v-if="!agentVisible"
+      v-model:active-tab="rightWorkbenchTab"
       :detail="selectedDetail"
-      @ai-analyze="openAiForSelected"
-    />
-
-    <RegionSelectionPanel
-      :visible="!!regionGeometry"
+      :region-summary="regionSummary"
+      :region-loading="regionLoading || regionSummaryLoading"
+      :region-trace="regionSolution?.trace || null"
       :geometry-type="regionGeometryType"
-      :summary="regionSummary"
-      :trace="regionSolution?.trace || null"
-      :loading="regionLoading || regionSummaryLoading"
-      @generate="generateRegionSolution"
-      @ai-analyze="askAiForRegion"
+      :has-region="!!regionGeometry"
+      @close-detail="clearSelection"
+      @ai-analyze-object="openAiForSelected"
+      @ai-analyze-region="askAiForRegion"
+      @generate-region="generateRegionSolution"
       @trace="regionTraceDrawerVisible = true"
-      @clear="clearRegion"
-    />
-
-    <MapStatisticsBar
-      v-if="!regionGeometry"
-      v-model:collapsed="statisticsCollapsed"
-      :value="statistics"
-      :class="{ 'with-agent': agentVisible }"
+      @clear-region="clearRegion"
+      @open-agent="agentVisible = true"
     />
 
     <AgentChatFloat
@@ -62,12 +62,6 @@
     >
       AI
     </button>
-
-    <div class="region-tool srmp-card">
-      <el-button size="small" :type="regionMode === 'RECTANGLE' ? 'primary' : undefined" @click="startRegionDraw('RECTANGLE')">矩形</el-button>
-      <el-button size="small" :type="regionMode === 'POLYGON' ? 'primary' : undefined" @click="startRegionDraw('POLYGON')">多边形</el-button>
-      <el-button size="small" @click="clearRegion">清除</el-button>
-    </div>
 
     <SolutionPreviewDialog
       v-model:visible="regionPreviewVisible"
@@ -109,12 +103,10 @@ import {
 } from '../../api/gis'
 import { layerStyle } from '../../utils/leafletStyle'
 import type { GeoJsonFeatureCollection } from '../../types/geojson'
-import LayerDrawer, { type LayerState } from './components/LayerDrawer.vue'
-import LegendPanel from './components/LegendPanel.vue'
-import ObjectDetailDrawer from './components/ObjectDetailDrawer.vue'
-import MapStatisticsBar from './components/MapStatisticsBar.vue'
+import { type LayerState } from './components/LayerDrawer.vue'
+import GisLeftWorkbench from './components/GisLeftWorkbench.vue'
+import GisRightWorkbench from './components/GisRightWorkbench.vue'
 import AgentChatFloat from './components/AgentChatFloat.vue'
-import RegionSelectionPanel from './components/RegionSelectionPanel.vue'
 import SolutionPreviewDialog from './components/SolutionPreviewDialog.vue'
 import AiTraceDrawer from '../agent/components/AiTraceDrawer.vue'
 import { buildRegionUnifiedContext, buildUnifiedAnalysisTargets, sourceToMapTarget, type GisSourceMapTarget } from '../../utils/gisUnifiedContext'
@@ -138,10 +130,9 @@ const statistics = ref<Record<string, any>>({})
 const selectedDetail = ref<Record<string, any> | null>(null)
 const selectedFeatureProperties = ref<Record<string, any> | null>(null)
 const loading = ref(false)
-const detailVisible = ref(false)
 const agentVisible = ref(false)
 const pendingAiQuestion = ref('')
-const statisticsCollapsed = ref(false)
+const rightWorkbenchTab = ref<'object' | 'region' | 'ai'>('ai')
 const regionMode = ref<'NONE' | 'RECTANGLE' | 'POLYGON'>('NONE')
 const regionGeometryType = ref<'RECTANGLE' | 'POLYGON'>('RECTANGLE')
 const regionGeometry = ref<Record<string, any> | null>(null)
@@ -154,6 +145,13 @@ const regionTraceDrawerVisible = ref(false)
 const regionDraftSaving = ref(false)
 const regionSavedTask = ref<Record<string, any> | null>(null)
 const polygonPoints = ref<L.LatLng[]>([])
+const layerCounts = reactive<Record<string, number>>({
+  roadRoute: 0,
+  roadSection: 0,
+  evaluationUnit: 0,
+  disease: 0,
+  assessment: 0
+})
 
 let map: LeafletMap
 const layerMap = new Map<string, GeoJSON>()
@@ -295,6 +293,7 @@ async function reloadLayers() {
   loading.value = true
   try {
     clearLayers()
+    resetLayerCounts()
 
     const tasks: Promise<void>[] = []
     const params = layerQuery()
@@ -324,8 +323,15 @@ function clearLayers() {
   clearAiSourceHighlight()
 }
 
+function resetLayerCounts() {
+  Object.keys(layerCounts).forEach((key) => {
+    layerCounts[key] = 0
+  })
+}
+
 async function loadLayer(layerKey: string, loader: () => Promise<GeoJsonFeatureCollection>) {
   const collection: any = await loader()
+  layerCounts[layerKey] = Array.isArray(collection?.features) ? collection.features.length : 0
   if (!collection || !collection.features || collection.features.length === 0) return
 
   const geoLayer = L.geoJSON(collection as any, {
@@ -359,7 +365,7 @@ async function handleFeatureClick(layerKey: string, feature: any, layer: L.Layer
 
   selectedFeatureProperties.value = properties
   selectedDetail.value = properties
-  detailVisible.value = true
+  rightWorkbenchTab.value = 'object'
   highlightLayer(layer)
 
   await loadObjectDetail(properties)
@@ -423,11 +429,22 @@ async function loadObjectDetail(properties: Record<string, any>) {
   }
 }
 
+function clearSelection() {
+  selectedDetail.value = null
+  selectedFeatureProperties.value = null
+  if (selectedLayer && (selectedLayer as any).setStyle) {
+    const feature = (selectedLayer as any).feature
+    ;(selectedLayer as any).setStyle(layerStyle(feature?.properties || feature))
+  }
+  selectedLayer = null
+}
+
 function openAiForSelected() {
   if (!selectedDetail.value) {
     ElMessage.warning('请先在地图上选择一个对象')
     return
   }
+  rightWorkbenchTab.value = 'ai'
   agentVisible.value = true
   pendingAiQuestion.value = '分析当前地图选中对象，说明主要问题、成因判断，并给出养护处置建议'
 }
@@ -437,6 +454,7 @@ function askAiForRegion() {
     ElMessage.warning('请先框选一个区域')
     return
   }
+  rightWorkbenchTab.value = 'ai'
   agentVisible.value = true
   pendingAiQuestion.value = '综合分析当前区域内线路、路段、评定单元、病害和评定结果，判断养护重点、风险原因与处置优先级'
 }
@@ -461,7 +479,7 @@ function startRegionDraw(mode: 'RECTANGLE' | 'POLYGON') {
   clearRegion()
   regionMode.value = mode
   regionGeometryType.value = mode
-  detailVisible.value = false
+  rightWorkbenchTab.value = 'region'
   selectedDetail.value = null
   selectedFeatureProperties.value = null
   polygonPoints.value = []
@@ -511,6 +529,7 @@ function setRegionLayer(layer: L.Layer, geometry: Record<string, any>, geometryT
   regionSolution.value = null
   regionSavedTask.value = null
   regionMode.value = 'NONE'
+  rightWorkbenchTab.value = 'region'
   map.dragging.enable()
   map.doubleClickZoom.enable()
   loadRegionSummary(geometry)
@@ -744,7 +763,6 @@ function locateMapTarget(target: GisSourceMapTarget) {
   const props = { ...(matched.feature?.properties || {}), layerKey: matched.layerKey, objectType: matched.feature?.properties?.objectType || matched.feature?.properties?.object_type || layerKeyToObjectType(matched.layerKey) }
   selectedFeatureProperties.value = props
   selectedDetail.value = props
-  detailVisible.value = true
   highlightLayer(matched.layer)
   zoomToLayer(matched.layer)
   loadObjectDetail(props)
@@ -817,8 +835,8 @@ function handleFitAll() {
 
   if (bounds.isValid()) {
     map.fitBounds(bounds, {
-      paddingTopLeft: [320, 110],
-      paddingBottomRight: agentVisible.value ? [470, 120] : [120, 120],
+      paddingTopLeft: [340, 120],
+      paddingBottomRight: [430, 140],
       maxZoom: 15
     })
   } else {
@@ -851,12 +869,6 @@ function handleFitAll() {
   z-index: 930;
 }
 
-.fixed-legend {
-  position: absolute;
-  bottom: 16px;
-  left: 18px;
-  z-index: 920;
-}
 
 .ai-float-button {
   position: absolute;
@@ -875,17 +887,6 @@ function handleFitAll() {
   cursor: pointer;
 }
 
-.region-tool {
-  position: absolute;
-  right: 96px;
-  bottom: 44px;
-  z-index: 940;
-  display: flex;
-  gap: 8px;
-  padding: 8px;
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  background: rgba(255, 255, 255, 0.96);
-}
 
 .loading-mask {
   position: absolute;
@@ -905,18 +906,12 @@ function handleFitAll() {
   bottom: 36px;
 }
 
-:deep(.with-agent.statistics-bar) {
-  max-width: min(640px, calc(100vw - 620px));
-}
 
 @media (max-width: 1280px) {
   .top-toolbar {
     right: 76px;
   }
 
-  :deep(.with-agent.statistics-bar) {
-    display: none;
-  }
 }
 
 @media (max-width: 960px) {
@@ -924,6 +919,5 @@ function handleFitAll() {
     left: 10px;
     right: 10px;
   }
-
-  }
+}
 </style>
