@@ -28,25 +28,6 @@
 
     <LegendPanel class="map-legend-fixed" :index-code="query.indexCode" />
 
-    <MapAnalysisDock
-      :detail="selectedDetail"
-      :region-summary="regionSummary"
-      :region-loading="regionLoading || regionSummaryLoading"
-      :region-trace="regionSolution?.trace || null"
-      :geometry-type="regionGeometryType"
-      :has-region="!!regionGeometry"
-      :agent-visible="agentVisible"
-      :query="query"
-      :statistics="statistics"
-      @close-detail="clearSelection"
-      @ai-analyze-object="openAiForSelected"
-      @ai-analyze-region="askAiForRegion"
-      @generate-region="generateRegionSolution"
-      @trace="regionTraceDrawerVisible = true"
-      @clear-region="clearRegion"
-      @open-agent="agentVisible = true"
-    />
-
     <AgentChatFloat
       v-model:visible="agentVisible"
       :context="agentContext"
@@ -55,6 +36,12 @@
       @auto-question-consumed="pendingAiQuestion = ''"
       @locate-source="handleLocateAiSource"
       @ask-with-source="handleAskAiSource"
+      @ai-analyze-object="openAiForSelected"
+      @ai-analyze-region="askAiForRegion"
+      @generate-region="generateRegionSolution"
+      @trace="regionTraceDrawerVisible = true"
+      @clear-region="clearRegion"
+      @close-detail="clearSelection"
     />
 
     <button
@@ -112,7 +99,6 @@ import { type LayerState } from './components/LayerDrawer.vue'
 import GisLeftWorkbench from './components/GisLeftWorkbench.vue'
 import AgentChatFloat from './components/AgentChatFloat.vue'
 import LegendPanel from './components/LegendPanel.vue'
-import MapAnalysisDock from './components/MapAnalysisDock.vue'
 import SolutionPreviewDialog from './components/SolutionPreviewDialog.vue'
 import AiTraceDrawer from '../agent/components/AiTraceDrawer.vue'
 import { buildRegionUnifiedContext, buildUnifiedAnalysisTargets, sourceToMapTarget, type GisSourceMapTarget } from '../../utils/gisUnifiedContext'
@@ -261,6 +247,10 @@ const agentContext = computed(() => ({
   analysisTargets: analysisTargets.value,
   viewport: currentViewport(),
   metric: getMetricMeta(query.indexCode),
+  statistics: statistics.value,
+  regionTrace: regionSolution.value?.trace || null,
+  regionSolution: regionSolution.value,
+  hasRegion: Boolean(regionGeometry.value),
   indexCode: query.indexCode,
   grade: query.grade,
   contextScope: activeRegionContext.value ? 'REGION' : (selectedMapObject.value ? 'OBJECT' : 'ROUTE')
@@ -929,6 +919,7 @@ function handleFitAll() {
   right: 104px;
   z-index: 930;
   max-width: calc(100vw - 136px);
+  transition: right 0.18s ease, max-width 0.18s ease;
 }
 
 .map-legend-fixed {
@@ -974,8 +965,13 @@ function handleFitAll() {
   bottom: 50px;
 }
 
+.one-map-page.agent-open .top-toolbar {
+  right: 548px;
+  max-width: calc(100vw - 568px);
+}
+
 .one-map-page.agent-open :deep(.leaflet-bottom.leaflet-right) {
-  right: 454px;
+  right: 548px;
 }
 
 .one-map-page.agent-open .ai-float-button {
@@ -990,6 +986,11 @@ function handleFitAll() {
 
   .map-legend-fixed {
     bottom: 156px;
+  }
+
+  .one-map-page.agent-open .top-toolbar {
+    right: 18px;
+    max-width: calc(100vw - 36px);
   }
 
   .one-map-page.agent-open :deep(.leaflet-bottom.leaflet-right) {

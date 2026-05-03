@@ -9,45 +9,71 @@
         <button type="button" class="close-btn" @click="emit('update:visible', false)">×</button>
       </div>
 
-      <div v-if="hasStructuredContext" class="compact-context" :class="contextMode.toLowerCase()">
-        <div class="context-chip-row">
+      <section class="analysis-workbench" :class="contextMode.toLowerCase()">
+        <div class="analysis-title-row">
+          <div>
+            <strong>一张图分析</strong>
+            <span>{{ analysisScopeTitle }}</span>
+          </div>
+          <el-tag size="small" effect="plain">{{ activeMetricMeta.shortName }}</el-tag>
+        </div>
+
+        <div class="analysis-context-line">
           <span v-for="chip in contextChips" :key="chip" class="context-chip">{{ chip }}</span>
         </div>
-        <div class="context-action-line">
+
+        <div class="analysis-summary">{{ analysisScopeDescription }}</div>
+
+        <div v-if="analysisMetricItems.length" class="analysis-metrics">
+          <span v-for="item in analysisMetricItems" :key="item.key">
+            <em>{{ item.label }}</em>
+            <strong>{{ item.value }}</strong>
+          </span>
+        </div>
+
+        <div class="analysis-actions">
           <el-button
-            v-if="activeMapObject"
             size="small"
             type="primary"
-            plain
+            :disabled="!activeMapObject"
             :loading="loading"
-            @click="analyzeCurrentObject"
-          >重新分析</el-button>
+            @click="triggerAnalyzeObject"
+          >分析对象</el-button>
           <el-button
-            v-else-if="activeRegionContext"
             size="small"
-            type="primary"
             plain
+            :disabled="!activeRegionContext"
             :loading="loading"
-            @click="analyzeCurrentRegion"
-          >区域综合分析</el-button>
+            @click="triggerAnalyzeRegion"
+          >分析区域</el-button>
+          <el-button
+            size="small"
+            plain
+            :disabled="!activeRegionContext"
+            :loading="loading"
+            @click="emit('generate-region')"
+          >生成区域建议</el-button>
+          <el-button v-if="hasRegionTrace" size="small" plain @click="emit('trace')">Trace</el-button>
           <el-dropdown trigger="click" @command="handleContextCommand">
             <el-button size="small" plain>更多操作</el-button>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item v-if="activeMapObject" command="suggest-object">生成处置建议</el-dropdown-item>
-                <el-dropdown-item v-if="activeRegionContext" command="suggest-region">生成区域建议</el-dropdown-item>
+                <el-dropdown-item v-if="activeRegionContext" command="suggest-region">生成区域追问</el-dropdown-item>
                 <el-dropdown-item
                   v-for="action in solutionActions"
                   :key="action.type"
                   :command="`solution:${action.type}`"
                   :disabled="!activeMapObject || solutionLoading || loading"
                 >{{ action.label }}</el-dropdown-item>
-                <el-dropdown-item divided command="copy-context">复制上下文</el-dropdown-item>
+                <el-dropdown-item command="copy-context" divided>复制上下文</el-dropdown-item>
+                <el-dropdown-item v-if="activeMapObject" command="clear-object">取消对象</el-dropdown-item>
+                <el-dropdown-item v-if="activeRegionContext" command="clear-region">清除区域</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
         </div>
-      </div>
+      </section>
 
       <div class="fold-panel">
         <button type="button" class="fold-trigger" @click="showToolsPanel = !showToolsPanel">
@@ -149,6 +175,7 @@ import AiTraceDrawer from '../../agent/components/AiTraceDrawer.vue'
 import AiEvidencePanel from './AiEvidencePanel.vue'
 import { copyText } from '../../../utils/clipboard'
 import { gisContextTypeLabel, sourceToMapTarget, type GisSourceMapTarget } from '../../../utils/gisUnifiedContext'
+import { formatMetricValue, getMetricGrade, getMetricMeta, getMetricValue, gradeLabel } from '../../../utils/roadConditionMetrics'
 
 interface MessageItem {
   role: 'user' | 'assistant'
@@ -171,6 +198,12 @@ const emit = defineEmits<{
   (e: 'auto-question-consumed'): void
   (e: 'locate-source', value: GisSourceMapTarget): void
   (e: 'ask-with-source', value: Record<string, any>): void
+  (e: 'ai-analyze-object'): void
+  (e: 'ai-analyze-region'): void
+  (e: 'generate-region'): void
+  (e: 'trace'): void
+  (e: 'clear-region'): void
+  (e: 'close-detail'): void
 }>()
 
 const input = ref('')
@@ -204,6 +237,65 @@ const optionSummary = computed(() => {
   if (useAgentTools.value) parts.push('Agent工具')
   return parts.length ? parts.join('、') : '未启用'
 })
+
+const activeMetricMeta = computed(() => getMetricMeta(props.context?.query?.indexCode || props.context?.indexCode || 'MQI'))
+
+const activeMetricDisplay = computed(() => {
+  const obj: any = activeMapObject.value || {}
+  const value = getMetricValue(obj, activeMetricMeta.value.code)
+  if (value === undefined || value === null || value === '') return ''
+  const gradeCode = getMetricGrade(obj, activeMetricMeta.value.code)
+  const grade = gradeCode ? gradeLabel(gradeCode) : ''
+  return `${formatMetricValue(value)}${grade ? ` ${grade}` : ''}`
+})
+
+const hasRegionTrace = computed(() => Boolean(props.context?.regionTrace?.traceId || props.context?.regionTrace?.trace_id))
+
+const analysisScopeTitle = computed(() => {
+  if (activeMapObject.value) return '当前对象'
+  if (activeRegionContext.value) return activeRegionContext.value.geometryType === 'POLYGON' ? '多边形区域' : '矩形区域'
+  return '当前路线范围'
+})
+
+const analysisScopeDescription = computed(() => {
+  if (activeMapObject.value) return mapContextLabel.value
+  if (activeRegionContext.value) {
+    const route = props.context?.query?.routeCode || activeRegionContext.value.routeCode || '当前路线'
+    const targets = analysisTargetText.value || '线路、路段、病害、评定结果'
+    return `${route} 区域范围，已统一关联 ${targets}`
+  }
+  const query = props.context?.query || {}
+  return `${query.routeCode || '全部路线'} / ${query.year || '全部年度'}，可选择对象或框选区域后继续分析`
+})
+
+const analysisMetricItems = computed(() => {
+  const items: Array<{ key: string; label: string; value: string }> = []
+  const stats: any = props.context?.statistics || {}
+  if (activeMetricDisplay.value) items.push({ key: 'activeMetric', label: activeMetricMeta.value.code, value: activeMetricDisplay.value })
+  const routeCount = firstDisplayValue(stats.routeCount, stats.route_count, stats.routes, stats.totalRouteCount)
+  const sectionCount = firstDisplayValue(stats.sectionCount, stats.section_count, stats.sections, stats.totalSectionCount)
+  const diseaseCount = firstDisplayValue(
+    activeRegionSummary.value?.diseaseSummary?.disease_count,
+    activeRegionSummary.value?.diseaseSummary?.diseaseCount,
+    activeRegionSummary.value?.disease_count,
+    activeRegionSummary.value?.diseaseCount,
+    stats.diseaseCount,
+    stats.disease_count
+  )
+  const assessmentCount = firstDisplayValue(stats.assessmentCount, stats.assessment_count, stats.evaluationCount, stats.evaluation_count)
+  const avgMetric = firstDisplayValue(stats[`avg${activeMetricMeta.value.code}`], stats[`avg_${String(activeMetricMeta.value.code).toLowerCase()}`], stats.avgMqi, stats.avg_mqi)
+  if (routeCount !== '') items.push({ key: 'routeCount', label: '路线', value: String(routeCount) })
+  if (sectionCount !== '') items.push({ key: 'sectionCount', label: '路段', value: String(sectionCount) })
+  if (diseaseCount !== '') items.push({ key: 'diseaseCount', label: '病害', value: String(diseaseCount) })
+  if (assessmentCount !== '') items.push({ key: 'assessmentCount', label: '评定', value: String(assessmentCount) })
+  if (!activeMetricDisplay.value && avgMetric !== '') items.push({ key: 'avgMetric', label: `均值${activeMetricMeta.value.code}`, value: formatMetricValue(avgMetric) })
+  return items.slice(0, 5)
+})
+
+function firstDisplayValue(...values: any[]) {
+  const value = values.find((it) => it !== undefined && it !== null && it !== '')
+  return value === undefined || value === null ? '' : value
+}
 
 const contextChips = computed(() => {
   if (activeRegionContext.value) {
@@ -393,6 +485,10 @@ function analyzeCurrentObject() {
   quickAsk('分析当前地图选中对象，说明主要问题、成因判断，并给出养护处置建议')
 }
 
+function triggerAnalyzeObject() {
+  analyzeCurrentObject()
+}
+
 function suggestForCurrentObject() {
   if (!activeMapObject.value) return
   quickAsk('基于当前地图选中对象，生成养护处置建议和优先级判断')
@@ -401,6 +497,10 @@ function suggestForCurrentObject() {
 function analyzeCurrentRegion() {
   if (!activeRegionContext.value) return
   quickAsk('综合分析当前区域内线路、路段、评定单元、病害和评定结果，说明区域养护重点和风险成因')
+}
+
+function triggerAnalyzeRegion() {
+  analyzeCurrentRegion()
 }
 
 function suggestForCurrentRegion() {
@@ -419,6 +519,14 @@ async function handleContextCommand(command: string) {
   }
   if (command === 'copy-context') {
     await copyCurrentContext()
+    return
+  }
+  if (command === 'clear-object') {
+    emit('close-detail')
+    return
+  }
+  if (command === 'clear-region') {
+    emit('clear-region')
     return
   }
   if (command.startsWith('solution:')) {
@@ -710,13 +818,14 @@ function openTrace(trace: Record<string, any>) {
 <style scoped>
 .agent-chat-float {
   position: absolute;
-  top: 92px;
+  top: 112px;
   right: 18px;
+  bottom: 18px;
   z-index: 950;
   display: flex;
   flex-direction: column;
-  width: min(438px, calc(100vw - 36px));
-  max-height: calc(100vh - 116px);
+  width: min(512px, calc(100vw - 36px));
+  max-height: none;
   padding: 12px;
   border: 1px solid rgba(226, 232, 240, 0.9);
   background: rgba(255, 255, 255, 0.97);
@@ -762,20 +871,43 @@ function openTrace(trace: Record<string, any>) {
   cursor: pointer;
 }
 
-.compact-context {
+.analysis-workbench {
   margin-bottom: 8px;
-  padding: 8px;
-  border-radius: 10px;
-  background: #eff6ff;
-  color: #1d4ed8;
+  padding: 10px;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #eff6ff 0%, rgba(239, 246, 255, 0.52) 100%);
+  color: #1e3a8a;
 }
 
-.compact-context.region {
-  background: #ecfdf5;
+.analysis-workbench.region {
+  border-color: #bbf7d0;
+  background: linear-gradient(180deg, #ecfdf5 0%, rgba(236, 253, 245, 0.52) 100%);
   color: #047857;
 }
 
-.context-chip-row {
+.analysis-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.analysis-title-row strong {
+  display: block;
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.analysis-title-row span {
+  display: block;
+  margin-top: 1px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.analysis-context-line {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
@@ -786,7 +918,7 @@ function openTrace(trace: Record<string, any>) {
   max-width: 128px;
   padding: 3px 7px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.82);
   color: inherit;
   font-size: 12px;
   font-weight: 700;
@@ -795,12 +927,53 @@ function openTrace(trace: Record<string, any>) {
   white-space: nowrap;
 }
 
-.context-action-line {
+.analysis-summary {
+  margin-top: 6px;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.analysis-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.analysis-metrics span {
+  min-width: 0;
+  padding: 6px 7px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.analysis-metrics em {
+  display: block;
+  color: #64748b;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.analysis-metrics strong {
+  display: block;
+  color: #0f172a;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analysis-actions {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 8px;
-  margin-top: 7px;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
 }
 
 .fold-panel {
@@ -890,7 +1063,7 @@ function openTrace(trace: Record<string, any>) {
 .message-list {
   flex: 1;
   min-height: 220px;
-  max-height: min(58vh, 560px);
+  max-height: none;
   overflow-y: auto;
   padding-right: 4px;
 }

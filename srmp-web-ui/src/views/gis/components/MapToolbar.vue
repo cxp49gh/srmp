@@ -41,30 +41,32 @@
         <el-button @click="emitReset">重置</el-button>
         <el-button @click="$emit('fit')">全图</el-button>
         <span class="region-divider" />
-        <el-button
-          :type="regionMode === 'RECTANGLE' ? 'primary' : undefined"
-          plain
-          @click="$emit('start-region', 'RECTANGLE')"
-        >矩形框选</el-button>
-        <el-button
-          :type="regionMode === 'POLYGON' ? 'primary' : undefined"
-          plain
-          @click="$emit('start-region', 'POLYGON')"
-        >多边形框选</el-button>
-        <el-button plain :disabled="!hasRegion" @click="$emit('clear-region')">清除框选</el-button>
+        <el-dropdown trigger="click" @command="handleRegionCommand">
+          <el-button plain>
+            区域工具
+            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="RECTANGLE">{{ regionMode === 'RECTANGLE' ? '✓ ' : '' }}矩形框选</el-dropdown-item>
+              <el-dropdown-item command="POLYGON">{{ regionMode === 'POLYGON' ? '✓ ' : '' }}多边形框选</el-dropdown-item>
+              <el-dropdown-item command="CLEAR" :disabled="!hasRegion" divided>清除框选</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </el-form-item>
     </el-form>
 
-    <div class="metric-hint">
+    <div class="metric-hint compact">
       <span class="metric-pill">{{ activeMetric.shortName }}</span>
-      <span class="metric-desc">{{ activeMetric.description }}</span>
-      <span v-if="activeGradeText" class="grade-filter">当前等级：{{ activeGradeText }}</span>
+      <span v-if="activeGradeText" class="grade-filter">{{ activeGradeText }}</span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, reactive, watch } from 'vue'
+import { ArrowDown } from '@element-plus/icons-vue'
 import type { GisLayerQuery } from '../../../api/gis'
 import { ROAD_CONDITION_GRADES, ROAD_CONDITION_METRICS, getGradeMeta, getMetricMeta } from '../../../utils/roadConditionMetrics'
 
@@ -105,11 +107,20 @@ function emitSearch() {
 function emitReset() {
   emit('reset')
 }
+
+function handleRegionCommand(command: string) {
+  if (command === 'CLEAR') {
+    emit('clear-region')
+    return
+  }
+  emit('start-region', command as 'RECTANGLE' | 'POLYGON')
+}
 </script>
 
 <style scoped>
 .map-toolbar {
-  padding: 9px 12px 8px;
+  position: relative;
+  padding: 8px 12px;
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(8px);
   border: 1px solid rgba(226, 232, 240, 0.82);
@@ -118,7 +129,7 @@ function emitReset() {
 
 .toolbar-form {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   column-gap: 8px;
   row-gap: 2px;
@@ -133,7 +144,7 @@ function emitReset() {
 }
 
 .metric-select {
-  width: 218px;
+  width: 236px;
 }
 
 .grade-select {
@@ -195,15 +206,17 @@ function emitReset() {
 }
 
 .metric-hint {
+  position: absolute;
+  left: 58px;
+  bottom: -25px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-height: 20px;
-  margin-top: -2px;
-  padding-left: 40px;
   color: #64748b;
   font-size: 12px;
   line-height: 1.4;
+  pointer-events: none;
 }
 
 .metric-pill,
@@ -224,11 +237,6 @@ function emitReset() {
   font-weight: 600;
 }
 
-.metric-desc {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 :deep(.el-form-item) {
   margin-right: 0;
@@ -247,7 +255,7 @@ function emitReset() {
   }
 
   .metric-select {
-    width: 168px;
+    width: 188px;
   }
 
   .metric-hint {
@@ -261,12 +269,16 @@ function emitReset() {
   }
 
   .map-toolbar {
-    max-height: 132px;
-    overflow-y: auto;
+    overflow-x: auto;
+    overflow-y: hidden;
   }
 }
 
 @media (max-width: 960px) {
+  .toolbar-form {
+    flex-wrap: wrap;
+  }
+
   .route-input,
   .year-input,
   .metric-select,
