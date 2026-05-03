@@ -150,6 +150,37 @@ export interface EmbeddingHealthResponse {
   suggestion?: string
 }
 
+
+export interface LlmHealthResponse {
+  provider?: string
+  model?: string
+  baseUrl?: string
+  enabled?: boolean
+  available?: boolean
+  status?: string
+  success?: boolean
+  connectTimeoutMs?: number
+  readTimeoutMs?: number
+  curlMaxTimeSeconds?: number
+  maxTokens?: number
+  temperature?: number
+  costMs?: number
+  probeCostMs?: number
+  answerChars?: number
+  promptChars?: number
+  errorType?: string
+  errorMessage?: string
+  rawResponsePreview?: string
+  probeAnswerPreview?: string
+}
+
+/**
+ * LLM health check，probe=true 会真正请求一次模型。
+ */
+export function getLlmHealth(probe = false): Promise<LlmHealthResponse> {
+  return aiRequest.get('/api/ai/llm/health', { params: { probe } })
+}
+
 /**
  * Phase37  embedding health check.
  */

@@ -18,6 +18,7 @@
         <router-link to="/agent/ai-health">AI 健康检查</router-link>
         <router-link to="/agent/outline-search">Outline 搜索</router-link>
         <router-link to="/agent/outline-sync">Outline 同步</router-link>
+        <router-link to="/agent/outline-auto-sync">Outline 自动同步</router-link>
         <router-link to="/agent/outline-status">Outline 状态</router-link>
       </nav>
     </aside>

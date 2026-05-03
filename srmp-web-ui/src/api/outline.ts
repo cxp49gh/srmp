@@ -1,4 +1,4 @@
-import request from '../utils/request'
+import request, { longRequest } from '../utils/request'
 
 export interface OutlineSearchRequest { query: string; limit?: number }
 export interface OutlineSearchResult { id: string; title: string; text?: string; url?: string; score?: number }
@@ -22,7 +22,7 @@ export function getOutlineCollections(): Promise<OutlineCollection[]> { return r
 export function listOutlineDocuments(data: { collectionId?: string; limit?: number; offset?: number }): Promise<OutlineDocument[]> {
   return request.post('/api/outline/documents/list', data)
 }
-export function syncOutline(data: OutlineSyncRequest): Promise<Record<string, any>> { return request.post('/api/outline/sync', data) }
+export function syncOutline(data: OutlineSyncRequest): Promise<Record<string, any>> { return longRequest.post('/api/outline/sync', data) }
 export function getOutlineSyncTasks(limit = 20): Promise<Record<string, any>[]> {
   return request.get('/api/outline/sync-tasks', { params: { limit } })
 }
@@ -39,7 +39,7 @@ export function getOutlineKnowledgeStats(): Promise<Record<string, any>> {
 }
 
 export function vectorizeOutline(data: { force?: boolean; dryRun?: boolean; limit?: number } = {}): Promise<Record<string, any>> {
-  return request.post('/api/outline/vectorize', data)
+  return longRequest.post('/api/outline/vectorize', data)
 }
 
 
@@ -80,7 +80,7 @@ export function updateOutlineAutoSyncConfig(id: string, data: OutlineAutoSyncCon
 }
 
 export function runOutlineAutoSyncNow(id: string, data?: OutlineAutoSyncRunRequest): Promise<Record<string, any>> {
-  return request.post(`/api/outline/auto-sync/configs/${id}/run`, data || { triggerType: 'MANUAL' })
+  return longRequest.post(`/api/outline/auto-sync/configs/${id}/run`, data || { triggerType: 'MANUAL' })
 }
 
 export function getOutlineAutoSyncRuns(params?: { configId?: string; limit?: number }): Promise<Record<string, any>[]> {
@@ -88,5 +88,11 @@ export function getOutlineAutoSyncRuns(params?: { configId?: string; limit?: num
 }
 
 export function scanOutlineAutoSyncDue(): Promise<Record<string, any>> {
-  return request.post('/api/outline/auto-sync/scan-due')
+  return longRequest.post('/api/outline/auto-sync/scan-due')
+}
+
+export function testOutlineAutoSyncWebhook(secret: string, payload: Record<string, any>): Promise<Record<string, any>> {
+  return longRequest.post('/api/outline/auto-sync/webhook', payload, {
+    headers: { 'X-Outline-Webhook-Secret': secret }
+  })
 }

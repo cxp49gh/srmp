@@ -39,6 +39,10 @@ function createRequest(timeout: number): AxiosInstance {
   return instance
 }
 
-const request = createRequest(30000)
-export const aiRequest = createRequest(Number(import.meta.env.VITE_AI_TIMEOUT || 120000))
+const request = createRequest(Number(import.meta.env.VITE_API_TIMEOUT || 60000))
+
+// AI / Outline 同步 / 向量化这类长任务的前端等待时间必须大于后端 read-timeout，
+// 否则后端仍在生成，浏览器侧已经 ECONNABORTED。
+export const aiRequest = createRequest(Number(import.meta.env.VITE_AI_TIMEOUT || 300000))
+export const longRequest = createRequest(Number(import.meta.env.VITE_LONG_TIMEOUT || 300000))
 export default request
