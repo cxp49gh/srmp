@@ -919,7 +919,6 @@ function handleFitAll() {
   right: 104px;
   z-index: 930;
   max-width: calc(100vw - 136px);
-  transition: right 0.18s ease, max-width 0.18s ease;
 }
 
 .map-legend-fixed {
@@ -965,11 +964,6 @@ function handleFitAll() {
   bottom: 50px;
 }
 
-.one-map-page.agent-open .top-toolbar {
-  right: 548px;
-  max-width: calc(100vw - 568px);
-}
-
 .one-map-page.agent-open :deep(.leaflet-bottom.leaflet-right) {
   right: 548px;
 }
@@ -986,11 +980,6 @@ function handleFitAll() {
 
   .map-legend-fixed {
     bottom: 156px;
-  }
-
-  .one-map-page.agent-open .top-toolbar {
-    right: 18px;
-    max-width: calc(100vw - 36px);
   }
 
   .one-map-page.agent-open :deep(.leaflet-bottom.leaflet-right) {

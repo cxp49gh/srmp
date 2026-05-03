@@ -4,7 +4,7 @@
       <div class="chat-header compact">
         <div class="title-box">
           <strong>AI 养护助手</strong>
-          <p>{{ contextText }}</p>
+          <span class="header-subtitle">一张图分析、养护建议与依据追踪</span>
         </div>
         <button type="button" class="close-btn" @click="emit('update:visible', false)">×</button>
       </div>
@@ -258,7 +258,10 @@ const analysisScopeTitle = computed(() => {
 })
 
 const analysisScopeDescription = computed(() => {
-  if (activeMapObject.value) return mapContextLabel.value
+  if (activeMapObject.value) {
+    const metric = activeMetricDisplay.value ? `当前${activeMetricMeta.value.code} ${activeMetricDisplay.value}，` : ''
+    return `${metric}已接入指标专题、图层统计与 AI 上下文，可直接分析或生成养护建议。`
+  }
   if (activeRegionContext.value) {
     const route = props.context?.query?.routeCode || activeRegionContext.value.routeCode || '当前路线'
     const targets = analysisTargetText.value || '线路、路段、病害、评定结果'
@@ -319,8 +322,7 @@ const contextChips = computed(() => {
   const route = obj.routeCode || obj.route_code
   const severity = obj.severity
   const stake = formatStake(obj.startStake ?? obj.start_stake, obj.endStake ?? obj.end_stake)
-  const score = obj.mqi !== undefined && obj.mqi !== null ? `MQI ${obj.mqi}` : (obj.pci !== undefined && obj.pci !== null ? `PCI ${obj.pci}` : '')
-  ;[disease, severity, route, stake, score].forEach((it) => {
+  ;[disease, severity, route, stake].forEach((it) => {
     if (it !== undefined && it !== null && it !== '') chips.push(String(it))
   })
   return chips.slice(0, 6)
@@ -818,7 +820,7 @@ function openTrace(trace: Record<string, any>) {
 <style scoped>
 .agent-chat-float {
   position: absolute;
-  top: 112px;
+  top: 16px;
   right: 18px;
   bottom: 18px;
   z-index: 950;
@@ -853,8 +855,9 @@ function openTrace(trace: Record<string, any>) {
   font-size: 16px;
 }
 
-.chat-header p {
-  margin: 2px 0 0;
+.header-subtitle {
+  display: block;
+  margin-top: 2px;
   color: #64748b;
   font-size: 12px;
   overflow: hidden;
@@ -872,6 +875,7 @@ function openTrace(trace: Record<string, any>) {
 }
 
 .analysis-workbench {
+  flex-shrink: 0;
   margin-bottom: 8px;
   padding: 10px;
   border: 1px solid #dbeafe;
