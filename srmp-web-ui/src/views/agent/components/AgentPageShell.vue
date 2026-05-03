@@ -6,6 +6,7 @@
 
       <nav class="sidebar-nav">
         <router-link to="/gis/one-map">GIS 一张图</router-link>
+        <router-link to="/agent/ai-ops">AI 运维总览</router-link>
         <router-link to="/agent/chat">AI 问答</router-link>
         <router-link to="/agent/ai-traces">AI 调用监控</router-link>
         <router-link to="/agent/solution-templates">方案模板</router-link>

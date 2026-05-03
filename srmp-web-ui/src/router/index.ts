@@ -7,6 +7,7 @@ import KnowledgeSearchPage from '../views/agent/KnowledgeSearchPage.vue'
 import KnowledgeVectorPage from '../views/agent/KnowledgeVectorPage.vue'
 import RagEvalPage from '../views/agent/RagEvalPage.vue'
 import AiHealthPage from '../views/agent/AiHealthPage.vue'
+import AiOpsDashboardPage from '../views/agent/AiOpsDashboardPage.vue'
 import OutlineSearchPage from '../views/agent/OutlineSearchPage.vue'
 import OutlineStatusPage from '../views/agent/OutlineStatusPage.vue'
 import OutlineSyncPage from '../views/agent/OutlineSyncPage.vue'
@@ -35,6 +36,13 @@ const router = createRouter({
       component: DemoDashboardPage,
       meta: {
         title: '演示数据联调看板'
+      }
+    },
+    {
+      path: '/agent/ai-ops',
+      component: AiOpsDashboardPage,
+      meta: {
+        title: 'AI 运维总览'
       }
     },
     {
