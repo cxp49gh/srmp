@@ -3,7 +3,7 @@
     <div class="workbench-header">
       <div>
         <strong>{{ collapsed ? '一张图' : '一张图资源' }}</strong>
-        <p v-if="!collapsed">图层控制与图层统计统一入口</p>
+        <p v-if="!collapsed">图层控制、指标专题与统计统一入口</p>
       </div>
       <button type="button" class="collapse-btn" @click="collapsed = !collapsed">
         {{ collapsed ? '›' : '‹' }}
@@ -15,6 +15,19 @@
         <el-button size="small" :loading="loading" @click="$emit('reload')">刷新图层</el-button>
         <el-button size="small" plain @click="$emit('fit')">全图</el-button>
       </div>
+
+      <section class="indicator-card">
+        <div class="indicator-title">
+          <span>{{ metricMeta.shortName }}</span>
+          <el-tag size="small" type="info">{{ metricMeta.dimension }}</el-tag>
+        </div>
+        <p>{{ metricMeta.description }}</p>
+        <div class="indicator-value-row">
+          <span>当前均值</span>
+          <strong>{{ formatMetricValue(selectedMetricAverage) }}</strong>
+          <em v-if="selectedMetricGradeLabel !== '-'">{{ selectedMetricGradeLabel }}</em>
+        </div>
+      </section>
 
       <section class="layer-group">
         <div class="group-title">道路资产</div>
@@ -37,13 +50,13 @@
         <div class="stat-grid">
           <div v-for="item in statItems" :key="item.key" class="stat-card">
             <span>{{ item.label }}</span>
-            <strong>{{ format(item.value) }}</strong>
+            <strong>{{ item.value }}</strong>
           </div>
         </div>
       </section>
 
       <div class="layer-tip">
-        已启用 {{ enabledLayerCount }} 个图层；统计与当前查询条件、启用图层保持一致。
+        已启用 {{ enabledLayerCount }} 个图层；当前专题指标为 {{ metricMeta.code }}，统计随查询条件、等级过滤与启用图层更新。
       </div>
     </template>
   </aside>
@@ -51,12 +64,15 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import type { GisLayerQuery } from '../../../api/gis'
 import type { LayerState } from './LayerDrawer.vue'
+import { formatMetricValue, getGradeMeta, getMetricGrade, getMetricMeta, getMetricValue, gradeFromScore, gradeLabel } from '../../../utils/roadConditionMetrics'
 
 const props = defineProps<{
   layers: LayerState
   statistics: Record<string, any>
   layerCounts?: Record<string, number>
+  query?: GisLayerQuery
   loading?: boolean
 }>()
 
@@ -87,19 +103,34 @@ const businessLayerItems = [
   { key: 'assessment' as keyof LayerState, label: '评定专题' }
 ]
 
+const metricMeta = computed(() => getMetricMeta(props.query?.indexCode))
+const normalizedStats = computed(() => unwrapPayload(props.statistics || {}))
+const selectedMetricAverage = computed(() => getMetricValue(normalizedStats.value, metricMeta.value.code))
+const selectedMetricGradeLabel = computed(() => {
+  const explicit = getMetricGrade(normalizedStats.value, metricMeta.value.code)
+  const grade = explicit || gradeFromScore(selectedMetricAverage.value)
+  return grade ? gradeLabel(grade) : '-'
+})
+
 const enabledLayerCount = computed(() => {
   return [...assetLayerItems, ...businessLayerItems].filter((item) => localLayers[item.key]).length
 })
 
 const statItems = computed(() => {
-  const value = props.statistics || {}
+  const value = normalizedStats.value
   return [
-    { key: 'totalLengthKm', label: '总里程', value: value.totalLengthKm },
-    { key: 'diseaseCount', label: '病害数', value: value.diseaseCount },
-    { key: 'avgMqi', label: '平均 MQI', value: value.avgMqi },
-    { key: 'excellentGoodRate', label: '优良率', value: value.excellentGoodRate },
-    { key: 'poorBadRate', label: '次差率', value: value.poorBadRate }
+    { key: 'totalLengthKm', label: '总里程', value: format(pick(value, 'totalLengthKm', 'total_length_km', 'mileageKm', 'mileage_km')) },
+    { key: 'selectedMetricAvg', label: `平均 ${metricMeta.value.code}`, value: formatMetricValue(selectedMetricAverage.value) },
+    { key: 'diseaseCount', label: '病害数', value: format(pick(value, 'diseaseCount', 'disease_count')) },
+    { key: 'excellentGoodRate', label: '优良率', value: formatPercent(pick(value, 'excellentGoodRate', 'excellent_good_rate', 'goodRate', 'good_rate')) },
+    { key: 'poorBadRate', label: '次差率', value: formatPercent(pick(value, 'poorBadRate', 'poor_bad_rate', 'badRate', 'bad_rate')) },
+    { key: 'gradeFilter', label: '等级过滤', value: gradeFilterLabel.value }
   ]
+})
+
+const gradeFilterLabel = computed(() => {
+  const grade = getGradeMeta(props.query?.grade)
+  return grade ? `${grade.label} ${grade.rangeText}` : '全部'
 })
 
 function emitLayerChange() {
@@ -114,19 +145,40 @@ function layerCount(key: keyof LayerState) {
   return count
 }
 
+function unwrapPayload(value: any) {
+  if (value && typeof value === 'object' && typeof value.code !== 'undefined' && 'data' in value) return value.data || {}
+  return value || {}
+}
+
+function pick(source: any, ...keys: string[]) {
+  if (!source || typeof source !== 'object') return undefined
+  for (const key of keys) {
+    const value = source[key]
+    if (value !== undefined && value !== null && value !== '') return value
+  }
+  return undefined
+}
+
 function format(value: any) {
   return value === null || value === undefined || value === '' ? '-' : value
+}
+
+function formatPercent(value: any) {
+  if (value === null || value === undefined || value === '') return '-'
+  const num = Number(value)
+  if (!Number.isFinite(num)) return String(value)
+  return `${num % 1 === 0 ? num : num.toFixed(1)}%`
 }
 </script>
 
 <style scoped>
 .gis-left-workbench {
   position: absolute;
-  top: 96px;
+  top: 104px;
   left: 18px;
   bottom: 216px;
   z-index: 920;
-  width: 286px;
+  width: 296px;
   max-height: none;
   padding: 12px;
   border: 1px solid rgba(226, 232, 240, 0.9);
@@ -176,6 +228,52 @@ function format(value: any) {
   gap: 8px;
   flex-wrap: wrap;
   margin-bottom: 8px;
+}
+
+.indicator-card {
+  padding: 10px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #eff6ff, #f8fafc);
+  border: 1px solid #dbeafe;
+}
+
+.indicator-title,
+.indicator-value-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.indicator-title span {
+  font-weight: 800;
+  color: #1d4ed8;
+}
+
+.indicator-card p {
+  margin: 6px 0 8px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.indicator-value-row span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.indicator-value-row strong {
+  color: #0f172a;
+  font-size: 18px;
+}
+
+.indicator-value-row em {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #fff;
+  color: #2563eb;
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .layer-group + .layer-group,
@@ -245,10 +343,10 @@ function format(value: any) {
 
 @media (max-width: 960px) {
   .gis-left-workbench {
-    top: 132px;
+    top: 144px;
     left: 10px;
     bottom: 176px;
-    width: min(286px, calc(100vw - 20px));
+    width: min(296px, calc(100vw - 20px));
     max-height: none;
   }
 }

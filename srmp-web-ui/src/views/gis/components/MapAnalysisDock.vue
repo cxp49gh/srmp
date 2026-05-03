@@ -5,6 +5,7 @@
         <div class="dock-title">
           <strong>一张图分析</strong>
           <el-tag size="small" :type="scopeTagType">{{ scopeLabel }}</el-tag>
+          <span class="metric-badge">{{ metricMeta.shortName }}</span>
         </div>
         <div class="dock-summary">
           {{ summaryText }}
@@ -32,6 +33,8 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { GisLayerQuery } from '../../../api/gis'
+import { formatMetricValue, getMetricGrade, getMetricMeta, getMetricValue, gradeFromScore, gradeLabel } from '../../../utils/roadConditionMetrics'
 
 const props = defineProps<{
   detail: Record<string, any> | null
@@ -41,6 +44,8 @@ const props = defineProps<{
   geometryType: 'RECTANGLE' | 'POLYGON'
   hasRegion?: boolean
   agentVisible?: boolean
+  query?: GisLayerQuery
+  statistics?: Record<string, any>
 }>()
 
 defineEmits<{
@@ -53,6 +58,7 @@ defineEmits<{
   (e: 'open-agent'): void
 }>()
 
+const metricMeta = computed(() => getMetricMeta(props.query?.indexCode))
 const hasTrace = computed(() => Boolean(props.regionTrace?.traceId || props.regionTrace?.trace_id))
 
 const scopeLabel = computed(() => {
@@ -73,25 +79,45 @@ const summaryText = computed(() => {
     const title = detail.diseaseName || detail.routeName || detail.sectionName || detail.unitCode || detail.routeCode || '当前对象'
     const route = detail.routeCode ? ` / ${detail.routeCode}` : ''
     const stake = formatStake(detail.startStake ?? detail.start_stake, detail.endStake ?? detail.end_stake)
+    const metricValue = formatMetricValue(getMetricValue(detail, metricMeta.value.code))
+    const metricPart = metricValue !== '-' ? ` / ${metricMeta.value.code} ${metricValue}` : ''
     const severity = detail.severity ? ` / ${detail.severity}` : ''
-    return `${objectTypeLabel(detail.objectType)}：${title}${route}${stake ? ` / ${stake}` : ''}${severity}`
+    return `${objectTypeLabel(detail.objectType)}：${title}${route}${stake ? ` / ${stake}` : ''}${metricPart}${severity}`
   }
   if (props.hasRegion) {
-    return `${props.geometryType === 'RECTANGLE' ? '矩形' : '多边形'}框选区域，已统一线路、路段、病害、评定结果上下文，可直接分析或生成区域建议。`
+    return `${props.geometryType === 'RECTANGLE' ? '矩形' : '多边形'}框选区域，已按 ${metricMeta.value.shortName} 统一线路、路段、病害、评定结果上下文。`
   }
-  return '请选择地图对象，或在顶部工具栏进行矩形/多边形框选后开展分析。'
+  return `当前按 ${metricMeta.value.shortName} 查询，请选择地图对象，或在顶部工具栏进行矩形/多边形框选后开展分析。`
 })
 
 const metricItems = computed(() => {
-  if (!props.hasRegion) return []
-  const summary = unwrapSummary(props.regionSummary)
-  const disease = pick(summary, 'diseaseSummary', 'disease_summary') || {}
-  const assessment = pick(summary, 'assessmentSummary', 'assessment_summary') || {}
+  if (props.detail) {
+    const value = getMetricValue(props.detail, metricMeta.value.code)
+    const grade = getMetricGrade(props.detail, metricMeta.value.code) || gradeFromScore(value)
+    return [
+      { key: 'metric', label: metricMeta.value.code, value: formatMetricValue(value) },
+      { key: 'grade', label: '等级', value: grade ? gradeLabel(grade) : '-' }
+    ].filter((item) => item.value !== '-')
+  }
+
+  if (props.hasRegion) {
+    const summary = unwrapSummary(props.regionSummary)
+    const disease = pick(summary, 'diseaseSummary', 'disease_summary') || {}
+    const assessment = pick(summary, 'assessmentSummary', 'assessment_summary') || {}
+    const metricValue = getMetricValue(assessment, metricMeta.value.code) ?? getMetricValue(summary, metricMeta.value.code)
+    return [
+      { key: 'route', label: '路线', value: format(pick(summary, 'routeCount', 'route_count')) },
+      { key: 'section', label: '路段', value: format(pick(summary, 'sectionCount', 'section_count')) },
+      { key: 'disease', label: '病害', value: format(pick(disease, 'disease_count', 'diseaseCount')) },
+      { key: 'metric', label: metricMeta.value.code, value: formatMetricValue(metricValue) }
+    ].filter((item) => item.value !== '-')
+  }
+
+  const stats = unwrapSummary(props.statistics)
+  const metricValue = getMetricValue(stats, metricMeta.value.code)
   return [
-    { key: 'route', label: '路线', value: format(pick(summary, 'routeCount', 'route_count')) },
-    { key: 'section', label: '路段', value: format(pick(summary, 'sectionCount', 'section_count')) },
-    { key: 'disease', label: '病害', value: format(pick(disease, 'disease_count', 'diseaseCount')) },
-    { key: 'mqi', label: 'MQI', value: format(pick(assessment, 'avg_mqi', 'avgMqi')) }
+    { key: 'metric', label: `平均 ${metricMeta.value.code}`, value: formatMetricValue(metricValue) },
+    { key: 'disease', label: '病害', value: format(pick(stats, 'diseaseCount', 'disease_count')) }
   ].filter((item) => item.value !== '-')
 })
 
@@ -185,6 +211,17 @@ function formatStake(start: any, end?: any) {
   color: #0f172a;
 }
 
+.metric-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #2563eb;
+  background: #eff6ff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .dock-summary {
   color: #475569;
   font-size: 12px;
@@ -201,7 +238,7 @@ function formatStake(start: any, end?: any) {
   flex-wrap: wrap;
   justify-content: flex-end;
   min-width: 176px;
-  max-width: 260px;
+  max-width: 280px;
 }
 
 .dock-metrics span {

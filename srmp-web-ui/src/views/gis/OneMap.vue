@@ -19,13 +19,14 @@
       v-model:layers="layers"
       :statistics="statistics"
       :layer-counts="layerCounts"
+      :query="query"
       :loading="loading"
       @change="reloadLayers"
       @reload="reloadLayers"
       @fit="handleFitAll"
     />
 
-    <LegendPanel class="map-legend-fixed" />
+    <LegendPanel class="map-legend-fixed" :index-code="query.indexCode" />
 
     <MapAnalysisDock
       :detail="selectedDetail"
@@ -35,6 +36,8 @@
       :geometry-type="regionGeometryType"
       :has-region="!!regionGeometry"
       :agent-visible="agentVisible"
+      :query="query"
+      :statistics="statistics"
       @close-detail="clearSelection"
       @ai-analyze-object="openAiForSelected"
       @ai-analyze-region="askAiForRegion"
@@ -103,6 +106,7 @@ import {
   type MapRegionSolutionResponse
 } from '../../api/gis'
 import { layerStyle } from '../../utils/leafletStyle'
+import { getMetricGrade, getMetricMeta, getMetricValue } from '../../utils/roadConditionMetrics'
 import type { GeoJsonFeatureCollection } from '../../types/geojson'
 import { type LayerState } from './components/LayerDrawer.vue'
 import GisLeftWorkbench from './components/GisLeftWorkbench.vue'
@@ -207,6 +211,21 @@ const selectedMapObject = computed(() => {
     pqi: firstValue(props.pqi, raw.pqi),
     pci: firstValue(props.pci, raw.pci),
     grade: firstValue(props.grade, raw.grade),
+    activeIndexCode: getMetricMeta(query.indexCode).code,
+    activeMetricValue: getMetricValue(props, query.indexCode),
+    activeMetricGrade: getMetricGrade(props, query.indexCode),
+    metrics: {
+      MQI: getMetricValue(props, 'MQI'),
+      PQI: getMetricValue(props, 'PQI'),
+      PCI: getMetricValue(props, 'PCI'),
+      RQI: getMetricValue(props, 'RQI'),
+      RDI: getMetricValue(props, 'RDI'),
+      SRI: getMetricValue(props, 'SRI'),
+      PSSI: getMetricValue(props, 'PSSI'),
+      SCI: getMetricValue(props, 'SCI'),
+      BCI: getMetricValue(props, 'BCI'),
+      TCI: getMetricValue(props, 'TCI')
+    },
     raw: props
   }
 })
@@ -241,6 +260,9 @@ const agentContext = computed(() => ({
   selectedLayers: activeLayerNames(),
   analysisTargets: analysisTargets.value,
   viewport: currentViewport(),
+  metric: getMetricMeta(query.indexCode),
+  indexCode: query.indexCode,
+  grade: query.grade,
   contextScope: activeRegionContext.value ? 'REGION' : (selectedMapObject.value ? 'OBJECT' : 'ROUTE')
 }))
 
@@ -275,7 +297,10 @@ function layerQuery(): GisLayerQuery {
   return { ...query }
 }
 
-async function handleSearch() {
+async function handleSearch(nextQuery?: GisLayerQuery) {
+  if (nextQuery) {
+    Object.assign(query, nextQuery)
+  }
   await reloadLayers()
   await loadStatistics()
   handleFitAll()
@@ -336,9 +361,9 @@ async function loadLayer(layerKey: string, loader: () => Promise<GeoJsonFeatureC
   if (!collection || !collection.features || collection.features.length === 0) return
 
   const geoLayer = L.geoJSON(collection as any, {
-    style: (feature: any) => layerStyle(feature?.properties || feature),
+    style: (feature: any) => layerStyle(feature?.properties || feature, query.indexCode),
     pointToLayer: (feature, latlng) => {
-      const style = layerStyle(feature?.properties || feature) as any
+      const style = layerStyle(feature?.properties || feature, query.indexCode) as any
       return L.circleMarker(latlng, {
         radius: style.radius || 5,
         color: style.color || '#2563eb',
@@ -374,7 +399,7 @@ async function handleFeatureClick(layerKey: string, feature: any, layer: L.Layer
 function highlightLayer(layer: L.Layer) {
   if (selectedLayer && (selectedLayer as any).setStyle) {
     const feature = (selectedLayer as any).feature
-    ;(selectedLayer as any).setStyle(layerStyle(feature?.properties || feature))
+    ;(selectedLayer as any).setStyle(layerStyle(feature?.properties || feature, query.indexCode))
   }
 
   selectedLayer = layer
@@ -434,7 +459,7 @@ function clearSelection() {
   selectedFeatureProperties.value = null
   if (selectedLayer && (selectedLayer as any).setStyle) {
     const feature = (selectedLayer as any).feature
-    ;(selectedLayer as any).setStyle(layerStyle(feature?.properties || feature))
+    ;(selectedLayer as any).setStyle(layerStyle(feature?.properties || feature, query.indexCode))
   }
   selectedLayer = null
 }
@@ -624,9 +649,9 @@ async function loadRegionSummary(geometry: Record<string, any>) {
   try {
     const result = await analyzeMapRegion({
       geometry,
-      query: { ...query },
+      query: { ...query, indexCode: query.indexCode, grade: query.grade },
       layers: activeLayerNames(),
-      options: { useBusinessData: true }
+      options: { useBusinessData: true, indexCode: query.indexCode, grade: query.grade }
     })
     if (requestSeq === regionSummaryRequestSeq && regionGeometry.value) {
       regionSummary.value = normalizeRegionSummary(result, geometry)
@@ -653,9 +678,9 @@ async function generateRegionSolution() {
     const result = unwrapApiPayload(await generateMapRegionSolution({
       solutionType: 'REGION_MAINTENANCE_SUGGESTION',
       geometry: regionGeometry.value,
-      query: { ...query },
+      query: { ...query, indexCode: query.indexCode, grade: query.grade },
       layers: activeLayerNames(),
-      options: { useBusinessData: true, useKnowledge: true, useOutline: false, topK: 5, requireAi: true }
+      options: { useBusinessData: true, useKnowledge: true, useOutline: false, topK: 5, requireAi: true, indexCode: query.indexCode, grade: query.grade }
     })) as MapRegionSolutionResponse
     regionSolution.value = result
     if (result.regionSummary) {
@@ -707,7 +732,7 @@ async function saveRegionDraft() {
       templateName: templateMeta.templateName || templateMeta.template_name || '',
       templateMeta,
       sourceSummaries: regionSolution.value.sourceSummaries || [],
-      requestContext: { query: { ...query }, layers: activeLayerNames() }
+      requestContext: { query: { ...query, indexCode: query.indexCode, grade: query.grade }, layers: activeLayerNames(), metric: getMetricMeta(query.indexCode) }
     })
     regionSavedTask.value = saved
     ElMessage.success('区域方案草稿已保存')
