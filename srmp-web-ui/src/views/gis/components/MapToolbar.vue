@@ -39,19 +39,38 @@
       <el-form-item class="toolbar-actions">
         <el-button type="primary" @click="emitSearch">查询</el-button>
         <el-button @click="emitReset">重置</el-button>
-        <el-dropdown trigger="click" @command="handleRegionCommand">
-          <el-button plain>
-            区域工具
-            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+        <div class="region-icon-actions" aria-label="区域框选工具">
+          <el-button
+            :type="regionMode === 'RECTANGLE' ? 'primary' : ''"
+            plain
+            class="region-icon-btn"
+            title="矩形框选"
+            aria-label="矩形框选"
+            @click="emitRegion('RECTANGLE')"
+          >
+            <span class="region-icon region-rect">□</span>
           </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="RECTANGLE">{{ regionMode === 'RECTANGLE' ? '✓ ' : '' }}矩形框选</el-dropdown-item>
-              <el-dropdown-item command="POLYGON">{{ regionMode === 'POLYGON' ? '✓ ' : '' }}多边形框选</el-dropdown-item>
-              <el-dropdown-item command="CLEAR" :disabled="!hasRegion" divided>清除框选</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+          <el-button
+            :type="regionMode === 'POLYGON' ? 'primary' : ''"
+            plain
+            class="region-icon-btn"
+            title="多边形框选"
+            aria-label="多边形框选"
+            @click="emitRegion('POLYGON')"
+          >
+            <span class="region-icon region-poly">◇</span>
+          </el-button>
+          <el-button
+            plain
+            class="region-icon-btn"
+            title="清除框选"
+            aria-label="清除框选"
+            :disabled="!hasRegion && regionMode === 'NONE'"
+            @click="emitClearRegion"
+          >
+            <span class="region-icon region-clear">×</span>
+          </el-button>
+        </div>
       </el-form-item>
     </el-form>
   </div>
@@ -59,7 +78,6 @@
 
 <script setup lang="ts">
 import { reactive, watch } from 'vue'
-import { ArrowDown } from '@element-plus/icons-vue'
 import type { GisLayerQuery } from '../../../api/gis'
 import { ROAD_CONDITION_GRADES, ROAD_CONDITION_METRICS } from '../../../utils/roadConditionMetrics'
 
@@ -95,12 +113,12 @@ function emitReset() {
   emit('reset')
 }
 
-function handleRegionCommand(command: string) {
-  if (command === 'CLEAR') {
-    emit('clear-region')
-    return
-  }
-  emit('start-region', command as 'RECTANGLE' | 'POLYGON')
+function emitRegion(mode: 'RECTANGLE' | 'POLYGON') {
+  emit('start-region', mode)
+}
+
+function emitClearRegion() {
+  emit('clear-region')
 }
 </script>
 
@@ -123,19 +141,19 @@ function handleRegionCommand(command: string) {
 }
 
 .route-input {
-  width: 110px;
+  width: 104px;
 }
 
 .year-input {
-  width: 82px;
+  width: 78px;
 }
 
 .metric-select {
-  width: 206px;
+  width: 198px;
 }
 
 .grade-select {
-  width: 112px;
+  width: 104px;
 }
 
 .metric-option {
@@ -179,6 +197,41 @@ function handleRegionCommand(command: string) {
   align-items: center;
   gap: 6px;
   flex-wrap: nowrap;
+}
+
+.region-icon-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 2px;
+  border-left: 1px solid rgba(148, 163, 184, 0.32);
+}
+
+.region-icon-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0 !important;
+  border-radius: 9px;
+}
+
+.region-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.region-poly {
+  transform: rotate(45deg);
+  font-size: 16px;
+}
+
+.region-clear {
+  font-size: 20px;
 }
 
 .toolbar-actions :deep(.el-button) {

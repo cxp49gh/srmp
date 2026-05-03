@@ -30,6 +30,12 @@
       <LegendPanel class="map-legend-fixed" :index-code="query.indexCode" />
     </div>
 
+    <div v-if="regionMode !== 'NONE'" class="region-draw-tip">
+      <strong>{{ regionMode === 'RECTANGLE' ? '矩形框选中' : '多边形框选中' }}</strong>
+      <span>{{ regionMode === 'RECTANGLE' ? '按住鼠标拖拽形成区域' : '单击添加顶点，双击结束' }}</span>
+      <em>右键或 Esc 取消</em>
+    </div>
+
     <AgentChatFloat
       v-model:visible="agentVisible"
       :context="agentContext"
@@ -76,7 +82,7 @@
 
 <script setup lang="ts">
 import L, { GeoJSON, LatLngBounds, Map as LeafletMap } from 'leaflet'
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import MapToolbar from './components/MapToolbar.vue'
@@ -150,9 +156,13 @@ let map: LeafletMap
 const layerMap = new Map<string, GeoJSON>()
 let selectedLayer: L.Layer | null = null
 let regionLayer: L.Layer | null = null
+let regionPreviewLayer: L.Layer | null = null
 let aiSourceHighlightLayer: L.Layer | null = null
 let rectangleStart: L.LatLng | null = null
 let regionSummaryRequestSeq = 0
+
+const regionFinalStyle = { color: '#0284c7', weight: 3, fillColor: '#38bdf8', fillOpacity: 0.16 }
+const regionPreviewStyle = { color: '#2563eb', weight: 2, dashArray: '6 5', fillColor: '#7dd3fc', fillOpacity: 0.1 }
 
 function normalizeObjectType(rawType: any) {
   const type = String(rawType || '').toUpperCase()
@@ -274,15 +284,22 @@ onMounted(async () => {
 
   map.on('moveend', loadStatistics)
   map.on('mousedown', handleRegionMouseDown)
+  map.on('mousemove', handleRegionMouseMove)
   map.on('mouseup', handleRegionMouseUp)
   map.on('click', handleRegionClick)
   map.on('dblclick', handleRegionDoubleClick)
+  map.on('contextmenu', cancelRegionDraw)
+  window.addEventListener('keydown', handleRegionKeydown)
 
   await nextTick()
   map.invalidateSize(true)
   await reloadLayers()
   await loadStatistics()
   handleFitAll()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleRegionKeydown)
 })
 
 function isBlankQueryValue(value: any) {
@@ -514,6 +531,7 @@ function startRegionDraw(mode: 'RECTANGLE' | 'POLYGON') {
   selectedFeatureProperties.value = null
   polygonPoints.value = []
   rectangleStart = null
+  updateMapDrawState()
   if (map) {
     if (mode === 'RECTANGLE') {
       map.dragging.disable()
@@ -523,7 +541,7 @@ function startRegionDraw(mode: 'RECTANGLE' | 'POLYGON') {
       map.doubleClickZoom.disable()
     }
   }
-  ElMessage.info(mode === 'RECTANGLE' ? '拖拽地图绘制矩形选区' : '点击地图绘制多边形，双击结束')
+  ElMessage.info(mode === 'RECTANGLE' ? '拖拽地图绘制矩形选区，右键或 Esc 取消' : '点击地图绘制多边形，双击结束，右键或 Esc 取消')
 }
 
 function clearRegion() {
@@ -532,6 +550,7 @@ function clearRegion() {
     map.removeLayer(regionLayer)
     regionLayer = null
   }
+  clearRegionPreview()
   if (map) {
     map.dragging.enable()
     map.doubleClickZoom.enable()
@@ -545,12 +564,14 @@ function clearRegion() {
   regionPreviewVisible.value = false
   polygonPoints.value = []
   rectangleStart = null
+  updateMapDrawState()
 }
 
 function setRegionLayer(layer: L.Layer, geometry: Record<string, any>, geometryType: 'RECTANGLE' | 'POLYGON') {
   if (regionLayer && map) {
     map.removeLayer(regionLayer)
   }
+  clearRegionPreview()
   regionLayer = layer
   regionLayer.addTo(map)
   regionGeometryType.value = geometryType
@@ -561,30 +582,44 @@ function setRegionLayer(layer: L.Layer, geometry: Record<string, any>, geometryT
   regionMode.value = 'NONE'
   map.dragging.enable()
   map.doubleClickZoom.enable()
+  updateMapDrawState()
   loadRegionSummary(geometry)
 }
 
 function handleRegionMouseDown(event: L.LeafletMouseEvent) {
   if (regionMode.value !== 'RECTANGLE') return
   rectangleStart = event.latlng
+  clearRegionPreview()
+}
+
+function handleRegionMouseMove(event: L.LeafletMouseEvent) {
+  if (regionMode.value === 'RECTANGLE' && rectangleStart) {
+    const bounds = L.latLngBounds(rectangleStart, event.latlng)
+    renderRectanglePreview(bounds)
+    return
+  }
+  if (regionMode.value === 'POLYGON' && polygonPoints.value.length > 0) {
+    renderPolygonPreview(event.latlng)
+  }
 }
 
 function handleRegionMouseUp(event: L.LeafletMouseEvent) {
   if (regionMode.value !== 'RECTANGLE' || !rectangleStart) return
   const bounds = L.latLngBounds(rectangleStart, event.latlng)
-  const layer = L.rectangle(bounds, { color: '#0ea5e9', weight: 2, fillOpacity: 0.12 })
-  setRegionLayer(layer, boundsToPolygon(bounds), 'RECTANGLE')
   rectangleStart = null
+  if (!isUsefulBounds(bounds)) {
+    clearRegionPreview()
+    ElMessage.warning('框选范围过小，请重新拖拽绘制')
+    return
+  }
+  const layer = L.rectangle(bounds, regionFinalStyle)
+  setRegionLayer(layer, boundsToPolygon(bounds), 'RECTANGLE')
 }
 
 function handleRegionClick(event: L.LeafletMouseEvent) {
   if (regionMode.value !== 'POLYGON') return
   polygonPoints.value.push(event.latlng)
-  if (regionLayer && map) {
-    map.removeLayer(regionLayer)
-  }
-  regionLayer = L.polyline(polygonPoints.value, { color: '#0ea5e9', weight: 2 })
-  regionLayer.addTo(map)
+  renderPolygonPreview()
 }
 
 function handleRegionDoubleClick(event: L.LeafletMouseEvent) {
@@ -594,8 +629,74 @@ function handleRegionDoubleClick(event: L.LeafletMouseEvent) {
     ElMessage.warning('多边形至少需要 3 个点')
     return
   }
-  const layer = L.polygon(polygonPoints.value, { color: '#0ea5e9', weight: 2, fillOpacity: 0.12 })
+  const layer = L.polygon(polygonPoints.value, regionFinalStyle)
   setRegionLayer(layer, pointsToPolygon(polygonPoints.value), 'POLYGON')
+}
+
+function clearRegionPreview() {
+  if (regionPreviewLayer && map) {
+    map.removeLayer(regionPreviewLayer)
+    regionPreviewLayer = null
+  }
+}
+
+function renderRectanglePreview(bounds: L.LatLngBounds) {
+  if (!map || !bounds.isValid()) return
+  clearRegionPreview()
+  regionPreviewLayer = L.rectangle(bounds, regionPreviewStyle).addTo(map)
+}
+
+function renderPolygonPreview(cursor?: L.LatLng) {
+  if (!map) return
+  clearRegionPreview()
+  const points = cursor ? [...polygonPoints.value, cursor] : [...polygonPoints.value]
+  const previewLayers: L.Layer[] = []
+  if (points.length >= 2) {
+    previewLayers.push(L.polyline(points, regionPreviewStyle))
+  }
+  polygonPoints.value.forEach((point, index) => {
+    previewLayers.push(L.circleMarker(point, {
+      radius: index === 0 ? 5 : 4,
+      color: '#2563eb',
+      weight: 2,
+      fillColor: '#ffffff',
+      fillOpacity: 0.95
+    }))
+  })
+  regionPreviewLayer = L.layerGroup(previewLayers).addTo(map)
+}
+
+function cancelRegionDraw() {
+  if (regionMode.value === 'NONE') return
+  polygonPoints.value = []
+  rectangleStart = null
+  regionMode.value = 'NONE'
+  clearRegionPreview()
+  if (map) {
+    map.dragging.enable()
+    map.doubleClickZoom.enable()
+  }
+  updateMapDrawState()
+  ElMessage.info('已取消框选')
+}
+
+function handleRegionKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') cancelRegionDraw()
+}
+
+function updateMapDrawState() {
+  if (!map) return
+  const container = map.getContainer()
+  container.classList.toggle('region-drawing', regionMode.value !== 'NONE')
+  container.classList.toggle('region-rectangle', regionMode.value === 'RECTANGLE')
+  container.classList.toggle('region-polygon', regionMode.value === 'POLYGON')
+}
+
+function isUsefulBounds(bounds: L.LatLngBounds) {
+  if (!bounds.isValid()) return false
+  const sw = bounds.getSouthWest()
+  const ne = bounds.getNorthEast()
+  return Math.abs(sw.lat - ne.lat) > 0.00001 && Math.abs(sw.lng - ne.lng) > 0.00001
 }
 
 function boundsToPolygon(bounds: L.LatLngBounds) {
@@ -934,7 +1035,7 @@ function handleFitAll() {
 
 .left-map-stack {
   position: absolute;
-  top: 108px;
+  top: 88px;
   left: 18px;
   bottom: 32px;
   z-index: 920;
@@ -963,6 +1064,47 @@ function handleFitAll() {
   z-index: auto;
   flex: 0 0 auto;
   width: 100%;
+}
+
+.region-draw-tip {
+  position: absolute;
+  left: 50%;
+  top: 88px;
+  z-index: 935;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(620px, calc(100vw - 720px));
+  padding: 9px 14px;
+  border: 1px solid rgba(37, 99, 235, 0.22);
+  border-radius: 999px;
+  color: #1e3a8a;
+  background: rgba(239, 246, 255, 0.94);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  backdrop-filter: blur(8px);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.region-draw-tip strong {
+  font-size: 13px;
+}
+
+.region-draw-tip span,
+.region-draw-tip em {
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.region-draw-tip em {
+  color: #64748b;
+  font-style: normal;
+}
+
+:deep(.leaflet-container.region-drawing) {
+  cursor: crosshair;
 }
 
 .ai-float-button {
@@ -1017,7 +1159,12 @@ function handleFitAll() {
   }
 
   .left-map-stack {
+    top: 92px;
     bottom: 24px;
+  }
+
+  .region-draw-tip {
+    max-width: min(520px, calc(100vw - 640px));
   }
 
   .one-map-page.agent-open :deep(.leaflet-bottom.leaflet-right) {
@@ -1035,9 +1182,18 @@ function handleFitAll() {
   }
 
   .left-map-stack {
+    top: 92px;
     left: 10px;
     bottom: 24px;
     width: min(292px, calc(100vw - 20px));
+  }
+
+  .region-draw-tip {
+    left: 10px;
+    right: 10px;
+    top: 86px;
+    max-width: none;
+    transform: none;
   }
 }
 </style>
