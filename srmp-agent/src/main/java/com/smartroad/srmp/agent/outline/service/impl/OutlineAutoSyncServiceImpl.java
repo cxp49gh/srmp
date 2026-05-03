@@ -131,12 +131,16 @@ public class OutlineAutoSyncServiceImpl implements OutlineAutoSyncService {
         String event = firstNonBlank(extract(payload, "event", "type", "name"), "document.updated");
         String docId = firstNonBlank(extract(payload, "documentId", "document_id", "id"),
                 extract(child(payload, "document"), "id"),
+                extract(child(payload, "model"), "id"),
                 extract(child(payload, "data"), "documentId", "document_id", "id"),
-                extract(child(child(payload, "data"), "document"), "id"));
+                extract(child(child(payload, "data"), "document"), "id"),
+                extract(child(child(payload, "data"), "model"), "id"));
         String collectionId = firstNonBlank(extract(payload, "collectionId", "collection_id"),
                 extract(child(payload, "collection"), "id"),
+                extract(child(payload, "model"), "collectionId", "collection_id"),
                 extract(child(payload, "data"), "collectionId", "collection_id"),
-                extract(child(child(payload, "data"), "collection"), "id"));
+                extract(child(child(payload, "data"), "collection"), "id"),
+                extract(child(child(payload, "data"), "model"), "collectionId", "collection_id"));
 
         Map<String, Object> cfg = findWebhookConfig(tenantId, secret, collectionId);
         if (cfg.isEmpty()) throw new IllegalArgumentException("未找到匹配的 webhook 配置，或 webhook 未启用");
@@ -161,7 +165,7 @@ public class OutlineAutoSyncServiceImpl implements OutlineAutoSyncService {
     @Override
     public Map<String, Object> runDueConfigs() {
         List<Map<String, Object>> rows = jdbc.queryForList(
-                "select * from outline_auto_sync_config where enabled=true and (next_run_at is null or next_run_at<=now()) order by next_run_at asc limit 20",
+                "select * from outline_auto_sync_config where enabled=true and (next_run_at is null or next_run_at<=now()) and (status is null or status <> 'RUNNING' or updated_at < now() - interval '2 hours') order by next_run_at asc limit 20",
                 new MapSqlParameterSource());
         List<Map<String, Object>> runs = new ArrayList<>();
         for (Map<String, Object> cfg : rows) {
@@ -188,9 +192,14 @@ public class OutlineAutoSyncServiceImpl implements OutlineAutoSyncService {
         String configId = str(cfg.get("id"));
         String docId = request.getOutlineDocumentId();
         String collectionId = firstNonBlank(request.getOutlineCollectionId(), str(cfg.get("collection_id")));
-        String runId = insertRun(tenantId, configId, firstNonBlank(request.getTriggerType(), "MANUAL"), request.getOutlineEvent(), docId, collectionId);
+        String triggerType = firstNonBlank(request.getTriggerType(), "MANUAL");
+        String runId = insertRun(tenantId, configId, triggerType, request.getOutlineEvent(), docId, collectionId);
         try {
-            markConfigRunning(tenantId, configId);
+            if (!tryMarkConfigRunning(tenantId, configId)) {
+                String msg = "配置已有运行中任务，本次触发已跳过";
+                finishRun(runId, tenantId, "SKIPPED", msg, null, false, "SKIPPED", msg);
+                return aliasRow(loadRun(tenantId, runId));
+            }
             OutlineSyncRequest sync = new OutlineSyncRequest();
             sync.setCollectionId(blankToNull(collectionId));
             sync.setLimit(2000);
@@ -273,9 +282,11 @@ public class OutlineAutoSyncServiceImpl implements OutlineAutoSyncService {
         return rows.isEmpty() ? new LinkedHashMap<>() : rows.get(0);
     }
 
-    private void markConfigRunning(String tenantId, String id) {
-        jdbc.update("update outline_auto_sync_config set status='RUNNING', error_message=null, updated_at=now() where tenant_id=:tenantId and id=:id",
+    private boolean tryMarkConfigRunning(String tenantId, String id) {
+        int updated = jdbc.update("update outline_auto_sync_config set status='RUNNING', error_message=null, updated_at=now() " +
+                        "where tenant_id=:tenantId and id=:id and (status is null or status <> 'RUNNING' or updated_at < now() - interval '2 hours')",
                 new MapSqlParameterSource().addValue("tenantId", tenantId).addValue("id", id));
+        return updated > 0;
     }
 
     private void updateConfigAfterRun(String tenantId, String id, String taskId, String vectorStatus, String status, String error) {

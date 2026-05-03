@@ -15,6 +15,12 @@ public class OutlineProperties {
     private String defaultCollectionId;
     private Integer searchLimit = 5;
 
+    /** Outline API 建立连接超时，单位毫秒。 */
+    private Integer connectTimeoutMs = 10000;
+
+    /** Outline API 读取响应超时，单位毫秒。 */
+    private Integer readTimeoutMs = 60000;
+
     public boolean usable() {
         return Boolean.TRUE.equals(enabled)
                 && baseUrl != null && baseUrl.trim().length() > 0

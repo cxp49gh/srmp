@@ -48,9 +48,32 @@ public class OutlineAutoSyncController {
     }
 
     @PostMapping("/webhook")
-    public R<Map<String, Object>> webhook(@RequestHeader(value = "X-Outline-Webhook-Secret", required = false) String secret,
+    public R<Map<String, Object>> webhook(@RequestHeader(value = "X-Outline-Webhook-Secret", required = false) String outlineSecret,
+                                          @RequestHeader(value = "X-Webhook-Secret", required = false) String webhookSecret,
+                                          @RequestHeader(value = "Authorization", required = false) String authorization,
                                           @RequestBody Map<String, Object> payload) {
-        return R.ok(outlineAutoSyncService.handleWebhook(secret, payload));
+        return R.ok(outlineAutoSyncService.handleWebhook(resolveSecret(outlineSecret, webhookSecret, authorization), payload));
+    }
+
+    private String resolveSecret(String outlineSecret, String webhookSecret, String authorization) {
+        if (notBlank(outlineSecret)) {
+            return outlineSecret.trim();
+        }
+        if (notBlank(webhookSecret)) {
+            return webhookSecret.trim();
+        }
+        if (notBlank(authorization)) {
+            String value = authorization.trim();
+            if (value.toLowerCase().startsWith("bearer ")) {
+                return value.substring(7).trim();
+            }
+            return value;
+        }
+        return null;
+    }
+
+    private boolean notBlank(String value) {
+        return value != null && value.trim().length() > 0;
     }
 
     @PostMapping("/scan-due")

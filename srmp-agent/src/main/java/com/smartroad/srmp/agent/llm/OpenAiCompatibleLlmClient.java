@@ -44,6 +44,11 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
         data.put("model", properties == null ? null : properties.getModel());
         data.put("baseUrl", properties == null ? null : properties.getBaseUrl());
         data.put("enabled", enabled());
+        data.put("connectTimeoutMs", connectTimeoutMs());
+        data.put("readTimeoutMs", readTimeoutMs());
+        data.put("curlMaxTimeSeconds", curlMaxTimeSeconds());
+        data.put("maxTokens", maxTokens());
+        data.put("temperature", temperature());
         data.putAll(lastDiagnostics.get());
         return data;
     }
@@ -125,6 +130,11 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
         diag.put("model", properties == null ? null : properties.getModel());
         diag.put("baseUrl", properties == null ? null : properties.getBaseUrl());
         diag.put("enabled", enabled());
+        diag.put("connectTimeoutMs", connectTimeoutMs());
+        diag.put("readTimeoutMs", readTimeoutMs());
+        diag.put("curlMaxTimeSeconds", curlMaxTimeSeconds());
+        diag.put("maxTokens", maxTokens());
+        diag.put("temperature", temperature());
         diag.put("success", false);
         diag.put("status", "INIT");
         diag.put("errorType", null);
@@ -138,8 +148,8 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
     private Map<String, Object> buildBody(String systemPrompt, String userPrompt) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", properties.getModel());
-        body.put("temperature", 0.2);
-        body.put("max_tokens", 1800);
+        body.put("temperature", temperature());
+        body.put("max_tokens", maxTokens());
 
         List<Map<String, String>> messages = new ArrayList<>();
         messages.add(message("system", systemPrompt));
@@ -153,8 +163,8 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
         HttpURLConnection conn = (HttpURLConnection) url.openConnection(Proxy.NO_PROXY);
         conn.setRequestMethod("POST");
         conn.setDoOutput(true);
-        conn.setConnectTimeout(15000);
-        conn.setReadTimeout(60000);
+        conn.setConnectTimeout(connectTimeoutMs());
+        conn.setReadTimeout(readTimeoutMs());
         conn.setRequestProperty("Content-Type", "application/json");
         String apiKey = properties.getApiKey();
         if (!isBlank(apiKey)) {
@@ -201,7 +211,7 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
         cmd.add("-d");
         cmd.add(json);
         cmd.add("--max-time");
-        cmd.add("60");
+        cmd.add(String.valueOf(curlMaxTimeSeconds()));
 
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.redirectErrorStream(true);
@@ -335,6 +345,38 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
         item.put("role", role);
         item.put("content", content == null ? "" : content);
         return item;
+    }
+
+    private int connectTimeoutMs() {
+        Integer value = properties == null ? null : properties.getConnectTimeoutMs();
+        return positiveOrDefault(value, 15000);
+    }
+
+    private int readTimeoutMs() {
+        Integer value = properties == null ? null : properties.getReadTimeoutMs();
+        return positiveOrDefault(value, 180000);
+    }
+
+    private int curlMaxTimeSeconds() {
+        Integer value = properties == null ? null : properties.getCurlMaxTimeSeconds();
+        return positiveOrDefault(value, 180);
+    }
+
+    private int maxTokens() {
+        Integer value = properties == null ? null : properties.getMaxTokens();
+        return positiveOrDefault(value, 1800);
+    }
+
+    private double temperature() {
+        Double value = properties == null ? null : properties.getTemperature();
+        if (value == null || value < 0d || value > 2d) {
+            return 0.2d;
+        }
+        return value;
+    }
+
+    private int positiveOrDefault(Integer value, int defaultValue) {
+        return value != null && value > 0 ? value : defaultValue;
     }
 
     private Throwable rootCause(Throwable e) {

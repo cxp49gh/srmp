@@ -40,9 +40,11 @@ srmp:
     # 建立连接超时，默认 15 秒
     connect-timeout-ms: 15000
     # 等待模型返回超时，区域养护方案建议 180~300 秒
-    read-timeout-ms: 180000
+    read-timeout-ms: 300000
     # curl 兜底调用超时，建议和 read-timeout-ms 保持一致
-    curl-max-time-seconds: 180
+    curl-max-time-seconds: 300
+    max-tokens: 2400
+    temperature: 0.2
 
   ai:
     embedding:
@@ -59,6 +61,8 @@ srmp:
     sync-enabled: false
     default-collection-id: ${OUTLINE_DEFAULT_COLLECTION_ID:}
     search-limit: ${OUTLINE_SEARCH_LIMIT:5}
+    connect-timeout-ms: ${OUTLINE_CONNECT_TIMEOUT_MS:10000}
+    read-timeout-ms: ${OUTLINE_READ_TIMEOUT_MS:60000}
     rag:
       top-k: 8
       score-threshold: 0.0

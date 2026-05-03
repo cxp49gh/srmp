@@ -66,11 +66,10 @@ echo ""
 run_sql_file "srmp-admin/src/main/resources/db/phase17_outline_sync.sql" "阶段十七：Outline 同步任务表"
 run_sql_file "srmp-admin/src/main/resources/db/phase36_map_ai_agent_vector_knowledge.sql" "阶段三十六：AI 向量知识库"
 run_sql_file "srmp-admin/src/main/resources/db/phase37_1_knowledge_reindex.sql" "阶段三十七：知识库 Reindex 元数据"
-<<<<<<< ours
-=======
-run_sql_file "srmp-admin/src/main/resources/db/phase40_outline_ai_knowledge_sync_fix.sql" "阶段四十：Outline AI 知识库同步修复"
+run_sql_file "srmp-admin/src/main/resources/db/phase39_2_2_outline_sync_contract_vector_closure.sql" "阶段三十九：Outline 同步契约与向量闭环"
+run_sql_file "srmp-admin/src/main/resources/db/phase39_3_outline_auto_sync_webhook.sql" "阶段三十九：Outline 自动同步与 Webhook"
 run_sql_file "srmp-admin/src/main/resources/db/phase41_outline_vectorize_ops.sql" "阶段四十一：Outline 向量补齐运维索引"
->>>>>>> theirs
+run_sql_file "srmp-admin/src/main/resources/db/phase42_llm_timeout_outline_auto_sync_closure.sql" "阶段四十二：AI 超时与 Outline 自动同步收口"
 
 echo ""
 echo "==> 初始化完成"

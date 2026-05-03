@@ -10,6 +10,7 @@ import com.smartroad.srmp.agent.outline.dto.OutlineSyncRequest;
 import com.smartroad.srmp.agent.outline.service.OutlineSyncService;
 import com.smartroad.srmp.tenant.context.TenantContextHolder;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -25,7 +26,7 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
     @Resource private NamedParameterJdbcTemplate namedParameterJdbcTemplate;
     @Resource private AiKnowledgeIngestService aiKnowledgeIngestService;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private volatile RestTemplate restTemplate;
 
     @Override
     public List<OutlineCollectionDTO> collections() {
@@ -65,21 +66,27 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
 
     @Override
     public Map sync(OutlineSyncRequest request) {
+        OutlineSyncRequest req = request == null ? new OutlineSyncRequest() : request;
         String tenantId = TenantContextHolder.getTenantId();
         String taskId = uuid();
-        String collectionId = request == null ? null : request.getCollectionId();
-        boolean force = request != null && Boolean.TRUE.equals(request.getForce());
-        int limit = normalizeMaxDocuments(request == null ? null : request.getLimit());
+        String collectionId = req.getCollectionId();
+        boolean force = Boolean.TRUE.equals(req.getForce());
+        int limit = normalizeMaxDocuments(req.getLimit());
+        boolean dryRun = Boolean.TRUE.equals(req.getDryRun());
 
         insertTask(taskId, tenantId, collectionId);
 
         int total = 0, success = 0, skipped = 0, failed = 0;
+        List<String> errors = new ArrayList<>();
         try {
-            List<OutlineDocumentDTO> docs = documents(collectionId, limit, 0);
+            List<OutlineDocumentDTO> docs = fetchDocumentsForSync(req, collectionId, limit);
             total = docs.size();
             for (OutlineDocumentDTO doc : docs) {
+                OutlineDocumentDTO detail = doc;
                 try {
-                    OutlineDocumentDTO detail = fetchDocumentDetail(doc.getId());
+                    if (!notBlank(detail.getText()) && notBlank(detail.getId())) {
+                        detail = fetchDocumentDetail(detail.getId());
+                    }
                     if (!notBlank(detail.getCollectionId())) detail.setCollectionId(collectionId);
                     if (shouldSkipOutlineSystemDoc(detail)) {
                         insertDocDetail(taskId, tenantId, detail, "SKIP", "SKIPPED", "系统文档跳过", null, null, 0, null, null, null);
@@ -87,7 +94,7 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
                         continue;
                     }
                     Map<String, Object> ingestResult;
-                    if (Boolean.TRUE.equals(request.getDryRun())) {
+                    if (dryRun) {
                         Map<String, Object> dryRunSkipped = new LinkedHashMap<>();
                         dryRunSkipped.put("skipped", true);
                         dryRunSkipped.put("skipReason", "dryRun 模式不写入知识库");
@@ -98,27 +105,29 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
                     if (ingestResult == null) {
                         insertDocDetail(taskId, tenantId, detail, "UPSERT", "FAILED", null, "ingest result is null", null, 0, null, null, null);
                         failed++;
+                        appendError(errors, docLabel(detail) + ": ingest result is null");
                     } else if (Boolean.TRUE.equals(ingestResult.get("skipped"))) {
                         insertDocDetail(taskId, tenantId, detail, "UPSERT", "SKIPPED", safe((String) ingestResult.get("skipReason"), "内容未变化"), null, safe((String) ingestResult.get("documentId"), null), 0, safe((String) ingestResult.get("contentHash"), null), null, safe((String) ingestResult.get("skipReason"), "内容未变化"));
                         skipped++;
                     } else {
                         insertDocDetail(taskId, tenantId, detail, "UPSERT", "SUCCESS", null, null, safe((String) ingestResult.get("documentId"), null), ((Number) ingestResult.getOrDefault("chunkCount", Integer.valueOf(0))).intValue(), safe((String) ingestResult.get("contentHash"), null), null, null);
                         success++;
+                        Object embeddingFailedCount = ingestResult.get("embeddingFailedCount");
+                        if (embeddingFailedCount instanceof Number && ((Number) embeddingFailedCount).intValue() > 0) {
+                            appendError(errors, docLabel(detail) + ": 文档已同步，但 " + embeddingFailedCount + " 个 chunk 向量化失败");
+                        }
                     }
                 } catch (Exception e) {
-                    insertDocDetail(taskId, tenantId, doc, "UPSERT", "FAILED", null, e.getMessage(), null, 0, null, null, null);
+                    String msg = rootMessage(e);
+                    insertDocDetail(taskId, tenantId, detail, "UPSERT", "FAILED", null, msg, null, 0, null, null, null);
                     failed++;
+                    appendError(errors, docLabel(detail) + ": " + msg);
                 }
             }
-            String finalStatus;
-            if (Boolean.TRUE.equals(request.getDryRun())) {
-                finalStatus = (failed == 0) ? "DRY_RUN" : "DRY_RUN_PARTIAL";
-            } else {
-                finalStatus = computeStatus(total, success, skipped, failed);
-            }
-            updateTask(taskId, total, success, skipped, failed, finalStatus, null);
+            String finalStatus = dryRun ? ((failed == 0) ? "DRY_RUN" : "DRY_RUN_PARTIAL") : computeStatus(total, success, skipped, failed);
+            updateTask(taskId, total, success, skipped, failed, finalStatus, joinErrors(errors));
         } catch (Exception e) {
-            updateTask(taskId, total, success, skipped, failed, "FAILED", e.getMessage());
+            updateTask(taskId, total, success, skipped, failed, "FAILED", rootMessage(e));
         }
         return task(taskId);
     }
@@ -200,7 +209,7 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
         ingestRequest.setUrl(doc.getUrl());
         ingestRequest.setMetadata(metadata);
         ingestRequest.setForce(force);
-        ingestRequest.setVectorize(false);
+        ingestRequest.setVectorize(true);
         ingestRequest.setFailOnEmbeddingError(false);
 
         return aiKnowledgeIngestService.ingestMarkdown(ingestRequest);
@@ -314,7 +323,7 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
         ingestRequest.setUrl(doc.getUrl());
         ingestRequest.setMetadata(metadata);
         ingestRequest.setForce(force);
-        ingestRequest.setVectorize(false);
+        ingestRequest.setVectorize(true);
         ingestRequest.setFailOnEmbeddingError(false);
 
         Map<String, Object> result = aiKnowledgeIngestService.ingestMarkdown(ingestRequest);
@@ -350,13 +359,52 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
                         .addValue("failed", failed).addValue("status", status).addValue("error", error));
     }
 
+    private List<OutlineDocumentDTO> fetchDocumentsForSync(OutlineSyncRequest req, String collectionId, int limit) {
+        List<String> ids = req == null ? null : req.getDocumentIds();
+        if (ids != null && !ids.isEmpty()) {
+            List<OutlineDocumentDTO> result = new ArrayList<>();
+            Set<String> seen = new LinkedHashSet<>();
+            for (String id : ids) {
+                if (!notBlank(id) || !seen.add(id.trim())) {
+                    continue;
+                }
+                OutlineDocumentDTO detail = fetchDocumentDetail(id.trim());
+                if (detail != null && notBlank(detail.getId())) {
+                    if (!notBlank(detail.getCollectionId())) {
+                        detail.setCollectionId(collectionId);
+                    }
+                    result.add(detail);
+                }
+            }
+            return result;
+        }
+        return documents(collectionId, limit, 0);
+    }
+
+    private RestTemplate restTemplate() {
+        RestTemplate local = restTemplate;
+        if (local == null) {
+            synchronized (this) {
+                local = restTemplate;
+                if (local == null) {
+                    SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+                    factory.setConnectTimeout(positive(properties == null ? null : properties.getConnectTimeoutMs(), 10000));
+                    factory.setReadTimeout(positive(properties == null ? null : properties.getReadTimeoutMs(), 60000));
+                    local = new RestTemplate(factory);
+                    restTemplate = local;
+                }
+            }
+        }
+        return local;
+    }
+
     private JsonNode post(String path, Map<String, Object> body) {
         String baseUrl = properties.getBaseUrl();
         String url = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) + path : baseUrl + path;
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(properties.getApiToken());
-        return restTemplate.exchange(url, HttpMethod.POST, new HttpEntity<>(body, headers), JsonNode.class).getBody();
+        return restTemplate().exchange(url, HttpMethod.POST, new HttpEntity<>(body, headers), JsonNode.class).getBody();
     }
 
     private OutlineDocumentDTO toDocumentDTO(JsonNode node) {
@@ -395,6 +443,11 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
         return Math.min(size, 2000);
     }
 
+    private int positive(Integer value, int defaultValue) { return value != null && value > 0 ? value : defaultValue; }
+    private String docLabel(OutlineDocumentDTO doc) { return safe(doc == null ? null : doc.getTitle(), safe(doc == null ? null : doc.getId(), "unknown")); }
+    private void appendError(List<String> errors, String msg) { if (errors != null && errors.size() < 20 && notBlank(msg)) errors.add(msg); }
+    private String joinErrors(List<String> errors) { return errors == null || errors.isEmpty() ? null : String.join("\n", errors); }
+    private String rootMessage(Throwable e) { Throwable c = e; while (c != null && c.getCause() != null) c = c.getCause(); return c == null ? "" : String.valueOf(c.getMessage()); }
     private boolean notBlank(String value) { return value != null && value.trim().length() > 0; }
     private String safe(String value, String def) { return notBlank(value) ? value.trim() : def; }
     private String uuid() { return UUID.randomUUID().toString().replace("-", ""); }

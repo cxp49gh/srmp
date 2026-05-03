@@ -99,11 +99,10 @@ run_sql_file "srmp-admin/src/main/resources/db/init_admin.sql" "admin data"
 run_sql_file "srmp-admin/src/main/resources/db/phase17_outline_sync.sql" "outline sync schema"
 run_sql_file "srmp-admin/src/main/resources/db/phase36_map_ai_agent_vector_knowledge.sql" "AI vector knowledge schema"
 run_sql_file "srmp-admin/src/main/resources/db/phase37_1_knowledge_reindex.sql" "AI knowledge reindex metadata"
-<<<<<<< ours
-=======
-run_sql_file "srmp-admin/src/main/resources/db/phase40_outline_ai_knowledge_sync_fix.sql" "Outline AI knowledge sync fix"
+run_sql_file "srmp-admin/src/main/resources/db/phase39_2_2_outline_sync_contract_vector_closure.sql" "Outline sync contract vector closure"
+run_sql_file "srmp-admin/src/main/resources/db/phase39_3_outline_auto_sync_webhook.sql" "Outline auto sync webhook schema"
 run_sql_file "srmp-admin/src/main/resources/db/phase41_outline_vectorize_ops.sql" "Outline vectorize ops indexes"
->>>>>>> theirs
+run_sql_file "srmp-admin/src/main/resources/db/phase42_llm_timeout_outline_auto_sync_closure.sql" "AI timeout and Outline auto sync closure"
 run_sql_file "srmp-admin/src/main/resources/db/phase20_ai_solution_template.sql" "AI solution template schema"
 run_sql_file "srmp-admin/src/main/resources/db/phase21_ai_solution_generate.sql" "AI solution generation schema"
 run_sql_file "srmp-admin/src/main/resources/db/phase22_ai_trace_monitor.sql" "AI trace schema"
