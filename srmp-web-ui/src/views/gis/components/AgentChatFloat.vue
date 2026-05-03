@@ -38,7 +38,16 @@
             :disabled="!activeMapObject"
             :loading="loading"
             @click="triggerAnalyzeObject"
-          >分析对象</el-button>
+          >{{ analyzeObjectLabel }}</el-button>
+          <el-button
+            v-if="primarySolutionAction"
+            size="small"
+            type="success"
+            plain
+            :disabled="!activeMapObject || solutionLoading || loading"
+            :loading="solutionLoading && activeSolutionType === primarySolutionAction.type"
+            @click="generateSolutionDraft(primarySolutionAction.type)"
+          >{{ primarySolutionAction.label }}</el-button>
           <el-button
             size="small"
             plain
@@ -58,10 +67,9 @@
             <el-button size="small" plain>更多操作</el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item v-if="activeMapObject" command="suggest-object">生成处置建议</el-dropdown-item>
                 <el-dropdown-item v-if="activeRegionContext" command="suggest-region">生成区域追问</el-dropdown-item>
                 <el-dropdown-item
-                  v-for="action in solutionActions"
+                  v-for="action in secondarySolutionActions"
                   :key="action.type"
                   :command="`solution:${action.type}`"
                   :disabled="!activeMapObject || solutionLoading || loading"
@@ -73,6 +81,7 @@
             </template>
           </el-dropdown>
         </div>
+        <div class="analysis-action-hint">{{ operationHint }}</div>
       </section>
 
       <div class="fold-panel">
@@ -127,7 +136,7 @@
               :disabled="loading || solutionLoading"
               @click="generateDefaultSolutionDraft"
             >
-              基于本次分析生成方案草稿
+              生成结构化建议
             </el-button>
           </div>
           <AiTraceButton v-if="item.role === 'assistant'" :trace="item.trace" class="trace-button" @open="openTrace" />
@@ -433,27 +442,55 @@ const contextMode = computed(() => {
   return 'FREE'
 })
 
+const analyzeObjectLabel = computed(() => {
+  const type = normalizeObjectType(activeMapObject.value)
+  if (type === 'DISEASE' || type === 'DISEASE_RECORD') return '分析病害'
+  if (type === 'ASSESSMENT' || type === 'ASSESSMENT_RESULT') return '分析低分原因'
+  if (type === 'EVALUATION_UNIT') return '分析评定单元'
+  if (type === 'ROAD_SECTION') return '分析路段'
+  if (type === 'ROAD_ROUTE') return '分析路线'
+  return '分析对象'
+})
+
 const solutionActions = computed(() => {
   const type = normalizeObjectType(activeMapObject.value)
   if (type === 'DISEASE' || type === 'DISEASE_RECORD') {
     return [
-      { type: 'DISEASE_REVIEW' as MapObjectSolutionType, label: '生成复核意见', primary: false },
-      { type: 'DISEASE_TREATMENT' as MapObjectSolutionType, label: '生成处置建议', primary: true }
+      { type: 'DISEASE_TREATMENT' as MapObjectSolutionType, label: '生成处置建议', primary: true },
+      { type: 'DISEASE_REVIEW' as MapObjectSolutionType, label: '生成复核意见', primary: false }
     ]
   }
   if (type === 'ASSESSMENT' || type === 'ASSESSMENT_RESULT') {
-    return [{ type: 'LOW_SCORE_TREATMENT' as MapObjectSolutionType, label: '生成低分处置', primary: true }]
+    return [{ type: 'LOW_SCORE_TREATMENT' as MapObjectSolutionType, label: '生成低分处置建议', primary: true }]
   }
   if (type === 'EVALUATION_UNIT') {
-    return [{ type: 'EVALUATION_UNIT_ADVICE' as MapObjectSolutionType, label: '生成单元建议', primary: true }]
+    return [{ type: 'EVALUATION_UNIT_ADVICE' as MapObjectSolutionType, label: '生成单元养护建议', primary: true }]
   }
   if (type === 'ROAD_SECTION') {
-    return [{ type: 'SECTION_PLAN' as MapObjectSolutionType, label: '生成路段计划', primary: true }]
+    return [{ type: 'SECTION_PLAN' as MapObjectSolutionType, label: '生成路段养护计划', primary: true }]
   }
   if (type === 'ROAD_ROUTE') {
-    return [{ type: 'ROUTE_REPORT' as MapObjectSolutionType, label: '生成路线报告', primary: true }]
+    return [{ type: 'ROUTE_REPORT' as MapObjectSolutionType, label: '生成路线养护报告', primary: true }]
   }
-  return [{ type: 'GENERAL_ADVICE' as MapObjectSolutionType, label: '生成方案草稿', primary: true }]
+  return [{ type: 'GENERAL_ADVICE' as MapObjectSolutionType, label: '生成通用建议', primary: true }]
+})
+
+const primarySolutionAction = computed(() => solutionActions.value.find((it: any) => it.primary) || solutionActions.value[0] || null)
+const secondarySolutionActions = computed(() => solutionActions.value.filter((it: any) => !it.primary))
+
+const operationHint = computed(() => {
+  if (activeMapObject.value) {
+    const type = normalizeObjectType(activeMapObject.value)
+    if (type === 'DISEASE' || type === 'DISEASE_RECORD') {
+      return '分析病害用于解释成因和风险；生成处置建议会生成结构化建议；复核意见在更多操作中，用于识别结果、等级和位置复核。'
+    }
+    if (type === 'ASSESSMENT' || type === 'ASSESSMENT_RESULT') {
+      return '分析低分原因用于解释指标问题；生成低分处置建议会生成结构化建议，预览后可保存为方案草稿。'
+    }
+    return '分析对象用于 AI 解释；生成建议会生成结构化结果，预览后可保存为方案草稿。'
+  }
+  if (activeRegionContext.value) return '分析区域用于综合研判；生成区域建议会进入结构化区域养护建议流程。'
+  return '选择地图对象或框选区域后，可在这里分析问题、生成建议并追踪依据。'
 })
 
 function normalizeObjectType(obj: any) {
@@ -558,11 +595,6 @@ function triggerAnalyzeObject() {
   analyzeCurrentObject()
 }
 
-function suggestForCurrentObject() {
-  if (!activeMapObject.value) return
-  quickAsk('基于当前地图选中对象，生成养护处置建议和优先级判断')
-}
-
 function analyzeCurrentRegion() {
   if (!activeRegionContext.value) return
   quickAsk('综合分析当前区域内线路、路段、评定单元、病害和评定结果，说明区域养护重点和风险成因')
@@ -578,10 +610,6 @@ function suggestForCurrentRegion() {
 }
 
 async function handleContextCommand(command: string) {
-  if (command === 'suggest-object') {
-    suggestForCurrentObject()
-    return
-  }
   if (command === 'suggest-region') {
     suggestForCurrentRegion()
     return
@@ -642,7 +670,7 @@ function buildMapAiContext(message: string) {
 function generateDefaultSolutionDraft() {
   const primary = solutionActions.value.find((it: any) => it.primary) || solutionActions.value[0]
   if (!primary) {
-    ElMessage.warning('当前对象暂不支持生成方案草稿')
+    ElMessage.warning('当前对象暂不支持生成建议')
     return
   }
   generateSolutionDraft(primary.type)
@@ -674,7 +702,7 @@ async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
     solutionResult.value = normalizeSolutionResponse(res)
     solutionDialogVisible.value = true
   } catch (error: any) {
-    ElMessage.error(error?.message || '生成方案草稿失败')
+    ElMessage.error(error?.message || '生成结构化建议失败')
   } finally {
     solutionLoading.value = false
     activeSolutionType.value = ''
@@ -1045,6 +1073,16 @@ function openTrace(trace: Record<string, any>) {
   gap: 6px;
   flex-wrap: wrap;
   margin-top: 8px;
+}
+
+.analysis-action-hint {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.62);
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .fold-panel {
