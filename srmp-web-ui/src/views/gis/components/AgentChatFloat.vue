@@ -293,7 +293,7 @@ const activeMetricDisplay = computed(() => {
 const hasRegionTrace = computed(() => Boolean(props.context?.regionTrace?.traceId || props.context?.regionTrace?.trace_id))
 
 const analysisScopeTitle = computed(() => {
-  if (contextMode.value === 'OBJECT' && activeMapObject.value) return '当前对象'
+  if (contextMode.value === 'OBJECT' && activeMapObject.value) return activeMapObject.value.displayTitle || '当前对象'
   if (contextMode.value === 'REGION' && activeRegionContext.value) return activeRegionContext.value.geometryType === 'POLYGON' ? '多边形区域' : '矩形区域'
   return '当前路线范围'
 })
@@ -301,7 +301,8 @@ const analysisScopeTitle = computed(() => {
 const analysisScopeDescription = computed(() => {
   if (contextMode.value === 'OBJECT' && activeMapObject.value) {
     const metric = activeMetricDisplay.value ? `当前${activeMetricMeta.value.code} ${activeMetricDisplay.value}，` : ''
-    return `${metric}已接入指标专题、图层统计与 AI 上下文，可直接分析或生成养护建议。`
+    const subtitle = activeMapObject.value.displaySubtitle ? `${activeMapObject.value.displaySubtitle}，` : ''
+    return `${subtitle}${metric}已接入指标专题、图层统计与 AI 上下文，可直接分析或生成养护建议。`
   }
   if (contextMode.value === 'REGION' && activeRegionContext.value) {
     const route = props.context?.query?.routeCode || activeRegionContext.value.routeCode || '当前路线'
@@ -427,11 +428,12 @@ const contextChips = computed(() => {
     const obj: any = activeMapObject.value || {}
     const type = normalizeObjectType(obj)
     const chips = [mapObjectTypeLabel(type)]
+    const displayTitle = obj.displayTitle && obj.displayTitle !== mapObjectTypeLabel(type) ? obj.displayTitle : ''
     const disease = obj.diseaseName || obj.disease_name || obj.diseaseType || obj.disease_type
     const route = obj.routeCode || obj.route_code
     const severity = obj.severity
     const stake = formatStake(obj.startStake ?? obj.start_stake, obj.endStake ?? obj.end_stake)
-    ;[disease, severity, route, stake].forEach((it) => {
+    ;[displayTitle, disease, severity, route, stake].forEach((it) => {
       if (it !== undefined && it !== null && it !== '') chips.push(String(it))
     })
     return chips.slice(0, 6)
