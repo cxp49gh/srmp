@@ -45,14 +45,6 @@
         </label>
       </section>
 
-      <section v-if="layerErrorItems.length" class="layer-error-section">
-        <div class="section-title">图层异常</div>
-        <div v-for="item in layerErrorItems" :key="item.key" class="layer-error-item">
-          <strong>{{ item.label }}</strong>
-          <span>{{ item.message }}</span>
-        </div>
-      </section>
-
       <section class="stats-section">
         <div class="section-title">图层统计</div>
         <div class="stat-grid">
@@ -63,8 +55,13 @@
         </div>
       </section>
 
+      <div v-if="layerErrorItems.length" class="layer-error-box">
+        <strong>图层异常</strong>
+        <p v-for="item in layerErrorItems" :key="item.key">{{ item.label }}：{{ item.message }}</p>
+      </div>
+
       <div class="layer-tip">
-        已启用 {{ enabledLayerCount }} 个图层；当前专题指标为 {{ metricMeta.code }}，统计随查询条件、等级过滤与启用图层更新。
+        已启用 {{ enabledLayerCount }} 个图层；当前专题指标为 {{ metricMeta.code }}，统计随查询条件、等级过滤、地图视野与启用图层更新。
       </div>
     </template>
   </aside>
@@ -111,6 +108,14 @@ const businessLayerItems = [
   { key: 'disease' as keyof LayerState, label: '病害' },
   { key: 'assessment' as keyof LayerState, label: '评定专题' }
 ]
+const allLayerItems = [...assetLayerItems, ...businessLayerItems]
+
+const layerErrorItems = computed(() => {
+  const errors = props.layerErrors || {}
+  return allLayerItems
+    .map((item) => ({ key: String(item.key), label: item.label, message: errors[String(item.key)] }))
+    .filter((item) => item.message)
+})
 
 const metricMeta = computed(() => getMetricMeta(props.query?.indexCode))
 const normalizedStats = computed(() => unwrapPayload(props.statistics || {}))
@@ -122,15 +127,7 @@ const selectedMetricGradeLabel = computed(() => {
 })
 
 const enabledLayerCount = computed(() => {
-  return [...assetLayerItems, ...businessLayerItems].filter((item) => localLayers[item.key]).length
-})
-
-const layerErrorItems = computed(() => {
-  const errors = props.layerErrors || {}
-  const labelMap = Object.fromEntries([...assetLayerItems, ...businessLayerItems].map((item) => [item.key, item.label])) as Record<string, string>
-  return Object.entries(errors)
-    .filter(([, message]) => Boolean(message))
-    .map(([key, message]) => ({ key, label: labelMap[key] || key, message }))
+  return allLayerItems.filter((item) => localLayers[item.key]).length
 })
 
 const statItems = computed(() => {
@@ -303,33 +300,6 @@ function formatPercent(value: any) {
   margin-top: 8px;
 }
 
-.layer-error-section {
-  margin-top: 8px;
-  padding: 8px;
-  border: 1px solid #fed7aa;
-  border-radius: 12px;
-  background: #fff7ed;
-}
-
-.layer-error-item {
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  gap: 6px;
-  padding: 4px 0;
-  color: #9a3412;
-  font-size: 12px;
-}
-
-.layer-error-item strong {
-  color: #7c2d12;
-}
-
-.layer-error-item span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .group-title,
 .section-title {
   margin: 6px 0 5px;
@@ -378,6 +348,27 @@ function formatPercent(value: any) {
   margin-top: 3px;
   color: #0f172a;
   font-size: 15px;
+}
+
+.layer-error-box {
+  margin-top: 7px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  color: #b45309;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  font-size: 12px;
+  line-height: 1.42;
+}
+
+.layer-error-box strong {
+  display: block;
+  margin-bottom: 3px;
+  color: #92400e;
+}
+
+.layer-error-box p {
+  margin: 2px 0;
 }
 
 .layer-tip {

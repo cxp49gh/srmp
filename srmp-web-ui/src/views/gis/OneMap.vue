@@ -50,6 +50,7 @@
       :auto-question="pendingAiQuestion"
       :region-loading="regionLoading"
       :region-summary-loading="regionSummaryLoading"
+      :context-scope="contextScope"
       @auto-question-consumed="pendingAiQuestion = ''"
       @locate-source="handleLocateAiSource"
       @ask-with-source="handleAskAiSource"
@@ -107,19 +108,10 @@ import {
   getRoadSections,
   saveMapRegionSolutionDraft,
   type GisLayerQuery,
-  type MapStatisticsQuery,
   type MapRegionSolutionResponse
 } from '../../api/gis'
 import { layerStyle } from '../../utils/leafletStyle'
-import { getMetricMeta } from '../../utils/roadConditionMetrics'
-import {
-  adaptMapObject,
-  buildMapObjectPopupHtml,
-  firstPresent as firstValue,
-  layerKeyToMapObjectType,
-  normalizeFeatureProperties as normalizeMapFeatureProperties,
-  normalizeMapObjectType as normalizeObjectType
-} from '../../utils/mapObjectAdapter'
+import { getMetricGrade, getMetricMeta, getMetricValue } from '../../utils/roadConditionMetrics'
 import type { GeoJsonFeatureCollection } from '../../types/geojson'
 import { type LayerState } from './components/LayerDrawer.vue'
 import GisLeftWorkbench from './components/GisLeftWorkbench.vue'
@@ -162,8 +154,8 @@ const regionPreviewVisible = ref(false)
 const regionTraceDrawerVisible = ref(false)
 const regionDraftSaving = ref(false)
 const regionSavedTask = ref<Record<string, any> | null>(null)
-type AiContextScope = 'OBJECT' | 'REGION' | 'ROUTE'
-const activeContextScope = ref<AiContextScope>('ROUTE')
+type ContextScope = 'ROUTE' | 'OBJECT' | 'REGION'
+const contextScope = ref<ContextScope>('ROUTE')
 const polygonPoints = ref<L.LatLng[]>([])
 const layerCounts = reactive<Record<string, number>>({
   roadRoute: 0,
@@ -172,16 +164,7 @@ const layerCounts = reactive<Record<string, number>>({
   disease: 0,
   assessment: 0
 })
-
 const layerErrors = reactive<Record<string, string>>({})
-
-const layerLabels: Record<string, string> = {
-  roadRoute: '路线',
-  roadSection: '路段',
-  evaluationUnit: '评定单元',
-  disease: '病害',
-  assessment: '评定专题'
-}
 
 let map: LeafletMap
 const layerMap = new Map<string, GeoJSON>()
@@ -197,15 +180,69 @@ let layerChangeTimer: ReturnType<typeof window.setTimeout> | null = null
 const regionFinalStyle = { color: '#0284c7', weight: 3, fillColor: '#38bdf8', fillOpacity: 0.16 }
 const regionPreviewStyle = { color: '#2563eb', weight: 2, dashArray: '6 5', fillColor: '#7dd3fc', fillOpacity: 0.1 }
 
-const selectedMapObject = computed(() => adaptMapObject({
-  raw: selectedFeatureProperties.value,
-  detail: selectedDetail.value,
-  options: {
-    indexCode: query.indexCode || 'MQI',
-    defaultRouteCode: query.routeCode,
-    defaultYear: query.year
+function normalizeObjectType(rawType: any) {
+  const type = String(rawType || '').toUpperCase()
+  if (type === 'ASSESSMENT') return 'ASSESSMENT_RESULT'
+  if (type === 'DISEASE_RECORD') return 'DISEASE'
+  return type
+}
+
+function firstValue(...values: any[]) {
+  return values.find((it) => it !== undefined && it !== null && it !== '')
+}
+
+const selectedMapObject = computed(() => {
+  const raw: any = selectedFeatureProperties.value || {}
+  const detail: any = selectedDetail.value || {}
+  const detailProps: any = detail.properties || detail
+  const props: any = { ...raw, ...detailProps }
+
+  if (!props || Object.keys(props).length === 0) return null
+
+  const objectType = normalizeObjectType(
+    firstValue(props.objectType, props.object_type, props.type, props.layerType)
+  )
+  const objectId = firstValue(props.objectId, props.object_id, props.id, raw.objectId, raw.object_id, raw.id)
+
+  return {
+    objectType,
+    objectId,
+    id: objectId,
+    routeCode: firstValue(props.routeCode, props.route_code, raw.routeCode, raw.route_code, query.routeCode),
+    year: Number(firstValue(props.year, query.year, 2026)),
+    startStake: firstValue(props.startStake, props.start_stake, raw.startStake, raw.start_stake),
+    endStake: firstValue(props.endStake, props.end_stake, raw.endStake, raw.end_stake),
+    routeName: firstValue(props.routeName, props.route_name, raw.routeName, raw.route_name),
+    sectionName: firstValue(props.sectionName, props.section_name, raw.sectionName, raw.section_name),
+    sectionCode: firstValue(props.sectionCode, props.section_code, raw.sectionCode, raw.section_code),
+    unitCode: firstValue(props.unitCode, props.unit_code, raw.unitCode, raw.unit_code),
+    diseaseName: firstValue(props.diseaseName, props.disease_name, raw.diseaseName, raw.disease_name),
+    diseaseType: firstValue(props.diseaseType, props.disease_type, raw.diseaseType, raw.disease_type),
+    severity: firstValue(props.severity, raw.severity),
+    quantity: firstValue(props.quantity, raw.quantity),
+    measureUnit: firstValue(props.measureUnit, props.measure_unit, raw.measureUnit, raw.measure_unit),
+    mqi: firstValue(props.mqi, raw.mqi),
+    pqi: firstValue(props.pqi, raw.pqi),
+    pci: firstValue(props.pci, raw.pci),
+    grade: firstValue(props.grade, raw.grade),
+    activeIndexCode: getMetricMeta(query.indexCode || 'MQI').code,
+    activeMetricValue: getMetricValue(props, query.indexCode || 'MQI'),
+    activeMetricGrade: getMetricGrade(props, query.indexCode || 'MQI'),
+    metrics: {
+      MQI: getMetricValue(props, 'MQI'),
+      PQI: getMetricValue(props, 'PQI'),
+      PCI: getMetricValue(props, 'PCI'),
+      RQI: getMetricValue(props, 'RQI'),
+      RDI: getMetricValue(props, 'RDI'),
+      SRI: getMetricValue(props, 'SRI'),
+      PSSI: getMetricValue(props, 'PSSI'),
+      SCI: getMetricValue(props, 'SCI'),
+      BCI: getMetricValue(props, 'BCI'),
+      TCI: getMetricValue(props, 'TCI')
+    },
+    raw: props
   }
-}))
+})
 
 const activeRegionContext = computed(() => {
   if (!regionGeometry.value) return null
@@ -224,21 +261,13 @@ const analysisTargets = computed(() => buildUnifiedAnalysisTargets({
   query: { ...query }
 }))
 
-const currentContextScope = computed<AiContextScope>(() => {
-  if (activeContextScope.value === 'OBJECT' && selectedMapObject.value) return 'OBJECT'
-  if (activeContextScope.value === 'REGION' && activeRegionContext.value) return 'REGION'
-  if (selectedMapObject.value) return 'OBJECT'
-  if (activeRegionContext.value) return 'REGION'
-  return 'ROUTE'
-})
-
 const agentContext = computed(() => ({
   query: { ...query },
   selected: selectedDetail.value,
-  mapObject: selectedMapObject.value,
+  mapObject: contextScope.value === 'REGION' ? null : selectedMapObject.value,
   selectedMapObject: selectedMapObject.value,
-  region: activeRegionContext.value,
-  regionContext: activeRegionContext.value,
+  region: contextScope.value === 'OBJECT' ? null : activeRegionContext.value,
+  regionContext: contextScope.value === 'OBJECT' ? null : activeRegionContext.value,
   regionSummary: regionSummary.value,
   regionGeometry: regionGeometry.value,
   regionGeometryType: regionGeometryType.value,
@@ -249,10 +278,13 @@ const agentContext = computed(() => ({
   statistics: statistics.value,
   regionTrace: regionSolution.value?.trace || null,
   regionSolution: regionSolution.value,
+  regionLoading: regionLoading.value,
+  regionSummaryLoading: regionSummaryLoading.value,
   hasRegion: Boolean(regionGeometry.value),
   indexCode: query.indexCode,
   grade: query.grade,
-  contextScope: currentContextScope.value
+  contextScope: contextScope.value,
+  layerErrors: { ...layerErrors }
 }))
 
 onMounted(async () => {
@@ -380,15 +412,17 @@ async function reloadLayers(options: ReloadLayerOptions = {}) {
     const tasks: Promise<void>[] = []
     const params = layerQuery()
 
-    if (layers.roadRoute) tasks.push(loadLayerWithStatus('roadRoute', () => getRoadRoutes(params)))
-    if (layers.roadSection) tasks.push(loadLayerWithStatus('roadSection', () => getRoadSections(params)))
-    if (layers.evaluationUnit) tasks.push(loadLayerWithStatus('evaluationUnit', () => getEvaluationUnits(params)))
-    if (layers.disease) tasks.push(loadLayerWithStatus('disease', () => getDiseases(params)))
+    if (layers.roadRoute) tasks.push(loadLayerSafely('roadRoute', () => getRoadRoutes(params)))
+    if (layers.roadSection) tasks.push(loadLayerSafely('roadSection', () => getRoadSections(params)))
+    if (layers.evaluationUnit) tasks.push(loadLayerSafely('evaluationUnit', () => getEvaluationUnits(params)))
+    if (layers.disease) tasks.push(loadLayerSafely('disease', () => getDiseases(params)))
     if (layers.assessment || layers.assessmentResult) {
-      tasks.push(loadLayerWithStatus('assessment', () => getAssessmentResults(params)))
+      tasks.push(loadLayerSafely('assessment', () => getAssessmentResults(params)))
     }
 
     await settleLayerTasks(tasks, '图层加载')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '图层加载失败')
   } finally {
     restoreViewSnapshot(snapshot)
     loading.value = false
@@ -405,49 +439,27 @@ async function syncVisibleLayers() {
     const tasks: Promise<void>[] = []
 
     if (!layers.roadRoute) removeLayerByKey('roadRoute')
-    else if (!layerMap.has('roadRoute')) tasks.push(loadLayerWithStatus('roadRoute', () => getRoadRoutes(params)))
+    else if (!layerMap.has('roadRoute')) tasks.push(loadLayerSafely('roadRoute', () => getRoadRoutes(params)))
 
     if (!layers.roadSection) removeLayerByKey('roadSection')
-    else if (!layerMap.has('roadSection')) tasks.push(loadLayerWithStatus('roadSection', () => getRoadSections(params)))
+    else if (!layerMap.has('roadSection')) tasks.push(loadLayerSafely('roadSection', () => getRoadSections(params)))
 
     if (!layers.evaluationUnit) removeLayerByKey('evaluationUnit')
-    else if (!layerMap.has('evaluationUnit')) tasks.push(loadLayerWithStatus('evaluationUnit', () => getEvaluationUnits(params)))
+    else if (!layerMap.has('evaluationUnit')) tasks.push(loadLayerSafely('evaluationUnit', () => getEvaluationUnits(params)))
 
     if (!layers.disease) removeLayerByKey('disease')
-    else if (!layerMap.has('disease')) tasks.push(loadLayerWithStatus('disease', () => getDiseases(params)))
+    else if (!layerMap.has('disease')) tasks.push(loadLayerSafely('disease', () => getDiseases(params)))
 
     if (!(layers.assessment || layers.assessmentResult)) removeLayerByKey('assessment')
-    else if (!layerMap.has('assessment')) tasks.push(loadLayerWithStatus('assessment', () => getAssessmentResults(params)))
+    else if (!layerMap.has('assessment')) tasks.push(loadLayerSafely('assessment', () => getAssessmentResults(params)))
 
     await settleLayerTasks(tasks, '图层切换')
     await loadStatistics()
+  } catch (error: any) {
+    ElMessage.error(error?.message || '图层切换失败')
   } finally {
     loading.value = false
   }
-}
-
-async function loadLayerWithStatus(layerKey: string, loader: () => Promise<GeoJsonFeatureCollection>) {
-  try {
-    await loadLayer(layerKey, loader)
-    delete layerErrors[layerKey]
-  } catch (error: any) {
-    layerCounts[layerKey] = 0
-    layerErrors[layerKey] = error?.message || `${layerLabel(layerKey)}加载失败`
-    throw error
-  }
-}
-
-async function settleLayerTasks(tasks: Promise<void>[], actionLabel: string) {
-  if (!tasks.length) return
-  const results = await Promise.allSettled(tasks)
-  const failed = results.filter((item) => item.status === 'rejected').length
-  if (failed > 0) {
-    ElMessage.warning(`${actionLabel}完成，${failed} 个图层加载失败，其余图层已正常显示`)
-  }
-}
-
-function layerLabel(layerKey: string) {
-  return layerLabels[layerKey] || layerKey
 }
 
 function removeLayerByKey(layerKey: string) {
@@ -472,6 +484,7 @@ function clearLayers(options: { clearSelection?: boolean } = {}) {
   if (options.clearSelection !== false) {
     selectedDetail.value = null
     selectedFeatureProperties.value = null
+    contextScope.value = regionGeometry.value ? 'REGION' : 'ROUTE'
   }
 }
 
@@ -482,9 +495,42 @@ function resetLayerCounts() {
 }
 
 function resetLayerErrors() {
-  Object.keys(layerErrors).forEach((key) => {
-    delete layerErrors[key]
-  })
+  Object.keys(layerErrors).forEach((key) => delete layerErrors[key])
+}
+
+function layerKeyText(layerKey: string) {
+  const labels: Record<string, string> = {
+    roadRoute: '路线',
+    roadSection: '路段',
+    evaluationUnit: '评定单元',
+    disease: '病害',
+    assessment: '评定专题'
+  }
+  return labels[layerKey] || layerKey
+}
+
+function errorMessage(error: any) {
+  return error?.message || error?.response?.data?.message || error?.data?.message || '加载失败'
+}
+
+async function loadLayerSafely(layerKey: string, loader: () => Promise<GeoJsonFeatureCollection>) {
+  try {
+    await loadLayer(layerKey, loader)
+    delete layerErrors[layerKey]
+  } catch (error: any) {
+    layerCounts[layerKey] = 0
+    layerErrors[layerKey] = errorMessage(error)
+    throw error
+  }
+}
+
+async function settleLayerTasks(tasks: Promise<void>[], actionName: string) {
+  if (!tasks.length) return
+  const results = await Promise.allSettled(tasks)
+  const failedCount = results.filter((item) => item.status === 'rejected').length
+  if (failedCount > 0) {
+    ElMessage.warning(`${actionName}完成，${failedCount} 个图层失败，其他图层已保留`)
+  }
 }
 
 async function loadLayer(layerKey: string, loader: () => Promise<GeoJsonFeatureCollection>) {
@@ -517,9 +563,9 @@ async function handleFeatureClick(layerKey: string, feature: any, layer: L.Layer
   if (regionMode.value !== 'NONE') return
   const properties = normalizeFeatureProperties(layerKey, feature)
 
+  contextScope.value = 'OBJECT'
   selectedFeatureProperties.value = properties
   selectedDetail.value = properties
-  activeContextScope.value = 'OBJECT'
   highlightLayer(layer)
   openFeaturePopup(layer, properties)
 
@@ -528,16 +574,18 @@ async function handleFeatureClick(layerKey: string, feature: any, layer: L.Layer
 }
 
 function normalizeFeatureProperties(layerKey: string, feature: any) {
-  const normalized = normalizeMapFeatureProperties(layerKey, feature)
-  return adaptMapObject({
-    raw: normalized,
-    options: {
-      indexCode: query.indexCode || 'MQI',
-      defaultRouteCode: query.routeCode,
-      defaultYear: query.year,
-      layerKey
-    }
-  }) || normalized
+  const raw = feature?.properties || {}
+  const objectType = normalizeObjectType(firstValue(raw.objectType, raw.object_type, raw.type, raw.layerType, layerKeyToObjectType(layerKey)))
+  const objectId = firstValue(raw.objectId, raw.object_id, raw.id, feature?.id)
+  return {
+    ...raw,
+    layerKey,
+    objectType,
+    object_type: objectType,
+    objectId,
+    object_id: objectId,
+    id: firstValue(raw.id, objectId)
+  }
 }
 
 function highlightLayer(layer: L.Layer) {
@@ -581,15 +629,199 @@ function layerCenter(layer: L.Layer) {
 }
 
 function buildFeaturePopupHtml(properties: Record<string, any>) {
-  return buildMapObjectPopupHtml(properties, {
-    indexCode: query.indexCode || 'MQI',
-    defaultRouteCode: query.routeCode,
-    defaultYear: query.year
-  })
+  const type = normalizeObjectType(firstValue(properties.objectType, properties.object_type, properties.type, properties.layerType))
+  const label = objectTypeText(type)
+  const rows = popupRowsByType(type, properties)
+  return `
+    <div class="object-popup-card">
+      <div class="object-popup-title">${escapeHtml(label)}详情</div>
+      <div class="object-popup-grid">
+        ${rows.map(([k, v]) => `<span>${escapeHtml(k)}</span><strong>${escapeHtml(v)}</strong>`).join('')}
+      </div>
+      <div class="object-popup-tip">已同步到右侧 AI 养护助手，可继续分析或生成建议。</div>
+    </div>
+  `
+}
+
+function popupRowsByType(type: string, properties: Record<string, any>): Array<[string, any]> {
+  const route = routeCodeText(properties)
+  const stake = stakeRangeText(properties)
+  const direction = directionText(firstValue(properties.direction, properties.directionText, properties.direction_text))
+  const metricRows = popupMetricRows(properties)
+
+  if (type === 'ROAD_ROUTE') {
+    return compactRows([
+      ['路线编号', route],
+      ['路线名称', firstValue(properties.routeName, properties.route_name)],
+      ['路线类型', firstValue(properties.routeType, properties.route_type)],
+      ['技术等级', firstValue(properties.technicalGrade, properties.technical_grade)],
+      ['起讫桩号', stake],
+      ['里程(km)', firstValue(properties.lengthKm, properties.length_km)]
+    ])
+  }
+
+  if (type === 'ROAD_SECTION') {
+    return compactRows([
+      ['路线编号', route],
+      ['路段编号', firstValue(properties.sectionCode, properties.section_code)],
+      ['路段名称', firstValue(properties.sectionName, properties.section_name)],
+      ['方向', direction],
+      ['起讫桩号', stake],
+      ['长度(km)', firstValue(properties.lengthKm, properties.length_km)],
+      ['路面类型', firstValue(properties.pavementType, properties.pavement_type)]
+    ])
+  }
+
+  if (type === 'EVALUATION_UNIT') {
+    return compactRows([
+      ['路线编号', route],
+      ['单元编号', firstValue(properties.unitCode, properties.unit_code)],
+      ['方向', direction],
+      ['车道', firstValue(properties.laneNo, properties.lane_no)],
+      ['起讫桩号', stake],
+      ['长度(m)', firstValue(properties.lengthM, properties.length_m)],
+      ['路面类型', firstValue(properties.pavementType, properties.pavement_type)]
+    ])
+  }
+
+  if (type === 'DISEASE') {
+    return compactRows([
+      ['路线编号', route],
+      ['病害类型', firstValue(properties.diseaseName, properties.disease_name, properties.diseaseType, properties.disease_type)],
+      ['病害分类', firstValue(properties.diseaseCategory, properties.disease_category)],
+      ['严重程度', severityText(firstValue(properties.severity, properties.severityText, properties.severity_text))],
+      ['方向', direction],
+      ['车道', firstValue(properties.laneNo, properties.lane_no)],
+      ['起讫桩号', stake],
+      ['数量', quantityText(properties)],
+      ['状态', firstValue(properties.status, properties.verified)]
+    ])
+  }
+
+  if (type === 'ASSESSMENT_RESULT') {
+    return compactRows([
+      ['路线编号', route],
+      ['评定单元', firstValue(properties.unitCode, properties.unit_code, properties.unitId, properties.unit_id)],
+      ['年度', firstValue(properties.year, query.year)],
+      ['方向', direction],
+      ['起讫桩号', stake],
+      ...metricRows,
+      ['等级', gradeText(getMetricGrade(properties, query.indexCode || 'MQI') || firstValue(properties.grade, properties.level))]
+    ])
+  }
+
+  return compactRows([
+    ['类型', objectTypeText(type)],
+    ['路线编号', route],
+    ['起讫桩号', stake],
+    ...metricRows,
+    ['等级', gradeText(getMetricGrade(properties, query.indexCode || 'MQI') || firstValue(properties.grade, properties.level))]
+  ])
+}
+
+function popupMetricRows(properties: Record<string, any>): Array<[string, any]> {
+  const metric = getMetricMeta(query.indexCode || 'MQI')
+  const value = getMetricValue(properties, metric.code)
+  const rows: Array<[string, any]> = []
+  if (value !== undefined && value !== null && value !== '') {
+    rows.push([metric.code, value])
+  }
+  return rows
+}
+
+function compactRows(rows: Array<[string, any]>): Array<[string, any]> {
+  return rows
+    .map(([key, value]) => [key, displayValue(value)] as [string, any])
+    .filter(([, value]) => value !== '-')
+}
+
+function displayValue(value: any) {
+  if (value === undefined || value === null || value === '') return '-'
+  return value
+}
+
+function routeCodeText(properties: Record<string, any>) {
+  return firstValue(properties.routeCode, properties.route_code, properties.roadCode, properties.road_code, query.routeCode, '-')
+}
+
+function quantityText(properties: Record<string, any>) {
+  const quantity = firstValue(properties.quantity, properties.amount)
+  const unit = firstValue(properties.measureUnit, properties.measure_unit, properties.unit)
+  if (quantity && unit) return `${quantity}${unit}`
+  return quantity || '-'
+}
+
+function directionText(direction: any) {
+  const value = String(direction || '').toUpperCase()
+  const map: Record<string, string> = {
+    UP: '上行',
+    DOWN: '下行',
+    BOTH: '双向',
+    LEFT: '左幅',
+    RIGHT: '右幅'
+  }
+  return map[value] || direction || '-'
+}
+
+function severityText(severity: any) {
+  const value = String(severity || '').toUpperCase()
+  const map: Record<string, string> = {
+    LIGHT: '轻度',
+    MEDIUM: '中度',
+    HEAVY: '重度',
+    SERIOUS: '严重'
+  }
+  return map[value] || severity || '-'
+}
+
+function gradeText(grade: any) {
+  const value = String(grade || '').toUpperCase()
+  const map: Record<string, string> = {
+    EXCELLENT: '优',
+    GOOD: '良',
+    FAIR: '中',
+    POOR: '次',
+    BAD: '差'
+  }
+  return map[value] || grade || '-'
+}
+
+function objectTypeText(type: string) {
+  const map: Record<string, string> = {
+    ROAD_ROUTE: '路线',
+    ROAD_SECTION: '路段',
+    EVALUATION_UNIT: '评定单元',
+    DISEASE: '病害',
+    ASSESSMENT_RESULT: '评定结果'
+  }
+  return map[type] || '地图对象'
+}
+
+function stakeRangeText(properties: Record<string, any>) {
+  const start = firstValue(properties.startStake, properties.start_stake, properties.beginStake, properties.begin_stake)
+  const end = firstValue(properties.endStake, properties.end_stake, properties.finishStake, properties.finish_stake)
+  if (start && end) return `${start}—${end}`
+  return start || end || '-'
+}
+
+function escapeHtml(value: any) {
+  return String(value ?? '-')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 function layerKeyToObjectType(layerKey: string) {
-  return layerKeyToMapObjectType(layerKey)
+  const map: Record<string, string> = {
+    roadRoute: 'ROAD_ROUTE',
+    roadSection: 'ROAD_SECTION',
+    evaluationUnit: 'EVALUATION_UNIT',
+    disease: 'DISEASE',
+    assessment: 'ASSESSMENT_RESULT'
+  }
+  return map[layerKey] || layerKey.toUpperCase()
 }
 
 async function loadObjectDetail(properties: Record<string, any>) {
@@ -626,14 +858,12 @@ function clearSelection() {
   if (map) map.closePopup()
   selectedDetail.value = null
   selectedFeatureProperties.value = null
+  contextScope.value = regionGeometry.value ? 'REGION' : 'ROUTE' 
   if (selectedLayer && (selectedLayer as any).setStyle) {
     const feature = (selectedLayer as any).feature
     ;(selectedLayer as any).setStyle(layerStyle(feature?.properties || feature, query.indexCode || 'MQI'))
   }
   selectedLayer = null
-  if (activeContextScope.value === 'OBJECT') {
-    activeContextScope.value = regionGeometry.value ? 'REGION' : 'ROUTE'
-  }
 }
 
 function openAiForSelected() {
@@ -641,7 +871,7 @@ function openAiForSelected() {
     ElMessage.warning('请先在地图上选择一个对象')
     return
   }
-  activeContextScope.value = 'OBJECT'
+  contextScope.value = 'OBJECT'
   agentVisible.value = true
   pendingAiQuestion.value = '分析当前地图选中对象，说明主要问题、成因判断，并给出养护处置建议'
 }
@@ -651,7 +881,7 @@ function askAiForRegion() {
     ElMessage.warning('请先框选一个区域')
     return
   }
-  activeContextScope.value = 'REGION'
+  contextScope.value = 'REGION'
   agentVisible.value = true
   pendingAiQuestion.value = '综合分析当前区域内线路、路段、评定单元、病害和评定结果，判断养护重点、风险原因与处置优先级'
 }
@@ -681,7 +911,6 @@ function normalizeIncomingMapTarget(source: Record<string, any> | GisSourceMapTa
 
 function startRegionDraw(mode: 'RECTANGLE' | 'POLYGON') {
   clearRegion()
-  activeContextScope.value = 'REGION'
   regionMode.value = mode
   regionGeometryType.value = mode
   selectedDetail.value = null
@@ -719,9 +948,9 @@ function clearRegion() {
   regionSummaryLoading.value = false
   regionSavedTask.value = null
   regionPreviewVisible.value = false
+  contextScope.value = selectedDetail.value ? 'OBJECT' : 'ROUTE'
   polygonPoints.value = []
   rectangleStart = null
-  activeContextScope.value = selectedMapObject.value ? 'OBJECT' : 'ROUTE'
   updateMapDrawState()
 }
 
@@ -732,8 +961,8 @@ function setRegionLayer(layer: L.Layer, geometry: Record<string, any>, geometryT
   clearRegionPreview()
   regionLayer = layer
   regionLayer.addTo(map)
+  contextScope.value = 'REGION'
   regionGeometryType.value = geometryType
-  activeContextScope.value = 'REGION'
   regionGeometry.value = geometry
   regionSummary.value = buildClientRegionSummary(geometry)
   regionSolution.value = null
@@ -941,7 +1170,7 @@ async function generateRegionSolution() {
     ElMessage.warning('请先绘制区域')
     return
   }
-  activeContextScope.value = 'REGION'
+  contextScope.value = 'REGION'
   regionLoading.value = true
   try {
     const result = unwrapApiPayload(await generateMapRegionSolution({
@@ -1148,32 +1377,17 @@ function zoomOutMap() {
   if (map) map.zoomOut()
 }
 
-function activeLayerKeys() {
-  const result: string[] = []
-  if (layers.roadRoute) result.push('roadRoute')
-  if (layers.roadSection) result.push('roadSection')
-  if (layers.evaluationUnit) result.push('evaluationUnit')
-  if (layers.disease) result.push('disease')
-  if (layers.assessment || layers.assessmentResult) result.push('assessment')
-  return result
-}
-
-function mapStatisticsQuery(): MapStatisticsQuery {
-  const viewport = currentViewport()
-  const enabledLayers = activeLayerNames()
-  return {
-    ...layerQuery(),
-    bbox: viewport?.bbox,
-    viewport,
-    layers: enabledLayers,
-    enabledLayers,
-    layerKeys: activeLayerKeys()
-  }
-}
-
 async function loadStatistics() {
   try {
-    statistics.value = await getMapStatistics(mapStatisticsQuery())
+    const viewport = currentViewport()
+    const selectedLayers = activeLayerNames()
+    statistics.value = await getMapStatistics({
+      ...layerQuery(),
+      bbox: viewport?.bbox,
+      viewport,
+      layers: selectedLayers,
+      enabledLayers: selectedLayers
+    } as any)
   } catch {
     statistics.value = {}
   }
@@ -1321,15 +1535,6 @@ function handleFitAll() {
   color: #0f172a;
   font-size: 14px;
   font-weight: 800;
-}
-
-
-:deep(.object-popup-subtitle) {
-  margin-top: -4px;
-  margin-bottom: 8px;
-  color: #64748b;
-  font-size: 12px;
-  line-height: 1.35;
 }
 
 :deep(.object-popup-grid) {

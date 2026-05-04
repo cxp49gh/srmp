@@ -31,7 +31,7 @@
           </span>
         </div>
 
-        <div class="analysis-actions dynamic-actions" :class="`mode-${contextMode.toLowerCase()}`">
+        <div class="analysis-actions">
           <template v-if="contextMode === 'OBJECT'">
             <el-button
               size="small"
@@ -49,65 +49,49 @@
               :loading="solutionLoading && activeSolutionType === primarySolutionAction.type"
               @click="generateSolutionDraft(primarySolutionAction.type)"
             >{{ primarySolutionAction.label }}</el-button>
-            <el-dropdown trigger="click" @command="handleContextCommand">
-              <el-button size="small" plain>更多</el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item
-                    v-for="action in secondarySolutionActions"
-                    :key="action.type"
-                    :command="`solution:${action.type}`"
-                    :disabled="!activeMapObject || solutionLoading || loading"
-                  >{{ action.label }}</el-dropdown-item>
-                  <el-dropdown-item command="copy-context" :divided="secondarySolutionActions.length > 0">复制上下文</el-dropdown-item>
-                  <el-dropdown-item command="clear-object">取消对象</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
           </template>
 
           <template v-else-if="contextMode === 'REGION'">
             <el-button
               size="small"
               type="primary"
-              plain
-              :disabled="!activeRegionContext || regionAnalyzing"
-              :loading="regionAnalyzing"
+              :disabled="!activeRegionContext || regionBusy"
+              :loading="props.regionSummaryLoading || loading"
               @click="triggerAnalyzeRegion"
             >分析区域</el-button>
             <el-button
               size="small"
               type="success"
               plain
-              :disabled="!activeRegionContext || regionGenerating"
-              :loading="regionGenerating"
+              :disabled="!activeRegionContext || regionBusy"
+              :loading="props.regionLoading"
               @click="emit('generate-region')"
             >生成区域建议</el-button>
             <el-button v-if="hasRegionTrace" size="small" plain @click="emit('trace')">Trace</el-button>
-            <el-dropdown trigger="click" @command="handleContextCommand">
-              <el-button size="small" plain>更多</el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="suggest-region">生成区域追问</el-dropdown-item>
-                  <el-dropdown-item command="copy-context" divided>复制上下文</el-dropdown-item>
-                  <el-dropdown-item command="clear-region">清除区域</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
           </template>
 
           <template v-else>
-            <span class="action-empty-hint">点击地图对象或框选区域后，操作区会自动切换</span>
-            <el-button size="small" type="primary" plain @click="triggerAnalyzeRoute">分析当前路线</el-button>
-            <el-dropdown trigger="click" @command="handleContextCommand">
-              <el-button size="small" plain>更多</el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="copy-context">复制上下文</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
+            <el-button size="small" type="primary" :loading="loading" @click="analyzeCurrentRoute">分析路线</el-button>
+            <el-button size="small" plain :loading="loading" @click="findWeakSections">查找次差路段</el-button>
           </template>
+
+          <el-dropdown trigger="click" @command="handleContextCommand">
+            <el-button size="small" plain>更多操作</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item v-if="contextMode === 'REGION'" command="suggest-region">生成区域追问</el-dropdown-item>
+                <el-dropdown-item
+                  v-for="action in contextMode === 'OBJECT' ? secondarySolutionActions : []"
+                  :key="action.type"
+                  :command="`solution:${action.type}`"
+                  :disabled="!activeMapObject || solutionLoading || loading"
+                >{{ action.label }}</el-dropdown-item>
+                <el-dropdown-item command="copy-context" divided>复制上下文</el-dropdown-item>
+                <el-dropdown-item v-if="contextMode === 'OBJECT'" command="clear-object">取消对象</el-dropdown-item>
+                <el-dropdown-item v-if="contextMode === 'REGION'" command="clear-region">清除区域</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
         <div class="analysis-action-hint">{{ operationHint }}</div>
       </section>
@@ -155,7 +139,7 @@
             @locate-source="locateEvidenceSource"
             @ask-with-source="askWithSource"
           />
-          <div v-if="item.role === 'assistant' && activeMapObject" class="assistant-action-row">
+          <div v-if="item.role === 'assistant' && contextMode === 'OBJECT' && activeMapObject" class="assistant-action-row">
             <el-button
               size="small"
               type="success"
@@ -230,6 +214,7 @@ const props = defineProps<{
   autoQuestion?: string
   regionLoading?: boolean
   regionSummaryLoading?: boolean
+  contextScope?: 'ROUTE' | 'OBJECT' | 'REGION' | 'VIEWPORT' | 'FREE'
 }>()
 
 const emit = defineEmits<{
@@ -278,8 +263,6 @@ const optionSummary = computed(() => {
 })
 
 const activeMetricMeta = computed(() => getMetricMeta(props.context?.query?.indexCode || props.context?.indexCode || 'MQI'))
-const regionGenerating = computed(() => Boolean(props.regionLoading))
-const regionAnalyzing = computed(() => loading.value || Boolean(props.regionSummaryLoading))
 
 const activeMetricDisplay = computed(() => {
   const obj: any = activeMapObject.value || {}
@@ -293,18 +276,17 @@ const activeMetricDisplay = computed(() => {
 const hasRegionTrace = computed(() => Boolean(props.context?.regionTrace?.traceId || props.context?.regionTrace?.trace_id))
 
 const analysisScopeTitle = computed(() => {
-  if (contextMode.value === 'OBJECT' && activeMapObject.value) return activeMapObject.value.displayTitle || '当前对象'
-  if (contextMode.value === 'REGION' && activeRegionContext.value) return activeRegionContext.value.geometryType === 'POLYGON' ? '多边形区域' : '矩形区域'
+  if (activeMapObject.value) return '当前对象'
+  if (activeRegionContext.value) return activeRegionContext.value.geometryType === 'POLYGON' ? '多边形区域' : '矩形区域'
   return '当前路线范围'
 })
 
 const analysisScopeDescription = computed(() => {
-  if (contextMode.value === 'OBJECT' && activeMapObject.value) {
+  if (activeMapObject.value) {
     const metric = activeMetricDisplay.value ? `当前${activeMetricMeta.value.code} ${activeMetricDisplay.value}，` : ''
-    const subtitle = activeMapObject.value.displaySubtitle ? `${activeMapObject.value.displaySubtitle}，` : ''
-    return `${subtitle}${metric}已接入指标专题、图层统计与 AI 上下文，可直接分析或生成养护建议。`
+    return `${metric}已接入指标专题、图层统计与 AI 上下文，可直接分析或生成养护建议。`
   }
-  if (contextMode.value === 'REGION' && activeRegionContext.value) {
+  if (activeRegionContext.value) {
     const route = props.context?.query?.routeCode || activeRegionContext.value.routeCode || '当前路线'
     const targets = analysisTargetText.value || '线路、路段、病害、评定结果'
     return `${route} 区域范围，已统一关联 ${targets}`
@@ -410,7 +392,7 @@ function firstDisplayValue(...values: any[]) {
 }
 
 const contextChips = computed(() => {
-  if (contextMode.value === 'REGION' && activeRegionContext.value) {
+  if (activeRegionContext.value) {
     const summary = activeRegionSummary.value || {}
     const chips = ['区域']
     const label = activeRegionContext.value.label || ''
@@ -424,43 +406,34 @@ const contextChips = computed(() => {
     return chips.slice(0, 6)
   }
 
-  if (contextMode.value === 'OBJECT' && activeMapObject.value) {
-    const obj: any = activeMapObject.value || {}
-    const type = normalizeObjectType(obj)
-    const chips = [mapObjectTypeLabel(type)]
-    const displayTitle = obj.displayTitle && obj.displayTitle !== mapObjectTypeLabel(type) ? obj.displayTitle : ''
-    const disease = obj.diseaseName || obj.disease_name || obj.diseaseType || obj.disease_type
-    const route = obj.routeCode || obj.route_code
-    const severity = obj.severity
-    const stake = formatStake(obj.startStake ?? obj.start_stake, obj.endStake ?? obj.end_stake)
-    ;[displayTitle, disease, severity, route, stake].forEach((it) => {
-      if (it !== undefined && it !== null && it !== '') chips.push(String(it))
-    })
-    return chips.slice(0, 6)
+  if (!activeMapObject.value) {
+    const query = props.context?.query || {}
+    return [query.routeCode || '当前路线', query.year || '当前年度', activeMetricMeta.value.code].filter(Boolean).slice(0, 6)
   }
 
-  const query = props.context?.query || {}
-  return ['路线范围', query.routeCode || '全部路线', query.year || '全部年度'].filter(Boolean).slice(0, 6)
+  const obj: any = activeMapObject.value || {}
+  const type = normalizeObjectType(obj)
+  const chips = [mapObjectTypeLabel(type)]
+  const disease = obj.diseaseName || obj.disease_name || obj.diseaseType || obj.disease_type
+  const route = obj.routeCode || obj.route_code
+  const severity = obj.severity
+  const stake = formatStake(obj.startStake ?? obj.start_stake, obj.endStake ?? obj.end_stake)
+  ;[disease, severity, route, stake].forEach((it) => {
+    if (it !== undefined && it !== null && it !== '') chips.push(String(it))
+  })
+  return chips.slice(0, 6)
 })
 
-const requestedContextScope = computed(() => String(props.context?.contextScope || '').toUpperCase())
+const preferredContextScope = computed(() => String(props.contextScope || props.context?.contextScope || '').toUpperCase())
 
-const rawMapObject = computed(() => {
+const activeMapObject = computed(() => {
+  if (preferredContextScope.value === 'REGION') return null
   return props.mapObject || props.context?.mapObject || props.context?.selectedMapObject || props.context?.selected || null
 })
 
-const rawRegionContext = computed(() => {
-  return props.context?.regionContext || props.context?.region || null
-})
-
 const activeRegionContext = computed(() => {
-  if (requestedContextScope.value === 'OBJECT' && rawMapObject.value) return null
-  return rawRegionContext.value
-})
-
-const activeMapObject = computed(() => {
-  if (requestedContextScope.value === 'REGION' && rawRegionContext.value) return null
-  return rawMapObject.value
+  if (preferredContextScope.value === 'OBJECT') return null
+  return props.context?.regionContext || props.context?.region || null
 })
 
 const activeRegionSummary = computed(() => {
@@ -468,6 +441,7 @@ const activeRegionSummary = computed(() => {
 })
 
 const hasStructuredContext = computed(() => Boolean(activeMapObject.value || activeRegionContext.value))
+const regionBusy = computed(() => Boolean(props.regionLoading || props.regionSummaryLoading || loading.value))
 
 const analysisTargets = computed(() => {
   const list = props.context?.analysisTargets
@@ -486,11 +460,11 @@ const analysisTargetText = computed(() => {
 })
 
 const contextMode = computed(() => {
-  if (requestedContextScope.value === 'REGION' && (activeRegionContext.value || activeRegionSummary.value)) return 'REGION'
-  if (requestedContextScope.value === 'OBJECT' && activeMapObject.value) return 'OBJECT'
+  if (preferredContextScope.value === 'OBJECT' && activeMapObject.value) return 'OBJECT'
+  if (preferredContextScope.value === 'REGION' && (activeRegionContext.value || activeRegionSummary.value)) return 'REGION'
   if (activeMapObject.value) return 'OBJECT'
   if (activeRegionContext.value || activeRegionSummary.value) return 'REGION'
-  if (props.context?.viewport || props.context?.bounds) return 'VIEWPORT'
+  if (preferredContextScope.value === 'VIEWPORT' || props.context?.viewport || props.context?.bounds) return 'VIEWPORT'
   if (props.context?.query?.routeCode || props.context?.routeCode) return 'ROUTE'
   return 'FREE'
 })
@@ -532,7 +506,7 @@ const primarySolutionAction = computed(() => solutionActions.value.find((it: any
 const secondarySolutionActions = computed(() => solutionActions.value.filter((it: any) => !it.primary))
 
 const operationHint = computed(() => {
-  if (contextMode.value === 'OBJECT' && activeMapObject.value) {
+  if (activeMapObject.value) {
     const type = normalizeObjectType(activeMapObject.value)
     if (type === 'DISEASE' || type === 'DISEASE_RECORD') {
       return '分析病害用于解释成因和风险；生成处置建议会生成结构化建议；复核意见在更多操作中，用于识别结果、等级和位置复核。'
@@ -542,8 +516,8 @@ const operationHint = computed(() => {
     }
     return '分析对象用于 AI 解释；生成建议会生成结构化结果，预览后可保存为方案草稿。'
   }
-  if (contextMode.value === 'REGION' && activeRegionContext.value) return '当前操作区已切换为区域模式：分析区域用于综合研判，生成区域建议会进入结构化区域养护建议流程。'
-  return '当前操作区为路线模式；点击地图对象或框选区域后，会自动切换为对象/区域专属操作。'
+  if (activeRegionContext.value) return '当前为框选区域模式，只展示区域分析和区域方案动作；点击地图对象后会自动切换为对象模式。'
+  return '当前为路线范围模式，页面只展示路线分析动作；点击对象或框选区域后，操作区会自动切换。'
 })
 
 function normalizeObjectType(obj: any) {
@@ -657,13 +631,19 @@ function triggerAnalyzeRegion() {
   analyzeCurrentRegion()
 }
 
-function triggerAnalyzeRoute() {
-  quickAsk('分析当前路线整体路况，结合当前筛选条件、图层统计和指标等级，说明主要风险与养护重点')
-}
-
 function suggestForCurrentRegion() {
   if (!activeRegionContext.value) return
   quickAsk('基于当前区域分析结果，生成区域养护处置建议、优先级和可落地实施步骤')
+}
+
+function analyzeCurrentRoute() {
+  const query = props.context?.query || {}
+  const route = query.routeCode ? `路线 ${query.routeCode}` : '当前路线范围'
+  quickAsk(`分析${route}整体路况，结合当前指标、等级过滤、图层统计和地图视野，指出主要风险和养护重点`)
+}
+
+function findWeakSections() {
+  quickAsk('结合当前查询条件、地图视野和启用图层，找出次差路段、低分单元或病害集中区域，并说明排序依据')
 }
 
 async function handleContextCommand(command: string) {
@@ -1130,24 +1110,6 @@ function openTrace(trace: Record<string, any>) {
   gap: 6px;
   flex-wrap: wrap;
   margin-top: 8px;
-}
-
-.dynamic-actions {
-  min-height: 32px;
-}
-
-.dynamic-actions.mode-object,
-.dynamic-actions.mode-region {
-  padding: 5px 6px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.48);
-}
-
-.action-empty-hint {
-  color: #64748b;
-  font-size: 12px;
-  line-height: 1.4;
 }
 
 .analysis-action-hint {

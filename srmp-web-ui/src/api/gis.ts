@@ -12,20 +12,17 @@ export interface GisLayerQuery {
   taskId?: string
 }
 
-export interface MapStatisticsQuery extends GisLayerQuery {
-  /** 当前地图视野 bbox: [west, south, east, north] */
+export interface MapViewport {
+  zoom?: number
+  center?: { lat: number; lng: number }
   bbox?: number[]
-  /** 当前地图视野快照，便于后端按视野统计或记录调试上下文 */
-  viewport?: {
-    zoom?: number
-    center?: { lat: number; lng: number }
-    bbox?: number[]
-  } | null
-  /** 后端图层编码：ROAD_ROUTE / ROAD_SECTION / EVALUATION_UNIT / DISEASE / ASSESSMENT_RESULT */
+}
+
+export interface MapStatisticsQuery extends GisLayerQuery {
+  bbox?: number[]
+  viewport?: MapViewport | null
   layers?: string[]
   enabledLayers?: string[]
-  /** 前端图层 key，便于兼容老接口或日志追踪 */
-  layerKeys?: string[]
 }
 
 export interface MapRegionAnalysisRequest {
