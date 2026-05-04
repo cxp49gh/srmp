@@ -25,7 +25,7 @@ NODE_FLOW = [
     "context_build",
     "intent_recognize",
     "context_enrich",
-    "tool_plan",
+    "tool_planning",
     "tool_execute",
     "evidence_fuse",
     "answer_generate",
@@ -37,7 +37,7 @@ PLAN_NODE_FLOW = [
     "context_build",
     "intent_recognize",
     "context_enrich",
-    "tool_plan",
+    "tool_planning",
 ]
 
 
@@ -49,7 +49,7 @@ class AgentState(TypedDict, total=False):
     steps: List[Dict[str, Any]]
     context_summary: Dict[str, Any]
     intent: str
-    tool_plan: List[ToolCall]
+    toolPlan: List[ToolCall]
     tool_results: List[ToolResult]
     evidence: Dict[str, Any]
     answer: str
@@ -119,7 +119,7 @@ class LangGraphWorkflow:
         builder.add_node("context_build", self._context_build)
         builder.add_node("intent_recognize", self._intent_recognize)
         builder.add_node("context_enrich", self._context_enrich)
-        builder.add_node("tool_plan", self._tool_plan)
+        builder.add_node("tool_planning", self._tool_plan)
         builder.add_node("tool_execute", self._tool_execute)
         builder.add_node("evidence_fuse", self._evidence_fuse)
         builder.add_node("answer_generate", self._answer_generate)
@@ -127,7 +127,7 @@ class LangGraphWorkflow:
         builder.set_entry_point("request_normalize")
         for left, right in zip(NODE_FLOW, NODE_FLOW[1:]):
             builder.add_edge(left, right)
-        builder.add_edge("quality_guard", END)
+        builder.add_edge("tool_planning", END)
         return builder.compile()
 
     async def _run_sequential(self, state: AgentState, nodes: List[str]) -> AgentState:

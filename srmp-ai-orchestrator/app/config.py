@@ -51,7 +51,7 @@ class Settings:
     llm_temperature: float = _float_env("SRMP_LLM_TEMPERATURE", 0.2)
     max_tool_items_in_prompt: int = _int_env("SRMP_LANGGRAPH_MAX_TOOL_ITEMS_IN_PROMPT", 8)
 
-    strategy_version: str = os.getenv("SRMP_LANGGRAPH_STRATEGY_VERSION", "phase50.9-replay-export-v1")
+    strategy_version: str = os.getenv("SRMP_LANGGRAPH_STRATEGY_VERSION", "phase50.11-config-health-guard-v1")
     enable_context_enrich: bool = _bool_env("SRMP_LANGGRAPH_ENABLE_CONTEXT_ENRICH", True)
     enable_evidence_fusion: bool = _bool_env("SRMP_LANGGRAPH_ENABLE_EVIDENCE_FUSION", True)
     enable_quality_guard: bool = _bool_env("SRMP_LANGGRAPH_ENABLE_QUALITY_GUARD", True)
@@ -60,6 +60,18 @@ class Settings:
     max_tool_calls: int = _int_env("SRMP_LANGGRAPH_MAX_TOOL_CALLS", 6)
     min_answer_chars: int = _int_env("SRMP_LANGGRAPH_MIN_ANSWER_CHARS", 80)
     require_evidence_prefix: bool = _bool_env("SRMP_LANGGRAPH_REQUIRE_EVIDENCE_PREFIX", True)
+
+    audit_max_records: int = _int_env("SRMP_LANGGRAPH_AUDIT_MAX_RECORDS", 200)
+    audit_persist_enabled: bool = _bool_env("SRMP_LANGGRAPH_AUDIT_PERSIST_ENABLED", False)
+    audit_persist_path: str = os.getenv("SRMP_LANGGRAPH_AUDIT_PERSIST_PATH", "/tmp/srmp-langgraph-runtime-audit.jsonl")
+    audit_load_on_start: bool = _bool_env("SRMP_LANGGRAPH_AUDIT_LOAD_ON_START", True)
+    audit_redact_enabled: bool = _bool_env("SRMP_LANGGRAPH_AUDIT_REDACT_ENABLED", True)
+    audit_max_persist_bytes: int = _int_env("SRMP_LANGGRAPH_AUDIT_MAX_PERSIST_BYTES", 20 * 1024 * 1024)
+    audit_prune_default_retain_latest: int = _int_env("SRMP_LANGGRAPH_AUDIT_PRUNE_DEFAULT_RETAIN_LATEST", 20)
+    health_include_contract_default: bool = _bool_env("SRMP_LANGGRAPH_HEALTH_INCLUDE_CONTRACT_DEFAULT", True)
+    health_include_gateway_default: bool = _bool_env("SRMP_LANGGRAPH_HEALTH_INCLUDE_GATEWAY_DEFAULT", True)
+    health_persistence_warn_ratio: float = _float_env("SRMP_LANGGRAPH_HEALTH_PERSISTENCE_WARN_RATIO", 0.9)
+    audit_redact_keys: List[str] = None  # type: ignore
     allowed_tools: List[str] = None  # type: ignore
 
     def __post_init__(self):
@@ -69,6 +81,14 @@ class Settings:
             _list_env(
                 "SRMP_LANGGRAPH_ALLOWED_TOOLS",
                 "knowledge.retrieve,gis.queryDiseases,gis.queryAssessmentResults,gis.queryDiseasesByStakeRange,gis.queryRegionSummary,gis.queryNearbyObjects,template.match",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "audit_redact_keys",
+            _list_env(
+                "SRMP_LANGGRAPH_AUDIT_REDACT_KEYS",
+                "authorization,token,api_key,apikey,password,secret,cookie,set-cookie,access_key,accesskey,private_key",
             ),
         )
 

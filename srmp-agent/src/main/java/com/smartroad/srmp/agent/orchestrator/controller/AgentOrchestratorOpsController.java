@@ -15,6 +15,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -179,6 +180,63 @@ public class AgentOrchestratorOpsController {
         return list;
     }
 
+    @GetMapping("/config")
+    public R<Object> config() {
+        return R.ok(remoteGet("/api/srmp/langgraph/runtime/config"));
+    }
+
+    @GetMapping("/health-detail")
+    public R<Object> healthDetail(@RequestParam(value = "includeGateway", required = false, defaultValue = "true") Boolean includeGateway,
+                                  @RequestParam(value = "includeContract", required = false, defaultValue = "true") Boolean includeContract) {
+        String path = "/api/srmp/langgraph/diagnostics/health?includeGateway=" + Boolean.TRUE.equals(includeGateway)
+                + "&includeContract=" + Boolean.TRUE.equals(includeContract);
+        return R.ok(remoteGet(path));
+    }
+
+    @GetMapping("/persistence")
+    public R<Object> persistence() {
+        return R.ok(remoteGet("/api/srmp/langgraph/observability/persistence"));
+    }
+
+    @GetMapping("/snapshot")
+    public R<Object> snapshot(@RequestParam(value = "limit", required = false, defaultValue = "30") Integer limit,
+                              @RequestParam(value = "status", required = false) String status) {
+        String path = "/api/srmp/langgraph/observability/snapshot?limit=" + safeLimit(limit);
+        if (!isBlank(status)) {
+            path = path + "&status=" + status.trim();
+        }
+        return R.ok(remoteGet(path));
+    }
+
+    @DeleteMapping("/prune")
+    public R<Object> prune(@RequestParam(value = "status", required = false) String status,
+                           @RequestParam(value = "beforeMs", required = false) Long beforeMs,
+                           @RequestParam(value = "retainLatest", required = false, defaultValue = "20") Integer retainLatest,
+                           @RequestParam(value = "includePersist", required = false, defaultValue = "true") Boolean includePersist) {
+        String path = "/api/srmp/langgraph/observability/prune?retainLatest=" + safeLimitForPrune(retainLatest)
+                + "&includePersist=" + Boolean.TRUE.equals(includePersist);
+        if (!isBlank(status)) {
+            path = path + "&status=" + status.trim();
+        }
+        if (beforeMs != null) {
+            path = path + "&beforeMs=" + beforeMs;
+        }
+        return R.ok(remoteDelete(path));
+    }
+
+    private int safeLimitForPrune(Integer limit) {
+        if (limit == null) {
+            return 20;
+        }
+        if (limit < 0) {
+            return 0;
+        }
+        if (limit > 1000) {
+            return 1000;
+        }
+        return limit;
+    }
+
     private Map<String, Object> remoteGet(String path) {
         Map<String, Object> data = new LinkedHashMap<>();
         String url = buildUrl(properties.getLanggraphUrl(), path);
@@ -215,6 +273,33 @@ public class AgentOrchestratorOpsController {
             }
             HttpEntity<Object> entity = new HttpEntity<>(payload, headers);
             ResponseEntity<Object> response = restTemplate.exchange(url, HttpMethod.POST, entity, Object.class);
+            data.put("ok", response.getStatusCode().is2xxSuccessful());
+            data.put("httpStatus", response.getStatusCodeValue());
+            data.put("costMs", System.currentTimeMillis() - start);
+            data.put("body", response.getBody());
+        } catch (Exception e) {
+            data.put("ok", false);
+            data.put("costMs", System.currentTimeMillis() - start);
+            data.put("error", e.getMessage());
+        }
+        return data;
+    }
+
+    private Map<String, Object> remoteDelete(String path) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        String url = buildUrl(properties.getLanggraphUrl(), path);
+        data.put("url", url);
+        long start = System.currentTimeMillis();
+        try {
+            RestTemplate restTemplate = buildRestTemplate();
+            HttpHeaders headers = new HttpHeaders();
+            headers.setAccept(java.util.Collections.singletonList(MediaType.APPLICATION_JSON));
+            String tenantId = resolveTenantId();
+            if (!isBlank(tenantId)) {
+                headers.set("X-Tenant-Id", tenantId);
+            }
+            HttpEntity<Object> entity = new HttpEntity<>(new LinkedHashMap<String, Object>(), headers);
+            ResponseEntity<Object> response = restTemplate.exchange(url, HttpMethod.DELETE, entity, Object.class);
             data.put("ok", response.getStatusCode().is2xxSuccessful());
             data.put("httpStatus", response.getStatusCodeValue());
             data.put("costMs", System.currentTimeMillis() - start);
