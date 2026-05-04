@@ -112,6 +112,7 @@
           <div class="shortcut-grid">
             <el-button @click="go('/agent/ai-health')">AI 健康检查</el-button>
             <el-button @click="go('/agent/ai-traces')">AI 调用监控</el-button>
+            <el-button @click="go('/agent/langgraph-ops')">LangGraph 编排</el-button>
             <el-button @click="go('/agent/knowledge-vector')">向量知识库验证</el-button>
             <el-button @click="go('/agent/rag-eval')">RAG 质量评测</el-button>
             <el-button @click="go('/agent/outline-auto-sync')">Outline 自动同步</el-button>

@@ -8,6 +8,7 @@ import KnowledgeVectorPage from '../views/agent/KnowledgeVectorPage.vue'
 import RagEvalPage from '../views/agent/RagEvalPage.vue'
 import AiHealthPage from '../views/agent/AiHealthPage.vue'
 import AiOpsDashboardPage from '../views/agent/AiOpsDashboardPage.vue'
+import LangGraphOpsPage from '../views/agent/LangGraphOpsPage.vue'
 import OutlineSearchPage from '../views/agent/OutlineSearchPage.vue'
 import OutlineStatusPage from '../views/agent/OutlineStatusPage.vue'
 import OutlineSyncPage from '../views/agent/OutlineSyncPage.vue'
@@ -43,6 +44,13 @@ const router = createRouter({
       component: AiOpsDashboardPage,
       meta: {
         title: 'AI 运维总览'
+      }
+    },
+    {
+      path: '/agent/langgraph-ops',
+      component: LangGraphOpsPage,
+      meta: {
+        title: 'LangGraph 编排观测'
       }
     },
     {

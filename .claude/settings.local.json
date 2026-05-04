@@ -85,7 +85,10 @@
       "Bash(unzip -l /Users/cxp/.codex/worktrees/d1e1/srmp/srmp-admin/target/srmp-admin-1.0.0.jar)",
       "Bash(npm --prefix /Users/cxp/.codex/worktrees/d1e1/srmp/srmp-web-ui run build)",
       "Bash(bash *)",
-      "Bash(BASE_URL=http://localhost:8080 TENANT_ID=default bash *)"
+      "Bash(BASE_URL=http://localhost:8080 TENANT_ID=default bash *)",
+      "mcp__chrome-devtools__take_snapshot",
+      "Bash(.venv/bin/python3 -m pip install --upgrade pip)",
+      "Bash(.venv/bin/python3 -m pip install fastapi==0.110.0 uvicorn==0.27.0 httpx==0.26.0)"
     ]
   }
 }
