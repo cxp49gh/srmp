@@ -47,6 +47,16 @@ srmp:
     temperature: 0.2
 
   ai:
+
+    orchestrator:
+      # Phase50：AI 编排器开关。native 为默认原生链路；langgraph 为远程 LangGraph 编排服务。
+      provider: ${SRMP_AI_ORCHESTRATOR_PROVIDER:native}
+      langgraph-url: ${SRMP_LANGGRAPH_URL:http://127.0.0.1:18080}
+      langgraph-endpoint-path: ${SRMP_LANGGRAPH_ENDPOINT:/api/srmp/langgraph/map-agent/chat}
+      connect-timeout-ms: ${SRMP_LANGGRAPH_CONNECT_TIMEOUT_MS:10000}
+      read-timeout-ms: ${SRMP_LANGGRAPH_READ_TIMEOUT_MS:300000}
+      fallback-to-native: ${SRMP_LANGGRAPH_FALLBACK_TO_NATIVE:true}
+      allow-write-tools: ${SRMP_AI_TOOL_ALLOW_WRITE:false}
     embedding:
       provider: openai-compatible
       endpoint: https://dashscope.aliyuncs.com/compatible-mode/v1
