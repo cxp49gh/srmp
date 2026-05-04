@@ -1,11 +1,13 @@
 <template>
   <AgentPageShell
     title="LangGraph 编排观测"
-    description="查看 Java 编排路由、LangGraph Runtime、Tool Gateway 和最近编排调用，支持一键 smoke 验证。"
+    description="查看 Java 编排路由、LangGraph Runtime、Tool Gateway、工具契约和最近编排调用，支持 Smoke 与 Plan Debug。"
   >
     <template #actions>
       <div class="header-actions">
         <el-button :loading="loading" @click="loadSummary">刷新</el-button>
+        <el-button :loading="contractLoading" @click="loadContract">契约诊断</el-button>
+        <el-button :loading="exportLoading" @click="exportDiagnostics">导出诊断</el-button>
         <el-button type="primary" :loading="smoking" @click="runSmoke">运行 Smoke</el-button>
       </div>
     </template>
@@ -38,16 +40,16 @@
             </el-tag>
           </div>
           <div class="metric-value">{{ value(runtimeSummary, ['total']) || 0 }}</div>
-          <div class="metric-desc">成功 {{ value(runtimeSummary, ['success']) || 0 }}；失败 {{ value(runtimeSummary, ['failed']) || 0 }}；平均 {{ value(runtimeSummary, ['avgCostMs']) || 0 }}ms</div>
+          <div class="metric-desc">成功 {{ value(runtimeSummary, ['success']) || 0 }}；失败 {{ value(runtimeSummary, ['failed']) || 0 }}；可回放 {{ value(runtimeSummary, ['replayableCount']) || 0 }}；平均 {{ value(runtimeSummary, ['avgCostMs']) || 0 }}ms</div>
         </el-card>
 
         <el-card shadow="never" class="metric-card">
           <div class="metric-head">
-            <span>Tool Gateway</span>
-            <el-tag :type="toolGatewayOk ? 'success' : 'danger'">{{ toolGatewayOk ? 'OK' : '异常' }}</el-tag>
+            <span>工具契约</span>
+            <el-tag :type="contractOk ? 'success' : 'danger'">{{ contractOk ? '闭合' : '异常' }}</el-tag>
           </div>
-          <div class="metric-value">{{ localToolCount }}</div>
-          <div class="metric-desc">Java 本地工具数；Runtime 可达性见下方诊断</div>
+          <div class="metric-value">{{ contractToolCount }}</div>
+          <div class="metric-desc">Java 工具 / Runtime 白名单；缺失 {{ missingToolCount }} 个</div>
         </el-card>
       </section>
 
@@ -64,6 +66,13 @@
         type="error"
         show-icon
         title="LangGraph Runtime 未 ready。优先检查 SRMP_LANGGRAPH_URL、SRMP_JAVA_BASE_URL，以及 Java /api/agent/tools 是否注册。"
+      />
+      <el-alert
+        v-if="!contractOk"
+        class="mb"
+        type="warning"
+        show-icon
+        title="工具契约未闭合。建议先看下方 missingInJava / blockedByRuntimeWhitelist，再调整 Java 工具注册或 SRMP_LANGGRAPH_ALLOWED_TOOLS。"
       />
 
       <section class="content-grid">
@@ -98,6 +107,50 @@
         <el-card shadow="never" class="panel-card">
           <template #header>
             <div class="card-header">
+              <span>Plan Debug</span>
+              <el-button size="small" text @click="copyPlanResult">复制结果</el-button>
+            </div>
+          </template>
+          <el-form label-width="92px" class="smoke-form">
+            <el-form-item label="模式">
+              <el-select v-model="planForm.mode" placeholder="选择上下文模式">
+                <el-option label="对象 OBJECT" value="OBJECT" />
+                <el-option label="框选 POLYGON" value="POLYGON" />
+                <el-option label="路线 ROUTE" value="ROUTE" />
+                <el-option label="评定 ASSESSMENT" value="ASSESSMENT" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="路线/年份">
+              <div class="inline-fields">
+                <el-input v-model="planForm.routeCode" placeholder="G210" />
+                <el-input-number v-model="planForm.year" :min="2000" :max="2100" />
+              </div>
+            </el-form-item>
+            <el-form-item label="对象信息">
+              <div class="inline-fields">
+                <el-input v-model="planForm.diseaseName" placeholder="裂缝/坑槽/评定单元" />
+                <el-input v-model="planForm.severity" placeholder="轻度/中度/重度" />
+              </div>
+            </el-form-item>
+            <el-form-item label="问题">
+              <el-input v-model="planForm.message" type="textarea" :rows="3" />
+            </el-form-item>
+            <el-form-item label="Geometry">
+              <el-input v-model="planForm.geometryText" type="textarea" :rows="3" placeholder='可选 GeoJSON，例如 {"type":"Polygon","coordinates":[]}' />
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" :loading="planning" @click="runPlan">只规划不执行</el-button>
+            </el-form-item>
+          </el-form>
+          <el-empty v-if="!planResultText" description="暂无 plan 结果" />
+          <pre v-else>{{ planResultText }}</pre>
+        </el-card>
+      </section>
+
+      <section class="content-grid">
+        <el-card shadow="never" class="panel-card">
+          <template #header>
+            <div class="card-header">
               <span>链路诊断</span>
               <el-button size="small" text @click="copySummary">复制诊断</el-button>
             </div>
@@ -124,10 +177,46 @@
               <strong>{{ toolGatewayOk ? 'OK' : value(toolGatewayDebug, ['error']) || '异常' }}</strong>
             </div>
             <div class="diag-row">
+              <span>Strategy</span>
+              <strong>{{ value(runtimeSummary, ['strategyVersion']) || value(summary, ['langgraphReady', 'body', 'strategy', 'strategyVersion']) || '-' }}</strong>
+            </div>
+            <div class="diag-row">
               <span>最近 Trace</span>
               <strong>{{ value(runtimeSummary, ['lastTraceId']) || '-' }}</strong>
             </div>
           </div>
+        </el-card>
+
+        <el-card shadow="never" class="panel-card">
+          <template #header>
+            <div class="card-header">
+              <span>工具契约详情</span>
+              <el-button size="small" text :loading="contractLoading" @click="loadContract">刷新契约</el-button>
+            </div>
+          </template>
+          <div class="diag-list">
+            <div class="diag-row">
+              <span>Java 工具数</span>
+              <strong>{{ contractToolCount }}</strong>
+            </div>
+            <div class="diag-row">
+              <span>Runtime 白名单</span>
+              <strong>{{ value(contractBody, ['runtimeAllowedToolCount']) || 0 }}</strong>
+            </div>
+            <div class="diag-row">
+              <span>missingInJava</span>
+              <strong>{{ missingTools.join(', ') || '-' }}</strong>
+            </div>
+            <div class="diag-row">
+              <span>Runtime 未放行</span>
+              <strong>{{ blockedTools.join(', ') || '-' }}</strong>
+            </div>
+            <div class="diag-row">
+              <span>写工具屏蔽</span>
+              <strong>{{ writeBlockedTools.join(', ') || '-' }}</strong>
+            </div>
+          </div>
+          <pre v-if="contractResultText">{{ contractResultText }}</pre>
         </el-card>
       </section>
 
@@ -162,9 +251,11 @@
             <template #default="scope">{{ scope.row.toolSuccessCount || 0 }}/{{ scope.row.toolTotalCount || 0 }}</template>
           </el-table-column>
           <el-table-column prop="messagePreview" label="问题" min-width="220" show-overflow-tooltip />
-          <el-table-column label="详情" width="90">
+          <el-table-column label="操作" width="190" fixed="right">
             <template #default="scope">
               <el-button size="small" text @click="openRecord(scope.row)">查看</el-button>
+              <el-button size="small" text :loading="replaying" @click="replayRecord(scope.row, false)">Plan回放</el-button>
+              <el-button size="small" text type="warning" :loading="replaying" @click="replayRecord(scope.row, true)">执行</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -181,16 +272,31 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import AgentPageShell from './components/AgentPageShell.vue'
-import { getOrchestratorOpsSummary, getOrchestratorRecent, runOrchestratorSmoke } from '../../api/orchestrator'
+import {
+  exportOrchestratorDiagnostics,
+  getOrchestratorContract,
+  getOrchestratorOpsSummary,
+  getOrchestratorRecent,
+  getOrchestratorRecord,
+  replayOrchestratorRecord,
+  runOrchestratorPlan,
+  runOrchestratorSmoke
+} from '../../api/orchestrator'
 import { copyToClipboard } from '../../utils/clipboard'
 
 const loading = ref(false)
 const recentLoading = ref(false)
 const smoking = ref(false)
+const planning = ref(false)
+const contractLoading = ref(false)
+const replaying = ref(false)
+const exportLoading = ref(false)
 const summary = reactive<Record<string, any>>({})
 const recentRecords = ref<Record<string, any>[]>([])
 const recentStatus = ref('')
 const smokeResultText = ref('')
+const planResultText = ref('')
+const contractResultText = ref('')
 const recordDialogVisible = ref(false)
 const selectedRecordText = ref('')
 
@@ -201,17 +307,35 @@ const smokeForm = reactive({
   message: '请基于 G210 当前路况和知识库，给出一段道路养护建议摘要。'
 })
 
+const planForm = reactive({
+  tenantId: 'default',
+  mode: 'POLYGON',
+  routeCode: 'G210',
+  year: 2026,
+  diseaseName: '裂缝',
+  severity: '中度',
+  message: '框选区域裂缝怎么处置？',
+  geometryText: '{"type":"Polygon","coordinates":[]}'
+})
+
 const provider = computed(() => String(summary.provider || ''))
 const fallbackToNative = computed(() => Boolean(summary.fallbackToNative))
 const allowWriteTools = computed(() => Boolean(summary.allowWriteTools))
 const availableProviders = computed(() => Array.isArray(summary.availableProviders) ? summary.availableProviders : [])
-const localToolCount = computed(() => Number(summary.localToolCount || 0))
 const langgraphUrl = computed(() => String(summary.langgraphUrl || ''))
 const langgraphReady = computed(() => value(summary, ['langgraphReady']) || {})
 const runtimeSummary = computed(() => value(summary, ['runtimeSummary', 'body']) || {})
 const toolGatewayDebug = computed(() => value(summary, ['toolGatewayDebug']) || {})
+const contractDebug = computed(() => value(summary, ['contractDebug']) || {})
+const contractBody = computed(() => value(contractDebug.value, ['body']) || contractDebug.value || {})
 const readyOk = computed(() => Boolean(value(langgraphReady.value, ['ok']) && value(langgraphReady.value, ['body', 'status']) === 'UP'))
 const toolGatewayOk = computed(() => Boolean(value(toolGatewayDebug.value, ['ok'])))
+const contractOk = computed(() => Boolean(value(contractBody.value, ['ok'])))
+const contractToolCount = computed(() => Number(value(contractBody.value, ['javaToolCount']) || 0))
+const missingTools = computed(() => asStringArray(value(contractBody.value, ['missingInJava'])))
+const blockedTools = computed(() => asStringArray(value(contractBody.value, ['blockedByRuntimeWhitelist'])))
+const writeBlockedTools = computed(() => asStringArray(value(contractBody.value, ['writeBlocked'])))
+const missingToolCount = computed(() => missingTools.value.length)
 
 async function loadSummary() {
   loading.value = true
@@ -221,6 +345,7 @@ async function loadSummary() {
     Object.assign(summary, res || {})
     const records = value(res, ['runtimeRecent', 'body', 'records'])
     recentRecords.value = Array.isArray(records) ? records : []
+    contractResultText.value = JSON.stringify(value(res, ['contractDebug']) || {}, null, 2)
   } finally {
     loading.value = false
   }
@@ -234,6 +359,21 @@ async function loadRecent() {
     recentRecords.value = Array.isArray(records) ? records : []
   } finally {
     recentLoading.value = false
+  }
+}
+
+async function loadContract() {
+  contractLoading.value = true
+  try {
+    const res = await getOrchestratorContract()
+    contractResultText.value = JSON.stringify(res || {}, null, 2)
+    summary.contractDebug = res || {}
+    ElMessage.success('契约诊断已刷新')
+  } catch (error: any) {
+    contractResultText.value = JSON.stringify(error?.response?.data || error?.message || error, null, 2)
+    ElMessage.error('契约诊断失败')
+  } finally {
+    contractLoading.value = false
   }
 }
 
@@ -258,9 +398,98 @@ async function runSmoke() {
   }
 }
 
-function openRecord(row: Record<string, any>) {
+async function runPlan() {
+  const geometry = parseOptionalJson(planForm.geometryText)
+  if (geometry === false) {
+    ElMessage.error('Geometry 不是合法 JSON')
+    return
+  }
+  planning.value = true
+  try {
+    const context: Record<string, any> = {
+      tenantId: planForm.tenantId,
+      mode: planForm.mode,
+      routeCode: planForm.routeCode,
+      year: planForm.year,
+      mapObject: {
+        routeCode: planForm.routeCode,
+        diseaseName: planForm.diseaseName,
+        severity: planForm.severity
+      }
+    }
+    if (geometry) {
+      context.geometry = geometry
+    }
+    const res = await runOrchestratorPlan({
+      message: planForm.message,
+      context,
+      options: { topK: 3, traceId: `phase50-9-plan-${Date.now()}` }
+    })
+    planResultText.value = JSON.stringify(res, null, 2)
+    ElMessage.success('Plan Debug 已完成')
+  } catch (error: any) {
+    planResultText.value = JSON.stringify(error?.response?.data || error?.message || error, null, 2)
+    ElMessage.error('Plan Debug 失败，请查看结果')
+  } finally {
+    planning.value = false
+  }
+}
+
+async function openRecord(row: Record<string, any>) {
   selectedRecordText.value = JSON.stringify(row, null, 2)
   recordDialogVisible.value = true
+  const id = row?.id || row?.traceId
+  if (!id) return
+  try {
+    const res = await getOrchestratorRecord(String(id))
+    selectedRecordText.value = JSON.stringify(res, null, 2)
+  } catch (error: any) {
+    selectedRecordText.value = JSON.stringify({ row, detailError: error?.response?.data || error?.message || error }, null, 2)
+  }
+}
+
+async function replayRecord(row: Record<string, any>, execute: boolean) {
+  const id = row?.id || row?.traceId
+  if (!id) {
+    ElMessage.warning('该记录缺少 id / traceId，无法回放')
+    return
+  }
+  replaying.value = true
+  try {
+    const res = await replayOrchestratorRecord(String(id), execute)
+    planResultText.value = JSON.stringify(res, null, 2)
+    selectedRecordText.value = JSON.stringify(res, null, 2)
+    recordDialogVisible.value = true
+    ElMessage.success(execute ? '执行回放已完成' : 'Plan 回放已完成')
+    if (execute) {
+      await loadSummary()
+    }
+  } catch (error: any) {
+    const err = error?.response?.data || error?.message || error
+    selectedRecordText.value = JSON.stringify(err, null, 2)
+    recordDialogVisible.value = true
+    ElMessage.error('回放失败，请查看详情')
+  } finally {
+    replaying.value = false
+  }
+}
+
+async function exportDiagnostics() {
+  exportLoading.value = true
+  try {
+    const res = await exportOrchestratorDiagnostics(30, recentStatus.value || undefined)
+    const text = JSON.stringify(res, null, 2)
+    selectedRecordText.value = text
+    recordDialogVisible.value = true
+    await copyToClipboard(text)
+    ElMessage.success('诊断快照已复制，并已打开预览')
+  } catch (error: any) {
+    selectedRecordText.value = JSON.stringify(error?.response?.data || error?.message || error, null, 2)
+    recordDialogVisible.value = true
+    ElMessage.error('导出诊断失败')
+  } finally {
+    exportLoading.value = false
+  }
 }
 
 async function copySummary() {
@@ -275,6 +504,28 @@ async function copySmokeResult() {
   }
   await copyToClipboard(smokeResultText.value)
   ElMessage.success('Smoke 结果已复制')
+}
+
+async function copyPlanResult() {
+  if (!planResultText.value) {
+    ElMessage.warning('暂无 plan 结果')
+    return
+  }
+  await copyToClipboard(planResultText.value)
+  ElMessage.success('Plan 结果已复制')
+}
+
+function parseOptionalJson(text: string) {
+  if (!text || !text.trim()) return null
+  try {
+    return JSON.parse(text)
+  } catch (e) {
+    return false
+  }
+}
+
+function asStringArray(value: any) {
+  return Array.isArray(value) ? value.map((item) => String(item)) : []
 }
 
 function value(obj: any, keys: string[]) {
@@ -309,7 +560,7 @@ onMounted(loadSummary)
 }
 
 .content-grid {
-  grid-template-columns: 1.2fr 0.8fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .metric-card,
@@ -354,15 +605,23 @@ onMounted(loadSummary)
   max-width: 720px;
 }
 
+.inline-fields {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 1fr 160px;
+  gap: 8px;
+}
+
 pre {
   max-height: 420px;
   overflow: auto;
   padding: 12px;
-  margin: 12px 0 0;
   border-radius: 12px;
   background: #0f172a;
   color: #e2e8f0;
   font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .diag-list {
@@ -371,14 +630,18 @@ pre {
   gap: 12px;
 }
 
+.diag-row {
+  padding: 10px 0;
+  border-bottom: 1px solid #eef2f7;
+}
+
 .diag-row strong {
-  max-width: 70%;
   text-align: right;
   word-break: break-all;
 }
 
 .lower-card {
-  min-height: 260px;
+  min-height: 280px;
 }
 
 .status-select {
@@ -386,16 +649,17 @@ pre {
   margin-right: 8px;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1200px) {
   .metric-grid,
   .content-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 780px) {
+@media (max-width: 760px) {
   .metric-grid,
-  .content-grid {
+  .content-grid,
+  .inline-fields {
     grid-template-columns: 1fr;
   }
 }

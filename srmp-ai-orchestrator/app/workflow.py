@@ -1,13 +1,14 @@
 import asyncio
 import re
 import time
-from typing import Any, Dict, List, Optional, TypedDict
+import uuid
+from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 from .config import settings
-from .java_tools import JavaToolGateway
+from .java_tools import JavaToolGateway, extract_knowledge_sources
 from .llm_client import LlmClient
 from .prompt import build_answer_prompt, fallback_answer
-from .schemas import MapAiAgentRequest, MapAiAgentResponse, ToolCall, ToolResult
+from .schemas import MapAiAgentRequest, MapAiAgentResponse, MapAiContext, ToolCall, ToolResult
 
 try:
     from langgraph.graph import END, StateGraph
@@ -20,6 +21,7 @@ except Exception:
 
 
 NODE_FLOW = [
+    "request_normalize",
     "context_build",
     "intent_recognize",
     "context_enrich",
@@ -30,10 +32,18 @@ NODE_FLOW = [
     "quality_guard",
 ]
 
+PLAN_NODE_FLOW = [
+    "request_normalize",
+    "context_build",
+    "intent_recognize",
+    "context_enrich",
+    "tool_plan",
+]
+
 
 class AgentState(TypedDict, total=False):
     request: MapAiAgentRequest
-    tenant_id: str
+    tenant_id: Optional[str]
     trace_id: str
     started_at: float
     steps: List[Dict[str, Any]]
@@ -51,6 +61,7 @@ def strategy_metadata() -> Dict[str, Any]:
         "strategyVersion": settings.strategy_version,
         "readOnly": not settings.allow_write_tools,
         "nodeFlow": NODE_FLOW,
+        "planNodeFlow": PLAN_NODE_FLOW,
         "parallelToolExecution": settings.parallel_tool_execution,
         "maxParallelTools": settings.max_parallel_tools,
         "maxToolCalls": settings.max_tool_calls,
@@ -58,6 +69,8 @@ def strategy_metadata() -> Dict[str, Any]:
         "qualityGuard": settings.enable_quality_guard,
         "contextEnrich": settings.enable_context_enrich,
         "evidenceFusion": settings.enable_evidence_fusion,
+        "runtimeReplay": True,
+        "diagnosticExport": True,
     }
 
 
@@ -67,22 +80,42 @@ class LangGraphWorkflow:
         self.llm_client = llm_client
         self.graph = self._build_graph() if LANGGRAPH_AVAILABLE else None
 
-    async def run(self, request: MapAiAgentRequest, tenant_id: str, trace_id: str) -> MapAiAgentResponse:
-        state: AgentState = {
-            "request": request,
-            "tenant_id": tenant_id,
-            "trace_id": trace_id,
-            "started_at": time.perf_counter(),
-            "steps": [],
-        }
+    async def run(self, request: MapAiAgentRequest, tenant_id: Optional[str], trace_id: Optional[str]) -> MapAiAgentResponse:
+        state: AgentState = self._new_state(request=request, tenant_id=tenant_id, trace_id=trace_id)
         if self.graph is not None:
             final_state = await self.graph.ainvoke(state)
         else:
-            final_state = await self._run_sequential(state)
+            final_state = await self._run_sequential(state, NODE_FLOW)
         return self._to_response(final_state)
+
+    async def plan(self, request: MapAiAgentRequest, tenant_id: Optional[str], trace_id: Optional[str]) -> Dict[str, Any]:
+        """只跑归一化、意图识别、工具规划；用于前端/联调解释为什么会调这些工具。"""
+        state: AgentState = self._new_state(request=request, tenant_id=tenant_id, trace_id=trace_id)
+        final_state = await self._run_sequential(state, PLAN_NODE_FLOW)
+        return {
+            "traceId": final_state.get("trace_id"),
+            "strategy": strategy_metadata(),
+            "intent": final_state.get("intent"),
+            "contextSummary": final_state.get("context_summary", {}),
+            "normalizedRequest": final_state["request"].model_dump(exclude_none=True),
+            "toolPlan": [item.model_dump(exclude_none=True) for item in final_state.get("tool_plan", [])],
+            "steps": final_state.get("steps", []),
+        }
+
+    def _new_state(self, request: MapAiAgentRequest, tenant_id: Optional[str], trace_id: Optional[str]) -> AgentState:
+        safe_request = request or MapAiAgentRequest()
+        resolved_trace_id = trace_id or _option_str(safe_request, "traceId") or "lg-" + uuid.uuid4().hex
+        return {
+            "request": safe_request,
+            "tenant_id": tenant_id,
+            "trace_id": resolved_trace_id,
+            "started_at": time.perf_counter(),
+            "steps": [],
+        }
 
     def _build_graph(self):
         builder = StateGraph(AgentState)
+        builder.add_node("request_normalize", self._request_normalize)
         builder.add_node("context_build", self._context_build)
         builder.add_node("intent_recognize", self._intent_recognize)
         builder.add_node("context_enrich", self._context_enrich)
@@ -91,14 +124,14 @@ class LangGraphWorkflow:
         builder.add_node("evidence_fuse", self._evidence_fuse)
         builder.add_node("answer_generate", self._answer_generate)
         builder.add_node("quality_guard", self._quality_guard)
-        builder.set_entry_point("context_build")
+        builder.set_entry_point("request_normalize")
         for left, right in zip(NODE_FLOW, NODE_FLOW[1:]):
             builder.add_edge(left, right)
         builder.add_edge("quality_guard", END)
         return builder.compile()
 
-    async def _run_sequential(self, state: AgentState) -> AgentState:
-        for node in NODE_FLOW:
+    async def _run_sequential(self, state: AgentState, nodes: List[str]) -> AgentState:
+        for node in nodes:
             updates = await getattr(self, "_" + node)(state)
             state.update(updates or {})
         return state
@@ -114,6 +147,12 @@ class LangGraphWorkflow:
             }
         )
 
+    async def _request_normalize(self, state: AgentState) -> Dict[str, Any]:
+        request = state["request"]
+        normalized, changed = normalize_request(request, tenant_id=state.get("tenant_id"), trace_id=state.get("trace_id"))
+        self._step(state, "request_normalize", "兼容旧字段并归一化地图上下文", {"changed": changed})
+        return {"request": normalized}
+
     async def _context_build(self, state: AgentState) -> Dict[str, Any]:
         request = state["request"]
         summary = _summarize_context(request)
@@ -125,13 +164,13 @@ class LangGraphWorkflow:
         text = (request.message or "").lower()
         ctx = request.mapContext
         obj = ctx.mapObject if ctx and ctx.mapObject else {}
-        joined = " ".join([text, str(obj).lower(), str(ctx.mode if ctx else "").lower()])
+        joined = " ".join([text, str(obj).lower(), str(ctx.mode if ctx else "").lower(), str(ctx.selectedLayers if ctx else "").lower()])
 
-        if _contains_any(joined, ["框选", "多边形", "区域", "范围", "统计", "汇总", "polygon", "box", "region"]):
+        if _contains_any(joined, ["框选", "多边形", "区域", "范围", "统计", "汇总", "polygon", "box", "region", "selection"]):
             intent = "REGION_ANALYSIS"
-        elif _contains_any(joined, ["评定", "评定单元", "mqi", "pqi", "pci", "rqi", "rdi", "低分"]):
+        elif _contains_any(joined, ["评定", "评定单元", "mqi", "pqi", "pci", "rqi", "rdi", "低分", "assessment"]):
             intent = "ASSESSMENT_ANALYSIS"
-        elif _contains_any(joined, ["养护建议", "处置建议", "方案", "修复", "维修", "预防性养护"]):
+        elif _contains_any(joined, ["养护建议", "处置建议", "方案", "修复", "维修", "预防性养护", "template", "draft"]):
             intent = "MAINTENANCE_ADVICE"
         elif _contains_any(joined, ["病害", "裂缝", "坑槽", "龟裂", "沉陷", "车辙", "object", "disease"]):
             intent = "OBJECT_ANALYSIS"
@@ -153,19 +192,25 @@ class LangGraphWorkflow:
 
         if context:
             if not context.routeCode:
-                route_code = _pick(obj, "routeCode", "route_code", "route", "routeNo", "route_no")
+                route_code = _pick(obj, "routeCode", "route_code", "route", "routeNo", "route_no", "routeName")
                 if route_code:
                     context.routeCode = str(route_code)
                     changed["routeCode"] = route_code
             if not context.year:
-                year = _int_or_none(_pick(obj, "year", "detectYear", "evalYear")) or _int_or_none((request.options or {}).get("year"))
+                year = _int_or_none(_pick(obj, "year", "detectYear", "evalYear", "assessmentYear")) or _int_or_none((request.options or {}).get("year"))
                 if year:
                     context.year = year
                     changed["year"] = year
+            if not context.geometry:
+                geometry = _pick(obj, "geometry", "geojson", "geom") or _pick(request.context or {}, "geometry", "geojson", "geom")
+                if isinstance(geometry, dict):
+                    context.geometry = geometry
+                    changed["geometry"] = True
             context.extra = context.extra or {}
             context.extra["orchestratorStrategy"] = settings.strategy_version
-            context.extra["readOnly"] = True
+            context.extra["readOnly"] = not settings.allow_write_tools
             context.extra["intent"] = state.get("intent")
+            context.extra["traceId"] = state.get("trace_id")
             if obj:
                 context.extra["mapObjectKeys"] = sorted(list(obj.keys()))[:30]
 
@@ -180,21 +225,25 @@ class LangGraphWorkflow:
         map_context = request.mapContext
         obj = map_context.mapObject if map_context and map_context.mapObject else {}
         query = _build_query(request, intent)
+        context_args = _context_filter_args(map_context)
 
         if intent == "REGION_ANALYSIS":
-            calls.append(ToolCall(toolName="gis.queryRegionSummary", args={"limit": 50}, reason="区域/框选范围统计"))
+            calls.append(ToolCall(toolName="gis.queryRegionSummary", args=_merge_args({"limit": 50}, _region_args(map_context)), reason="区域/框选范围统计"))
             calls.append(ToolCall(toolName="gis.queryDiseases", args=_merge_args({"limit": 50}, _region_args(map_context)), reason="区域病害明细"))
+            calls.append(ToolCall(toolName="gis.queryAssessmentResults", args=_merge_args({"limit": 20}, context_args), reason="区域/路线评定结果辅助判断"))
         elif intent == "ASSESSMENT_ANALYSIS":
-            calls.append(ToolCall(toolName="gis.queryAssessmentResults", args=_merge_args({"limit": 20}, _object_filter_args(obj)), reason="评定结果查询"))
+            calls.append(ToolCall(toolName="gis.queryAssessmentResults", args=_merge_args({"limit": 20}, _merge_args(context_args, _object_filter_args(obj))), reason="评定结果查询"))
             if _has_stake_range(obj):
                 calls.append(ToolCall(toolName="gis.queryDiseasesByStakeRange", args=_stake_args(obj, {"limit": 50}), reason="评定单元内病害查询"))
             else:
-                calls.append(ToolCall(toolName="gis.queryDiseases", args={"limit": 30}, reason="评定上下文缺少桩号时查询相关病害"))
+                calls.append(ToolCall(toolName="gis.queryDiseases", args=_merge_args({"limit": 30}, context_args), reason="评定上下文缺少桩号时查询相关病害"))
         elif intent in {"OBJECT_ANALYSIS", "MAINTENANCE_ADVICE"}:
-            calls.append(ToolCall(toolName="gis.queryDiseases", args=_merge_args({"limit": 30}, _object_filter_args(obj)), reason="当前对象病害查询"))
-            calls.append(ToolCall(toolName="gis.queryNearbyObjects", args={"limit": 20}, reason="周边对象辅助判断"))
+            calls.append(ToolCall(toolName="gis.queryDiseases", args=_merge_args({"limit": 30}, _merge_args(context_args, _object_filter_args(obj))), reason="当前对象病害查询"))
+            calls.append(ToolCall(toolName="gis.queryNearbyObjects", args=_merge_args({"limit": 20}, context_args), reason="周边对象辅助判断"))
             if _has_stake_range(obj):
                 calls.append(ToolCall(toolName="gis.queryAssessmentResults", args=_stake_args(obj, {"limit": 10}), reason="对象所在单元评定结果"))
+            if intent == "MAINTENANCE_ADVICE":
+                calls.append(ToolCall(toolName="template.match", args={"intent": intent, "routeCode": context_args.get("routeCode"), "year": context_args.get("year")}, reason="方案模板匹配预检查"))
 
         calls.append(ToolCall(toolName="knowledge.retrieve", args={"query": query, "topK": _option_int(request, "topK", 5)}, reason="知识库检索处置规则"))
         calls = _dedupe_and_limit_calls(calls)
@@ -234,7 +283,7 @@ class LangGraphWorkflow:
 
     async def _execute_single_tool(self, state: AgentState, call: ToolCall) -> ToolResult:
         if call.toolName not in settings.allowed_tools:
-            return ToolResult(toolName=call.toolName, success=False, reason="tool not allowed in readonly strategy", error="TOOL_NOT_ALLOWED")
+            return ToolResult(toolName=call.toolName, success=False, reason="tool not allowed in readonly strategy", errorMessage="TOOL_NOT_ALLOWED")
         return await self.gateway.execute_tool(
             call=call,
             request=state["request"],
@@ -250,7 +299,7 @@ class LangGraphWorkflow:
         knowledge_hit_count = 0
 
         for item in success:
-            count = _estimate_hit_count(item.data)
+            count = item.count if isinstance(item.count, int) else _estimate_hit_count(item.data)
             if item.toolName == "knowledge.retrieve":
                 knowledge_hit_count += count
             else:
@@ -263,13 +312,14 @@ class LangGraphWorkflow:
             "businessHitCount": business_hit_count,
             "knowledgeHitCount": knowledge_hit_count,
             "sufficient": bool(success) and (business_hit_count > 0 or knowledge_hit_count > 0),
-            "failedTools": [{"toolName": item.toolName, "error": item.errorMessage} for item in failed],
+            "failedTools": [{"toolName": item.toolName, "error": item.errorMessage or item.error} for item in failed],
             "toolSummary": [
                 {
                     "toolName": item.toolName,
                     "success": item.success,
-                    "hitCount": _estimate_hit_count(item.data),
-                    "reason": item.summary,
+                    "hitCount": item.count if isinstance(item.count, int) else _estimate_hit_count(item.data),
+                    "reason": item.summary or item.reason,
+                    "costMs": item.costMs,
                 }
                 for item in results
             ],
@@ -286,10 +336,10 @@ class LangGraphWorkflow:
 
         answer = ""
         if settings.use_llm:
-            prompt = build_answer_prompt(request, intent, context_summary, tool_results, evidence)
             try:
-                answer = await self.llm_client.chat(prompt)
-            except Exception as exc:
+                prompt = build_answer_prompt(request, intent, context_summary, tool_results, evidence)
+                answer = await self.llm_client.chat(prompt) or ""
+            except Exception as exc:  # noqa: BLE001
                 answer = ""
                 self._step(state, "answer_generate", "LLM 生成失败，使用 fallback", {"error": str(exc)})
 
@@ -325,7 +375,7 @@ class LangGraphWorkflow:
             )
             changed.append("short_answer_fallback")
 
-        if re.search(r"(已保存|已派单|已转工单|已更新|已删除|已经写入)", answer):
+        if not settings.allow_write_tools and re.search(r"(已保存|已派单|已转工单|已更新|已删除|已经写入)", answer):
             answer += "\n\n注意：当前 LangGraph 编排处于只读模式，未执行保存、派单或数据库更新。"
             changed.append("readonly_notice_added")
 
@@ -340,12 +390,21 @@ class LangGraphWorkflow:
 
     def _to_response(self, state: AgentState) -> MapAiAgentResponse:
         tool_results = state.get("tool_results", [])
+        request = state["request"]
+        sources = extract_knowledge_sources(tool_results)
+        context_dump = request.mapContext.model_dump(exclude_none=True) if request.mapContext else None
+        has_map_object = bool(request.mapContext and request.mapContext.mapObject)
+        has_region = bool(request.mapContext and (request.mapContext.regionSummary or request.mapContext.geometry or str(request.mapContext.mode or "").upper() in {"BOX", "POLYGON", "REGION", "SELECTION"}))
         return MapAiAgentResponse(
             answer=state.get("answer", ""),
             mode="LANGGRAPH_AGENT",
             intent=state.get("intent"),
+            mapContext=context_dump,
             toolResults=[item.model_dump(exclude_none=True) for item in tool_results],
+            knowledgeSources=sources,
+            sources=sources,
             trace={
+                "traceId": state.get("trace_id"),
                 "orchestratorProvider": "langgraph",
                 "strategyVersion": settings.strategy_version,
                 "nodeFlow": NODE_FLOW,
@@ -359,12 +418,63 @@ class LangGraphWorkflow:
                 "nodeFlow": NODE_FLOW,
                 "toolPlan": [item.model_dump(exclude_none=True) for item in state.get("tool_plan", [])],
                 "toolResults": [item.model_dump(exclude_none=True) for item in tool_results],
+                "toolTotalCount": len(tool_results),
+                "toolSuccessCount": sum(1 for item in tool_results if item.success),
+                "toolFailedCount": sum(1 for item in tool_results if not item.success),
                 "evidence": state.get("evidence", {}),
                 "quality": state.get("quality", {}),
-                "mapObjectUsed": True,
-                "readOnly": True,
+                "mapObjectUsed": has_map_object,
+                "mapContextUsed": bool(request.mapContext),
+                "regionUsed": has_region,
+                "sourceCount": len(sources),
+                "readOnly": not settings.allow_write_tools,
+                "langgraphAvailable": LANGGRAPH_AVAILABLE,
             },
         )
+
+
+def normalize_request(request: MapAiAgentRequest, tenant_id: Optional[str], trace_id: Optional[str]) -> Tuple[MapAiAgentRequest, Dict[str, Any]]:
+    changed: Dict[str, Any] = {}
+    if request.mapContext is None:
+        map_ctx_data = None
+        if isinstance(request.context, dict):
+            nested = request.context.get("mapContext")
+            if isinstance(nested, dict):
+                map_ctx_data = dict(nested)
+            else:
+                known_keys = {"tenantId", "mode", "routeCode", "year", "mapObject", "regionSummary", "viewport", "geometry", "selectedLayers", "nearbyObjects", "userQuestion", "extra"}
+                if any(key in request.context for key in known_keys):
+                    map_ctx_data = {key: request.context.get(key) for key in known_keys if key in request.context}
+        request.mapContext = MapAiContext(**(map_ctx_data or {}))
+        changed["mapContextCreated"] = True
+
+    ctx = request.mapContext
+    if tenant_id and not ctx.tenantId:
+        ctx.tenantId = tenant_id
+        changed["tenantIdFromHeader"] = tenant_id
+    if request.message and not ctx.userQuestion:
+        ctx.userQuestion = request.message
+        changed["userQuestionSynced"] = True
+    if request.mapObject and not ctx.mapObject:
+        ctx.mapObject = request.mapObject
+        changed["topLevelMapObjectMerged"] = True
+    if isinstance(request.context, dict):
+        if not ctx.mapObject and isinstance(request.context.get("mapObject"), dict):
+            ctx.mapObject = request.context.get("mapObject")
+            changed["contextMapObjectMerged"] = True
+        if not ctx.regionSummary and isinstance(request.context.get("regionSummary"), dict):
+            ctx.regionSummary = request.context.get("regionSummary")
+            changed["contextRegionSummaryMerged"] = True
+        if not ctx.viewport and isinstance(request.context.get("viewport"), dict):
+            ctx.viewport = request.context.get("viewport")
+            changed["contextViewportMerged"] = True
+        if not ctx.geometry and isinstance(request.context.get("geometry"), dict):
+            ctx.geometry = request.context.get("geometry")
+            changed["contextGeometryMerged"] = True
+    ctx.extra = ctx.extra or {}
+    if trace_id and not ctx.extra.get("traceId"):
+        ctx.extra["traceId"] = trace_id
+    return request, changed
 
 
 def _contains_any(text: str, words: List[str]) -> bool:
@@ -391,6 +501,13 @@ def _option_int(request: MapAiAgentRequest, key: str, default: int) -> int:
     return _int_or_none((request.options or {}).get(key)) or default
 
 
+def _option_str(request: MapAiAgentRequest, key: str) -> Optional[str]:
+    value = (request.options or {}).get(key)
+    if value is None or str(value).strip() == "":
+        return None
+    return str(value).strip()
+
+
 def _merge_args(left: Dict[str, Any], right: Dict[str, Any]) -> Dict[str, Any]:
     merged = dict(left)
     merged.update({k: v for k, v in right.items() if v not in (None, "")})
@@ -409,49 +526,61 @@ def _summarize_context(request: MapAiAgentRequest) -> Dict[str, Any]:
         "year": ctx.year,
         "selectedLayers": ctx.selectedLayers,
         "viewport": ctx.viewport,
+        "geometryType": (ctx.geometry or {}).get("type") if isinstance(ctx.geometry, dict) else None,
+        "hasRegionSummary": bool(ctx.regionSummary),
         "mapObjectType": _pick(obj, "objectType", "type", "bizType"),
         "diseaseName": _pick(obj, "diseaseName", "diseaseType", "name"),
         "severity": _pick(obj, "severity", "level", "grade"),
-        "stakeStart": _pick(obj, "stakeStart", "startStake", "startStakeNo"),
-        "stakeEnd": _pick(obj, "stakeEnd", "endStake", "endStakeNo"),
+        "stakeStart": _pick(obj, "stakeStart", "startStake", "startStakeNo", "start_stake", "startMileage"),
+        "stakeEnd": _pick(obj, "stakeEnd", "endStake", "endStakeNo", "end_stake", "endMileage"),
         "message": request.message,
+    }
+
+
+def _context_filter_args(ctx: Optional[MapAiContext]) -> Dict[str, Any]:
+    if not ctx:
+        return {}
+    return {
+        "tenantId": ctx.tenantId,
+        "routeCode": ctx.routeCode,
+        "year": ctx.year,
     }
 
 
 def _object_filter_args(obj: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": _pick(obj, "id", "objectId", "bizId"),
-        "routeCode": _pick(obj, "routeCode", "route_code", "route"),
+        "routeCode": _pick(obj, "routeCode", "route_code", "route", "routeNo", "route_no"),
         "diseaseName": _pick(obj, "diseaseName", "diseaseType", "name"),
         "severity": _pick(obj, "severity", "level", "grade"),
-        "stakeStart": _pick(obj, "stakeStart", "startStake", "startStakeNo"),
-        "stakeEnd": _pick(obj, "stakeEnd", "endStake", "endStakeNo"),
+        "stakeStart": _pick(obj, "stakeStart", "startStake", "startStakeNo", "start_stake", "startMileage"),
+        "stakeEnd": _pick(obj, "stakeEnd", "endStake", "endStakeNo", "end_stake", "endMileage"),
     }
 
 
-def _region_args(map_context: Any) -> Dict[str, Any]:
+def _region_args(map_context: Optional[MapAiContext]) -> Dict[str, Any]:
     if not map_context:
         return {}
     return {
         "mode": map_context.mode,
         "routeCode": map_context.routeCode,
         "year": map_context.year,
-        "geometry": getattr(map_context, "geometry", None),
+        "geometry": map_context.geometry,
         "viewport": map_context.viewport,
     }
 
 
 def _has_stake_range(obj: Dict[str, Any]) -> bool:
-    return bool(_pick(obj, "stakeStart", "startStake", "startStakeNo") and _pick(obj, "stakeEnd", "endStake", "endStakeNo"))
+    return bool(_pick(obj, "stakeStart", "startStake", "startStakeNo", "start_stake", "startMileage") and _pick(obj, "stakeEnd", "endStake", "endStakeNo", "end_stake", "endMileage"))
 
 
 def _stake_args(obj: Dict[str, Any], base: Dict[str, Any]) -> Dict[str, Any]:
     return _merge_args(
         base,
         {
-            "routeCode": _pick(obj, "routeCode", "route_code", "route"),
-            "stakeStart": _pick(obj, "stakeStart", "startStake", "startStakeNo"),
-            "stakeEnd": _pick(obj, "stakeEnd", "endStake", "endStakeNo"),
+            "routeCode": _pick(obj, "routeCode", "route_code", "route", "routeNo", "route_no"),
+            "stakeStart": _pick(obj, "stakeStart", "startStake", "startStakeNo", "start_stake", "startMileage"),
+            "stakeEnd": _pick(obj, "stakeEnd", "endStake", "endStakeNo", "end_stake", "endMileage"),
         },
     )
 
@@ -493,7 +622,7 @@ def _estimate_hit_count(data: Any) -> int:
             value = data.get(key)
             if isinstance(value, int):
                 return value
-        for key in ["list", "items", "records", "sources", "data"]:
+        for key in ["list", "items", "records", "sources", "data", "hits"]:
             value = data.get(key)
             if isinstance(value, list):
                 return len(value)

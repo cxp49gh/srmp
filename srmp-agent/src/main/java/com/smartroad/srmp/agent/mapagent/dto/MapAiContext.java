@@ -14,6 +14,8 @@ public class MapAiContext {
     private Map<String, Object> mapObject;
     private Map<String, Object> regionSummary;
     private Map<String, Object> viewport;
+    /** GeoJSON 几何/框选区域。用于 LangGraph Runtime 识别 POLYGON/BOX 等区域上下文。 */
+    private Map<String, Object> geometry;
     private List<String> selectedLayers;
     private List<Map<String, Object>> nearbyObjects;
     private String userQuestion;

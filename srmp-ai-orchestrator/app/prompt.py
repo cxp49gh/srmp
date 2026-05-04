@@ -23,7 +23,7 @@ def build_answer_prompt(
         "工具结果：",
     ]
     for item in tool_results[: settings.max_tool_items_in_prompt]:
-        lines.append(f"- tool={item.toolName}, success={item.success}, reason={item.reason}, data={item.data}")
+        lines.append(f"- tool={item.toolName}, success={item.success}, reason={item.reason or item.summary}, data={item.data}")
     lines.extend(
         [
             "",

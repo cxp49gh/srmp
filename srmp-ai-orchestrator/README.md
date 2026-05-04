@@ -50,3 +50,45 @@ export SRMP_LLM_MODEL=qwen-plus
 ```
 
 建议生产环境仍优先复用 Java 主工程已有 LLM 配置，后续再把 LLM 调用也包装成 Java Tool Gateway。
+
+
+## Plan Debug
+
+Phase50.7 新增只规划不执行接口，用来排查前端传入的 `context/mapObject/geometry` 是否被 Runtime 正确识别，以及会规划哪些工具：
+
+```bash
+curl -X POST http://127.0.0.1:18080/api/srmp/langgraph/debug/plan \
+  -H 'Content-Type: application/json' \
+  -H 'X-Tenant-Id: default' \
+  -d '{"message":"框选区域裂缝处置建议","context":{"mode":"POLYGON","geometry":{"type":"Polygon","coordinates":[]},"mapObject":{"routeCode":"G210","diseaseName":"裂缝","severity":"中度"}},"options":{"topK":2}}'
+```
+
+返回中重点看 `intent`、`contextSummary`、`toolPlan`、`steps`。
+
+## 工具契约诊断
+
+Phase50.8 新增工具契约诊断接口，用来比较 Runtime 白名单与 Java Tool Gateway 实际注册工具：
+
+```bash
+curl http://127.0.0.1:18080/api/srmp/langgraph/debug/contract \
+  -H 'X-Tenant-Id: default'
+```
+
+重点看：
+
+- `missingInJava`：Runtime 计划会调用，但 Java 未注册；
+- `blockedByRuntimeWhitelist`：Java 已注册，但 Runtime 白名单未放行；
+- `writeBlocked`：疑似写工具且当前只读模式屏蔽。
+
+Java 侧也可以通过 `/api/agent/orchestrator/ops/contract` 和 `/api/agent/orchestrator/ops/plan` 代理访问，前端页面 `/agent/langgraph-ops` 已接入。
+
+## Phase50.9 Runtime Replay / Export
+
+本阶段在观测缓冲区中保存最近请求的 `requestPayload` 快照，用于联调时回放：
+
+- `GET /api/srmp/langgraph/observability/record/{idOrTraceId}`：查看单条内存审计记录；
+- `GET /api/srmp/langgraph/observability/export?limit=30`：导出 Runtime 诊断快照；
+- `POST /api/srmp/langgraph/debug/replay/{idOrTraceId}?execute=false`：只做 Plan 回放，不调用 Java 工具；
+- `POST /api/srmp/langgraph/debug/replay/{idOrTraceId}?execute=true`：重新执行完整只读链路。
+
+默认 `execute=false`，适合排查“为什么规划了这个工具”。`execute=true` 用于修复 Tool Gateway、知识库、GIS 查询后验证同一个请求是否恢复。
