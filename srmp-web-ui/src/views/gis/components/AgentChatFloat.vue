@@ -31,55 +31,83 @@
           </span>
         </div>
 
-        <div class="analysis-actions">
-          <el-button
-            size="small"
-            type="primary"
-            :disabled="!activeMapObject"
-            :loading="loading"
-            @click="triggerAnalyzeObject"
-          >{{ analyzeObjectLabel }}</el-button>
-          <el-button
-            v-if="primarySolutionAction"
-            size="small"
-            type="success"
-            plain
-            :disabled="!activeMapObject || solutionLoading || loading"
-            :loading="solutionLoading && activeSolutionType === primarySolutionAction.type"
-            @click="generateSolutionDraft(primarySolutionAction.type)"
-          >{{ primarySolutionAction.label }}</el-button>
-          <el-button
-            size="small"
-            plain
-            :disabled="!activeRegionContext"
-            :loading="loading"
-            @click="triggerAnalyzeRegion"
-          >分析区域</el-button>
-          <el-button
-            size="small"
-            plain
-            :disabled="!activeRegionContext"
-            :loading="loading"
-            @click="emit('generate-region')"
-          >生成区域建议</el-button>
-          <el-button v-if="hasRegionTrace" size="small" plain @click="emit('trace')">Trace</el-button>
-          <el-dropdown trigger="click" @command="handleContextCommand">
-            <el-button size="small" plain>更多操作</el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item v-if="activeRegionContext" command="suggest-region">生成区域追问</el-dropdown-item>
-                <el-dropdown-item
-                  v-for="action in secondarySolutionActions"
-                  :key="action.type"
-                  :command="`solution:${action.type}`"
-                  :disabled="!activeMapObject || solutionLoading || loading"
-                >{{ action.label }}</el-dropdown-item>
-                <el-dropdown-item command="copy-context" divided>复制上下文</el-dropdown-item>
-                <el-dropdown-item v-if="activeMapObject" command="clear-object">取消对象</el-dropdown-item>
-                <el-dropdown-item v-if="activeRegionContext" command="clear-region">清除区域</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
+        <div class="analysis-actions dynamic-actions" :class="`mode-${contextMode.toLowerCase()}`">
+          <template v-if="contextMode === 'OBJECT'">
+            <el-button
+              size="small"
+              type="primary"
+              :disabled="!activeMapObject"
+              :loading="loading"
+              @click="triggerAnalyzeObject"
+            >{{ analyzeObjectLabel }}</el-button>
+            <el-button
+              v-if="primarySolutionAction"
+              size="small"
+              type="success"
+              plain
+              :disabled="!activeMapObject || solutionLoading || loading"
+              :loading="solutionLoading && activeSolutionType === primarySolutionAction.type"
+              @click="generateSolutionDraft(primarySolutionAction.type)"
+            >{{ primarySolutionAction.label }}</el-button>
+            <el-dropdown trigger="click" @command="handleContextCommand">
+              <el-button size="small" plain>更多</el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item
+                    v-for="action in secondarySolutionActions"
+                    :key="action.type"
+                    :command="`solution:${action.type}`"
+                    :disabled="!activeMapObject || solutionLoading || loading"
+                  >{{ action.label }}</el-dropdown-item>
+                  <el-dropdown-item command="copy-context" :divided="secondarySolutionActions.length > 0">复制上下文</el-dropdown-item>
+                  <el-dropdown-item command="clear-object">取消对象</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </template>
+
+          <template v-else-if="contextMode === 'REGION'">
+            <el-button
+              size="small"
+              type="primary"
+              plain
+              :disabled="!activeRegionContext || regionAnalyzing"
+              :loading="regionAnalyzing"
+              @click="triggerAnalyzeRegion"
+            >分析区域</el-button>
+            <el-button
+              size="small"
+              type="success"
+              plain
+              :disabled="!activeRegionContext || regionGenerating"
+              :loading="regionGenerating"
+              @click="emit('generate-region')"
+            >生成区域建议</el-button>
+            <el-button v-if="hasRegionTrace" size="small" plain @click="emit('trace')">Trace</el-button>
+            <el-dropdown trigger="click" @command="handleContextCommand">
+              <el-button size="small" plain>更多</el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="suggest-region">生成区域追问</el-dropdown-item>
+                  <el-dropdown-item command="copy-context" divided>复制上下文</el-dropdown-item>
+                  <el-dropdown-item command="clear-region">清除区域</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </template>
+
+          <template v-else>
+            <span class="action-empty-hint">点击地图对象或框选区域后，操作区会自动切换</span>
+            <el-button size="small" type="primary" plain @click="triggerAnalyzeRoute">分析当前路线</el-button>
+            <el-dropdown trigger="click" @command="handleContextCommand">
+              <el-button size="small" plain>更多</el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="copy-context">复制上下文</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </template>
         </div>
         <div class="analysis-action-hint">{{ operationHint }}</div>
       </section>
@@ -200,6 +228,8 @@ const props = defineProps<{
   context: Record<string, any>
   mapObject?: Record<string, any> | null
   autoQuestion?: string
+  regionLoading?: boolean
+  regionSummaryLoading?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -248,6 +278,8 @@ const optionSummary = computed(() => {
 })
 
 const activeMetricMeta = computed(() => getMetricMeta(props.context?.query?.indexCode || props.context?.indexCode || 'MQI'))
+const regionGenerating = computed(() => Boolean(props.regionLoading))
+const regionAnalyzing = computed(() => loading.value || Boolean(props.regionSummaryLoading))
 
 const activeMetricDisplay = computed(() => {
   const obj: any = activeMapObject.value || {}
@@ -261,17 +293,17 @@ const activeMetricDisplay = computed(() => {
 const hasRegionTrace = computed(() => Boolean(props.context?.regionTrace?.traceId || props.context?.regionTrace?.trace_id))
 
 const analysisScopeTitle = computed(() => {
-  if (activeMapObject.value) return '当前对象'
-  if (activeRegionContext.value) return activeRegionContext.value.geometryType === 'POLYGON' ? '多边形区域' : '矩形区域'
+  if (contextMode.value === 'OBJECT' && activeMapObject.value) return '当前对象'
+  if (contextMode.value === 'REGION' && activeRegionContext.value) return activeRegionContext.value.geometryType === 'POLYGON' ? '多边形区域' : '矩形区域'
   return '当前路线范围'
 })
 
 const analysisScopeDescription = computed(() => {
-  if (activeMapObject.value) {
+  if (contextMode.value === 'OBJECT' && activeMapObject.value) {
     const metric = activeMetricDisplay.value ? `当前${activeMetricMeta.value.code} ${activeMetricDisplay.value}，` : ''
     return `${metric}已接入指标专题、图层统计与 AI 上下文，可直接分析或生成养护建议。`
   }
-  if (activeRegionContext.value) {
+  if (contextMode.value === 'REGION' && activeRegionContext.value) {
     const route = props.context?.query?.routeCode || activeRegionContext.value.routeCode || '当前路线'
     const targets = analysisTargetText.value || '线路、路段、病害、评定结果'
     return `${route} 区域范围，已统一关联 ${targets}`
@@ -377,7 +409,7 @@ function firstDisplayValue(...values: any[]) {
 }
 
 const contextChips = computed(() => {
-  if (activeRegionContext.value) {
+  if (contextMode.value === 'REGION' && activeRegionContext.value) {
     const summary = activeRegionSummary.value || {}
     const chips = ['区域']
     const label = activeRegionContext.value.label || ''
@@ -391,25 +423,42 @@ const contextChips = computed(() => {
     return chips.slice(0, 6)
   }
 
-  const obj: any = activeMapObject.value || {}
-  const type = normalizeObjectType(obj)
-  const chips = [mapObjectTypeLabel(type)]
-  const disease = obj.diseaseName || obj.disease_name || obj.diseaseType || obj.disease_type
-  const route = obj.routeCode || obj.route_code
-  const severity = obj.severity
-  const stake = formatStake(obj.startStake ?? obj.start_stake, obj.endStake ?? obj.end_stake)
-  ;[disease, severity, route, stake].forEach((it) => {
-    if (it !== undefined && it !== null && it !== '') chips.push(String(it))
-  })
-  return chips.slice(0, 6)
+  if (contextMode.value === 'OBJECT' && activeMapObject.value) {
+    const obj: any = activeMapObject.value || {}
+    const type = normalizeObjectType(obj)
+    const chips = [mapObjectTypeLabel(type)]
+    const disease = obj.diseaseName || obj.disease_name || obj.diseaseType || obj.disease_type
+    const route = obj.routeCode || obj.route_code
+    const severity = obj.severity
+    const stake = formatStake(obj.startStake ?? obj.start_stake, obj.endStake ?? obj.end_stake)
+    ;[disease, severity, route, stake].forEach((it) => {
+      if (it !== undefined && it !== null && it !== '') chips.push(String(it))
+    })
+    return chips.slice(0, 6)
+  }
+
+  const query = props.context?.query || {}
+  return ['路线范围', query.routeCode || '全部路线', query.year || '全部年度'].filter(Boolean).slice(0, 6)
 })
 
-const activeMapObject = computed(() => {
+const requestedContextScope = computed(() => String(props.context?.contextScope || '').toUpperCase())
+
+const rawMapObject = computed(() => {
   return props.mapObject || props.context?.mapObject || props.context?.selectedMapObject || props.context?.selected || null
 })
 
-const activeRegionContext = computed(() => {
+const rawRegionContext = computed(() => {
   return props.context?.regionContext || props.context?.region || null
+})
+
+const activeRegionContext = computed(() => {
+  if (requestedContextScope.value === 'OBJECT' && rawMapObject.value) return null
+  return rawRegionContext.value
+})
+
+const activeMapObject = computed(() => {
+  if (requestedContextScope.value === 'REGION' && rawRegionContext.value) return null
+  return rawMapObject.value
 })
 
 const activeRegionSummary = computed(() => {
@@ -435,6 +484,8 @@ const analysisTargetText = computed(() => {
 })
 
 const contextMode = computed(() => {
+  if (requestedContextScope.value === 'REGION' && (activeRegionContext.value || activeRegionSummary.value)) return 'REGION'
+  if (requestedContextScope.value === 'OBJECT' && activeMapObject.value) return 'OBJECT'
   if (activeMapObject.value) return 'OBJECT'
   if (activeRegionContext.value || activeRegionSummary.value) return 'REGION'
   if (props.context?.viewport || props.context?.bounds) return 'VIEWPORT'
@@ -479,7 +530,7 @@ const primarySolutionAction = computed(() => solutionActions.value.find((it: any
 const secondarySolutionActions = computed(() => solutionActions.value.filter((it: any) => !it.primary))
 
 const operationHint = computed(() => {
-  if (activeMapObject.value) {
+  if (contextMode.value === 'OBJECT' && activeMapObject.value) {
     const type = normalizeObjectType(activeMapObject.value)
     if (type === 'DISEASE' || type === 'DISEASE_RECORD') {
       return '分析病害用于解释成因和风险；生成处置建议会生成结构化建议；复核意见在更多操作中，用于识别结果、等级和位置复核。'
@@ -489,8 +540,8 @@ const operationHint = computed(() => {
     }
     return '分析对象用于 AI 解释；生成建议会生成结构化结果，预览后可保存为方案草稿。'
   }
-  if (activeRegionContext.value) return '分析区域用于综合研判；生成区域建议会进入结构化区域养护建议流程。'
-  return '选择地图对象或框选区域后，可在这里分析问题、生成建议并追踪依据。'
+  if (contextMode.value === 'REGION' && activeRegionContext.value) return '当前操作区已切换为区域模式：分析区域用于综合研判，生成区域建议会进入结构化区域养护建议流程。'
+  return '当前操作区为路线模式；点击地图对象或框选区域后，会自动切换为对象/区域专属操作。'
 })
 
 function normalizeObjectType(obj: any) {
@@ -602,6 +653,10 @@ function analyzeCurrentRegion() {
 
 function triggerAnalyzeRegion() {
   analyzeCurrentRegion()
+}
+
+function triggerAnalyzeRoute() {
+  quickAsk('分析当前路线整体路况，结合当前筛选条件、图层统计和指标等级，说明主要风险与养护重点')
 }
 
 function suggestForCurrentRegion() {
@@ -1073,6 +1128,24 @@ function openTrace(trace: Record<string, any>) {
   gap: 6px;
   flex-wrap: wrap;
   margin-top: 8px;
+}
+
+.dynamic-actions {
+  min-height: 32px;
+}
+
+.dynamic-actions.mode-object,
+.dynamic-actions.mode-region {
+  padding: 5px 6px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.action-empty-hint {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .analysis-action-hint {

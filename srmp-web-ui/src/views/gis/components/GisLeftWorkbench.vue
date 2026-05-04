@@ -45,6 +45,14 @@
         </label>
       </section>
 
+      <section v-if="layerErrorItems.length" class="layer-error-section">
+        <div class="section-title">图层异常</div>
+        <div v-for="item in layerErrorItems" :key="item.key" class="layer-error-item">
+          <strong>{{ item.label }}</strong>
+          <span>{{ item.message }}</span>
+        </div>
+      </section>
+
       <section class="stats-section">
         <div class="section-title">图层统计</div>
         <div class="stat-grid">
@@ -72,6 +80,7 @@ const props = defineProps<{
   layers: LayerState
   statistics: Record<string, any>
   layerCounts?: Record<string, number>
+  layerErrors?: Record<string, string>
   query?: GisLayerQuery
   loading?: boolean
 }>()
@@ -114,6 +123,14 @@ const selectedMetricGradeLabel = computed(() => {
 
 const enabledLayerCount = computed(() => {
   return [...assetLayerItems, ...businessLayerItems].filter((item) => localLayers[item.key]).length
+})
+
+const layerErrorItems = computed(() => {
+  const errors = props.layerErrors || {}
+  const labelMap = Object.fromEntries([...assetLayerItems, ...businessLayerItems].map((item) => [item.key, item.label])) as Record<string, string>
+  return Object.entries(errors)
+    .filter(([, message]) => Boolean(message))
+    .map(([key, message]) => ({ key, label: labelMap[key] || key, message }))
 })
 
 const statItems = computed(() => {
@@ -284,6 +301,33 @@ function formatPercent(value: any) {
 .layer-group + .layer-group,
 .stats-section {
   margin-top: 8px;
+}
+
+.layer-error-section {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  background: #fff7ed;
+}
+
+.layer-error-item {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 6px;
+  padding: 4px 0;
+  color: #9a3412;
+  font-size: 12px;
+}
+
+.layer-error-item strong {
+  color: #7c2d12;
+}
+
+.layer-error-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .group-title,
