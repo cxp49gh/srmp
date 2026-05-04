@@ -13,6 +13,16 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _float_env(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
 def _bool_env(name: str, default: bool) -> bool:
     value = os.getenv(name)
     if value is None or value == "":
@@ -38,8 +48,18 @@ class Settings:
     llm_base_url: str = os.getenv("SRMP_LLM_BASE_URL", "").rstrip("/")
     llm_api_key: str = os.getenv("SRMP_LLM_API_KEY", "")
     llm_model: str = os.getenv("SRMP_LLM_MODEL", "")
-    llm_temperature: float = float(os.getenv("SRMP_LLM_TEMPERATURE", "0.2") or "0.2")
+    llm_temperature: float = _float_env("SRMP_LLM_TEMPERATURE", 0.2)
     max_tool_items_in_prompt: int = _int_env("SRMP_LANGGRAPH_MAX_TOOL_ITEMS_IN_PROMPT", 8)
+
+    strategy_version: str = os.getenv("SRMP_LANGGRAPH_STRATEGY_VERSION", "phase50.6-readonly-v1")
+    enable_context_enrich: bool = _bool_env("SRMP_LANGGRAPH_ENABLE_CONTEXT_ENRICH", True)
+    enable_evidence_fusion: bool = _bool_env("SRMP_LANGGRAPH_ENABLE_EVIDENCE_FUSION", True)
+    enable_quality_guard: bool = _bool_env("SRMP_LANGGRAPH_ENABLE_QUALITY_GUARD", True)
+    parallel_tool_execution: bool = _bool_env("SRMP_LANGGRAPH_PARALLEL_TOOLS", True)
+    max_parallel_tools: int = _int_env("SRMP_LANGGRAPH_MAX_PARALLEL_TOOLS", 4)
+    max_tool_calls: int = _int_env("SRMP_LANGGRAPH_MAX_TOOL_CALLS", 6)
+    min_answer_chars: int = _int_env("SRMP_LANGGRAPH_MIN_ANSWER_CHARS", 80)
+    require_evidence_prefix: bool = _bool_env("SRMP_LANGGRAPH_REQUIRE_EVIDENCE_PREFIX", True)
     allowed_tools: List[str] = None  # type: ignore
 
     def __post_init__(self):

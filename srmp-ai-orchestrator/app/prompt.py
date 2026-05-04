@@ -1,100 +1,75 @@
-import json
 from typing import Any, Dict, List
 
 from .config import settings
 from .schemas import MapAiAgentRequest, ToolResult
 
 
-def build_prompt(request: MapAiAgentRequest, intent: str, tool_results: List[ToolResult]) -> str:
-    context = request.mapContext.model_dump(exclude_none=True) if request.mapContext else {}
-    compact_results = [_compact_tool_result(item) for item in tool_results]
-    return f"""
-你是 SRMP 智路养护平台的一张图 AI 养护助手。
-请只基于当前地图上下文、工具结果和知识库资料回答，不要编造不存在的道路、桩号、病害或规范来源。
-
-【用户问题】
-{request.message or ''}
-
-【识别意图】
-{intent}
-
-【地图上下文】
-{json.dumps(context, ensure_ascii=False, default=str)}
-
-【工具结果】
-{json.dumps(compact_results, ensure_ascii=False, default=str)}
-
-请输出中文答案，结构建议：
-1. 结论
-2. 当前对象/区域依据
-3. 处置或复核建议
-4. 风险与后续动作
-""".strip()
-
-
-def build_fallback_answer(request: MapAiAgentRequest, intent: str, tool_results: List[ToolResult]) -> str:
-    context = request.mapContext.model_dump(exclude_none=True) if request.mapContext else {}
-    route_code = context.get("routeCode") or _pick(context.get("mapObject"), "routeCode", "route_code") or "当前路线"
-    obj_name = _pick(context.get("mapObject"), "diseaseName", "disease_name", "objectName", "name", "objectType", "object_type")
-    success_results = [item for item in tool_results if item.success]
-    failed_results = [item for item in tool_results if not item.success]
-
-    lines = ["【基于当前地图对象】"]
-    if obj_name:
-        lines.append(f"- 当前对象：{obj_name}，路线：{route_code}。")
-    else:
-        lines.append(f"- 当前范围：{route_code}。")
-
-    if success_results:
-        lines.append("- 已完成工具分析：" + "；".join(_safe_summary(item) for item in success_results[:4]) + "。")
-    if failed_results:
-        lines.append("- 部分工具暂未返回有效结果：" + "；".join(_safe_summary(item) for item in failed_results[:3]) + "。")
-
-    lines.append("\n建议：")
-    if intent == "OBJECT_ANALYSIS":
-        lines.append("1. 先结合病害类型、严重程度、位置桩号和近邻评定结果确认是否需要复核。")
-        lines.append("2. 若为裂缝、坑槽、龟裂等典型病害，优先匹配知识库处置规则，再生成处置建议或方案草稿。")
-    elif intent == "REGION_ANALYSIS":
-        lines.append("1. 先按路线/框选区域统计病害数量、严重程度和评定等级分布。")
-        lines.append("2. 优先处置低分单元、重度病害集中区和存在连续劣化风险的路段。")
-    else:
-        lines.append("1. 优先依据知识库命中资料回答；资料不足时，应提示补充检测、评定或现场复核数据。")
-
-    lines.append("3. 涉及保存方案、转工单或更新业务数据时，应走前端人工确认流程。")
+def build_answer_prompt(
+    request: MapAiAgentRequest,
+    intent: str,
+    context_summary: Dict[str, Any],
+    tool_results: List[ToolResult],
+    evidence: Dict[str, Any],
+) -> str:
+    lines = [
+        "你是道路养护一张图 AI 助手。",
+        "必须基于地图上下文、GIS 查询结果和知识库证据回答。",
+        "当前处于只读模式：不能声称已保存、已派单、已更新数据库。",
+        "",
+        f"意图：{intent}",
+        f"地图上下文摘要：{context_summary}",
+        f"证据摘要：{evidence}",
+        "",
+        "工具结果：",
+    ]
+    for item in tool_results[: settings.max_tool_items_in_prompt]:
+        lines.append(f"- tool={item.toolName}, success={item.success}, reason={item.reason}, data={item.data}")
+    lines.extend(
+        [
+            "",
+            f"用户问题：{request.message}",
+            "",
+            "请输出：",
+            "1. 先说明依据的当前对象或框选区域；",
+            "2. 给出主要发现；",
+            "3. 给出处置建议或下一步核查建议；",
+            "4. 如果证据不足，明确说明缺少哪些数据。",
+        ]
+    )
     return "\n".join(lines)
 
 
-def _compact_tool_result(result: ToolResult) -> Dict[str, Any]:
-    data = result.data
-    if isinstance(data, dict):
-        data = _trim_dict(data)
-    return {
-        "toolName": result.toolName,
-        "success": result.success,
-        "summary": result.summary,
-        "count": result.count,
-        "data": data,
-        "errorMessage": result.errorMessage,
-    }
+def fallback_answer(
+    request: MapAiAgentRequest,
+    intent: str,
+    context_summary: Dict[str, Any],
+    evidence: Dict[str, Any],
+    tool_results: List[ToolResult],
+) -> str:
+    prefix = "【基于当前地图对象】"
+    mode = context_summary.get("mode")
+    if mode and str(mode).upper() in {"BOX", "POLYGON", "REGION", "SELECTION"}:
+        prefix = "【基于当前框选区域】"
 
+    success_tools = [item.toolName for item in tool_results if item.success]
+    failed_tools = [item.toolName for item in tool_results if not item.success]
+    route = context_summary.get("routeCode") or "当前路线"
+    year = context_summary.get("year") or "当前年度"
 
-def _trim_dict(data: Dict[str, Any]) -> Dict[str, Any]:
-    copied = dict(data)
-    for key in ("items", "hits", "records", "list"):
-        if isinstance(copied.get(key), list):
-            copied[key] = copied[key][: settings.max_tool_items_in_prompt]
-    return copied
+    parts = [
+        f"{prefix}已按 {settings.strategy_version} 只读编排完成分析。",
+        f"分析范围：{route}，{year}。",
+        f"识别意图：{intent}。",
+    ]
+    if success_tools:
+        parts.append("已调用工具：" + "、".join(success_tools) + "。")
+    if evidence.get("knowledgeHitCount"):
+        parts.append(f"知识库命中 {evidence.get('knowledgeHitCount')} 条，可作为处置建议依据。")
+    if evidence.get("businessHitCount"):
+        parts.append(f"业务数据命中 {evidence.get('businessHitCount')} 条，建议结合病害等级、桩号范围和评定结果排序处理。")
+    if failed_tools:
+        parts.append("部分工具未成功：" + "、".join(failed_tools) + "，建议检查 Tool Gateway 或数据条件。")
 
-
-def _pick(data: Any, *keys: str) -> str:
-    if not isinstance(data, dict):
-        return ""
-    for key in keys:
-        value = data.get(key)
-        if value is not None and str(value).strip():
-            return str(value).strip()
-    return ""
-
-
-def _safe_summary(result: ToolResult) -> str:
-    return f"{result.toolName}: {result.summary or result.errorMessage or '无摘要'}"
+    parts.append("建议优先核查重度病害、低分评定单元、连续桩号范围内的集中病害，并结合养护规范生成后续方案草稿。")
+    parts.append("当前为只读分析，未执行保存、派单或数据库更新。")
+    return "\n".join(parts)

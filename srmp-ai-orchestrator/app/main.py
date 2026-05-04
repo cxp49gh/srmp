@@ -7,10 +7,10 @@ from .config import settings
 from .java_tools import JavaToolGateway
 from .llm_client import LlmClient
 from .observability import runtime_audit_store
-from .schemas import MapAiAgentRequest, ToolCall
-from .workflow import LANGGRAPH_AVAILABLE, LangGraphWorkflow
+from .schemas import MapAiAgentRequest, MapAiAgentResponse, ToolCall
+from .workflow import LANGGRAPH_AVAILABLE, LangGraphWorkflow, strategy_metadata
 
-app = FastAPI(title="SRMP LangGraph Orchestrator", version="50.5.0")
+app = FastAPI(title="SRMP LangGraph Orchestrator", version="50.6.0")
 
 gateway = JavaToolGateway()
 workflow = LangGraphWorkflow(gateway=gateway, llm_client=LlmClient())
@@ -26,12 +26,13 @@ async def health() -> dict:
     return {
         "status": "UP",
         "app": settings.app_name,
-        "version": "50.5.0",
+        "version": "50.6.0",
         "langgraphAvailable": LANGGRAPH_AVAILABLE,
         "javaBaseUrl": settings.java_base_url,
         "allowWriteTools": settings.allow_write_tools,
         "useLlm": settings.use_llm,
         "observability": runtime_audit_store.summary(),
+        "strategy": strategy_metadata(),
     }
 
 
@@ -40,11 +41,12 @@ async def ready(x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenan
     start_payload = {
         "status": "UP",
         "app": settings.app_name,
-        "version": "50.5.0",
+        "version": "50.6.0",
         "langgraphAvailable": LANGGRAPH_AVAILABLE,
         "javaBaseUrl": settings.java_base_url,
         "toolGateway": {},
         "observability": runtime_audit_store.summary(),
+        "strategy": strategy_metadata(),
     }
     try:
         tools = await gateway.list_tools(tenant_id=x_tenant_id)
@@ -55,6 +57,11 @@ async def ready(x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenan
         start_payload["status"] = "DOWN"
         start_payload["toolGateway"] = {"ok": False, "error": str(exc)}
     return start_payload
+
+
+@app.get("/api/srmp/langgraph/strategy")
+async def strategy() -> dict:
+    return strategy_metadata()
 
 
 @app.get("/api/srmp/langgraph/observability/summary")
@@ -100,7 +107,7 @@ async def map_agent_chat(
     request: MapAiAgentRequest,
     x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id"),
     x_ai_trace_id: Optional[str] = Header(default=None, alias="X-AI-Trace-Id"),
-) -> dict:
+) -> MapAiAgentResponse:
     started_at = time.perf_counter()
     try:
         response = await workflow.run(request=request, tenant_id=x_tenant_id, trace_id=x_ai_trace_id)
@@ -115,7 +122,7 @@ async def map_agent_chat(
         response.data.setdefault("runtimeAuditId", audit_record.get("id"))
         response.data.setdefault("runtimeCostMs", cost_ms)
         response.trace.setdefault("runtimeAuditId", audit_record.get("id"))
-        return response.model_dump(exclude_none=True)
+        return response
     except Exception as exc:  # noqa: BLE001
         cost_ms = int((time.perf_counter() - started_at) * 1000)
         runtime_audit_store.record_failure(
