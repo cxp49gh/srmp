@@ -30,6 +30,8 @@ request_normalize
 
 此前额外存在 `tool_planning -> END`，可能导致真实 LangGraph 执行只规划工具、不执行工具、不生成回答。
 
+Plan Debug 使用 sequential 路径，不经过 LangGraph 编译图。Phase50.12 同时补齐了节点名到处理函数的映射，确保 `tool_planning` 能正确调用 `_tool_plan`，避免 `/api/srmp/langgraph/debug/plan` 返回 500。
+
 ### 前端运维页
 
 `/agent/langgraph-ops` 增加：

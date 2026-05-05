@@ -32,6 +32,10 @@ fi
 
 grep -q 'builder.add_edge("quality_guard", END)' "$WORKFLOW_FILE" \
   || fail "LangGraph runtime should terminate at quality_guard"
+grep -q 'def _node_handler' "$WORKFLOW_FILE" \
+  || fail "sequential plan execution should map node names to handlers"
+grep -q 'node == "tool_planning"' "$WORKFLOW_FILE" \
+  || fail "sequential plan execution should resolve tool_planning to _tool_plan"
 
 grep -q 'getOrchestratorConfig' "$OPS_API_FILE" \
   || fail "frontend API should expose runtime config"

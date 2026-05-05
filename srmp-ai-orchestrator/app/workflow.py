@@ -132,9 +132,17 @@ class LangGraphWorkflow:
 
     async def _run_sequential(self, state: AgentState, nodes: List[str]) -> AgentState:
         for node in nodes:
-            updates = await getattr(self, "_" + node)(state)
+            updates = await self._node_handler(node)(state)
             state.update(updates or {})
         return state
+
+    def _node_handler(self, node: str):
+        if node == "tool_planning":
+            return self._tool_plan
+        handler = getattr(self, "_" + node, None)
+        if handler is None:
+            raise AttributeError("LangGraphWorkflow has no handler for node: " + str(node))
+        return handler
 
     def _step(self, state: AgentState, node: str, message: str, data: Optional[Dict[str, Any]] = None) -> None:
         steps = state.setdefault("steps", [])
