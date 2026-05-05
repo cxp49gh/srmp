@@ -46,6 +46,11 @@ ensure_psql_available() {
   exit 1
 }
 
+# Detect if vector extension library is available inside the container
+vector_available_in_container() {
+  docker exec srmp-postgres env PGPASSWORD="$DB_PASSWORD" psql -U "$DB_USER" -d "$DB_NAME" -c "SELECT vector_dims('[1,2,3]'::vector)" >/dev/null 2>&1
+}
+
 run_sql_file() {
   local file="$1"
   local label="$2"
@@ -55,13 +60,36 @@ run_sql_file() {
   }
 
   echo "==> $label"
-  if [ -z "$PSQL_BIN" ] && [ "$LOCAL_DEV" = "0" ] && docker_psql_available; then
-    docker exec -i srmp-postgres env PGPASSWORD="$DB_PASSWORD" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 < "$file"
-  elif [ -z "$PSQL_BIN" ] && docker_psql_available; then
-    docker exec -i srmp-postgres env PGPASSWORD="$DB_PASSWORD" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 < "$file"
+  local psql_cmd
+  if [ -z "$PSQL_BIN" ] && docker_psql_available; then
+    psql_cmd="docker exec -i srmp-postgres env PGPASSWORD=\"$DB_PASSWORD\" psql -U \"$DB_USER\" -d \"$DB_NAME\" -v ON_ERROR_STOP=1"
   else
     local bin="${PSQL_BIN:-psql}"
-    PGPASSWORD="$DB_PASSWORD" "$bin" -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -f "$file"
+    psql_cmd="PGPASSWORD=\"$DB_PASSWORD\" \"$bin\" -h \"$DB_HOST\" -p \"$DB_PORT\" -U \"$DB_USER\" -d \"$DB_NAME\" -v ON_ERROR_STOP=1"
+  fi
+
+  # For vector-related files, check if vector extension is usable first
+  if echo "$file" | grep -qi "vector"; then
+    if ! vector_available_in_container; then
+      echo "[WARN] pgvector library not available in container, skipping: $label"
+      return 0
+    fi
+  fi
+
+  # Execute and catch vector library errors (can occur even from non-vector-named files
+  # if they reference the vector type after CREATE EXTENSION that appears to succeed)
+  local output
+  local exitcode=0
+  output=$(eval "$psql_cmd" < "$file" 2>&1) || exitcode=$?
+
+  if [ $exitcode -ne 0 ]; then
+    if echo "$output" | grep -q "\$libdir/vector"; then
+      echo "[WARN] pgvector unavailable (library missing), skipping: $label"
+      return 0
+    fi
+    echo "$output"
+    echo "[FAIL] $label failed (exit $exitcode)"
+    return $exitcode
   fi
   echo "[OK] $label"
 }
