@@ -7,6 +7,8 @@ cd "$ROOT_DIR"
 RUNTIME_URL="${SRMP_LANGGRAPH_URL:-http://127.0.0.1:18080}"
 JAVA_URL="${SRMP_JAVA_BASE_URL:-http://127.0.0.1:8080}"
 SKIP_LIVE="${SKIP_LIVE:-0}"
+EXPECTED_STRATEGY="${EXPECTED_STRATEGY:-phase50.11-config-health-guard-v1}"
+EXPECTED_APP_VERSION="${EXPECTED_APP_VERSION:-50.11.0}"
 
 fail() {
   echo "[FAIL] $*" >&2
@@ -40,7 +42,7 @@ contains "srmp-ai-orchestrator/app/main.py" "observability/export"
 contains "srmp-ai-orchestrator/app/main.py" "debug/replay"
 contains "srmp-ai-orchestrator/app/observability.py" "requestPayload"
 contains "srmp-ai-orchestrator/app/observability.py" "export_bundle"
-contains "srmp-ai-orchestrator/app/config.py" "phase50.9-replay-export-v1"
+contains "srmp-ai-orchestrator/app/config.py" "$EXPECTED_STRATEGY"
 contains "srmp-agent/src/main/java/com/smartroad/srmp/agent/orchestrator/controller/AgentOrchestratorOpsController.java" "/replay/{recordId}"
 contains "srmp-agent/src/main/java/com/smartroad/srmp/agent/orchestrator/controller/AgentOrchestratorOpsController.java" "/export"
 contains "srmp-web-ui/src/api/orchestrator.ts" "replayOrchestratorRecord"
@@ -56,10 +58,10 @@ if [ "$SKIP_LIVE" = "1" ]; then
   exit 0
 fi
 
-curl -fsS "$RUNTIME_URL/health" | grep -q "50.9.0" || fail "Runtime /health does not expose 50.9.0"
+curl -fsS "$RUNTIME_URL/health" | grep -q "$EXPECTED_APP_VERSION" || fail "Runtime /health does not expose $EXPECTED_APP_VERSION"
 pass "Runtime health ok"
 
-curl -fsS "$RUNTIME_URL/api/srmp/langgraph/observability/export?limit=5" | grep -q "phase50.9-replay-export-v1" || fail "Runtime export missing strategy version"
+curl -fsS "$RUNTIME_URL/api/srmp/langgraph/observability/export?limit=5" | grep -q "$EXPECTED_STRATEGY" || fail "Runtime export missing strategy version $EXPECTED_STRATEGY"
 pass "Runtime export ok"
 
 curl -fsS "$JAVA_URL/api/agent/orchestrator/ops/export?limit=5" >/tmp/srmp_phase50_9_export.json || fail "Java ops export failed"

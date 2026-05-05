@@ -5,6 +5,8 @@ JAVA_BASE_URL="${JAVA_BASE_URL:-http://127.0.0.1:8080}"
 LANGGRAPH_URL="${LANGGRAPH_URL:-http://127.0.0.1:18080}"
 TENANT_ID="${TENANT_ID:-default}"
 REQUIRE_LANGGRAPH="${REQUIRE_LANGGRAPH:-false}"
+EXPECTED_STRATEGY="${EXPECTED_STRATEGY:-phase50.11-config-health-guard-v1}"
+SKIP_LIVE="${SKIP_LIVE:-0}"
 
 curl_json() {
   local method="$1"
@@ -34,9 +36,21 @@ assert_contains() {
   fi
 }
 
+if [ "$SKIP_LIVE" = "1" ]; then
+  printf '[1/3] Static strategy defaults...\n'
+  grep -q "$EXPECTED_STRATEGY" srmp-ai-orchestrator/app/config.py
+  printf '[2/3] Static workflow nodes...\n'
+  grep -q 'quality_guard' srmp-ai-orchestrator/app/workflow.py
+  grep -q 'tool_planning' srmp-ai-orchestrator/app/workflow.py
+  printf '[3/3] Python syntax...\n'
+  python3 -m py_compile srmp-ai-orchestrator/app/*.py
+  printf '\nPASS: Phase50.6 LangGraph read-only strategy static check completed.\n'
+  exit 0
+fi
+
 printf '[1/5] LangGraph strategy metadata...\n'
 STRATEGY="$(curl_json GET "${LANGGRAPH_URL}/api/srmp/langgraph/strategy")"
-assert_contains "$STRATEGY" 'phase50.6-readonly-v1' 'strategy should include phase50.6-readonly-v1'
+assert_contains "$STRATEGY" "$EXPECTED_STRATEGY" "strategy should include ${EXPECTED_STRATEGY}"
 assert_contains "$STRATEGY" 'nodeFlow' 'strategy should include nodeFlow'
 
 printf '[2/5] LangGraph ready...\n'

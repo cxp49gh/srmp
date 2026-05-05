@@ -4,6 +4,7 @@ set -euo pipefail
 LANGGRAPH_URL="${LANGGRAPH_URL:-http://127.0.0.1:18080}"
 TENANT_ID="${TENANT_ID:-default}"
 SKIP_LIVE="${SKIP_LIVE:-0}"
+EXPECTED_STRATEGY="${EXPECTED_STRATEGY:-phase50.11-config-health-guard-v1}"
 
 assert_file_contains() {
   local file="$1"
@@ -32,7 +33,7 @@ assert_contains() {
 }
 
 printf '[1/5] Static files and strategy version...\n'
-assert_file_contains srmp-ai-orchestrator/app/config.py 'phase50.8-contract-debug-v1' 'config should use phase50.8 strategy version'
+assert_file_contains srmp-ai-orchestrator/app/config.py "$EXPECTED_STRATEGY" "config should use current strategy version ${EXPECTED_STRATEGY}"
 assert_file_contains srmp-ai-orchestrator/app/main.py 'debug/contract' 'Runtime should expose debug/contract endpoint'
 assert_file_contains srmp-ai-orchestrator/app/java_tools.py 'inspect_contract' 'JavaToolGateway should inspect contract'
 assert_file_contains srmp-ai-orchestrator/app/workflow.py 'request_normalize' 'workflow should keep request_normalize cumulative fix'
@@ -60,7 +61,7 @@ fi
 
 printf '[5/5] Runtime live endpoints...\n'
 HEALTH="$(curl -sS "${LANGGRAPH_URL}/health" -H "X-Tenant-Id: ${TENANT_ID}")"
-assert_contains "$HEALTH" 'phase50.8-contract-debug-v1' 'health should include phase50.8 strategy version'
+assert_contains "$HEALTH" "$EXPECTED_STRATEGY" "health should include current strategy version ${EXPECTED_STRATEGY}"
 assert_contains "$HEALTH" 'request_normalize' 'health strategy should include request_normalize'
 
 CONTRACT="$(curl -sS "${LANGGRAPH_URL}/api/srmp/langgraph/debug/contract" -H "X-Tenant-Id: ${TENANT_ID}")"
