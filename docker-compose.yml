@@ -1,6 +1,7 @@
 services:
   postgres:
-    image: postgis/postgis:15-3.4
+    image: postgis-postgis-15-3.4-pgvector:latest
+    # To rebuild: docker build -f deploy/docker/postgres/Dockerfile -t postgis-postgis-15-3.4-pgvector:latest .
     container_name: srmp-postgres
     environment:
       POSTGRES_DB: srmp
