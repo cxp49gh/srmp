@@ -108,7 +108,7 @@ retry_json() {
 
 psql_scalar() {
   local sql="$1"
-  docker exec -i srmp-postgres psql -U "${DB_USER:-srmp}" -d "${DB_NAME:-srmp}" -At -v ON_ERROR_STOP=1 <<< "$sql"
+  docker exec -i srmp-postgres env PGPASSWORD="${DB_PASSWORD:-srmp123}" psql -U "${DB_USER:-srmp}" -d "${DB_NAME:-srmp}" -At -v ON_ERROR_STOP=1 <<< "$sql"
 }
 
 assert_db_min() {

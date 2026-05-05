@@ -56,9 +56,9 @@ run_sql_file() {
 
   echo "==> $label"
   if [ -z "$PSQL_BIN" ] && [ "$LOCAL_DEV" = "0" ] && docker_psql_available; then
-    docker exec -i srmp-postgres psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 < "$file"
+    docker exec -i srmp-postgres env PGPASSWORD="$DB_PASSWORD" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 < "$file"
   elif [ -z "$PSQL_BIN" ] && docker_psql_available; then
-    docker exec -i srmp-postgres psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 < "$file"
+    docker exec -i srmp-postgres env PGPASSWORD="$DB_PASSWORD" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 < "$file"
   else
     local bin="${PSQL_BIN:-psql}"
     PGPASSWORD="$DB_PASSWORD" "$bin" -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -f "$file"
@@ -71,7 +71,7 @@ run_sql_text() {
   local sql="$2"
   echo "==> $label"
   if [ -z "$PSQL_BIN" ] && docker_psql_available; then
-    printf '%s\n' "$sql" | docker exec -i srmp-postgres psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1
+    printf '%s\n' "$sql" | docker exec -i srmp-postgres env PGPASSWORD="$DB_PASSWORD" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1
   else
     local bin="${PSQL_BIN:-psql}"
     printf '%s\n' "$sql" | PGPASSWORD="$DB_PASSWORD" "$bin" -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1
