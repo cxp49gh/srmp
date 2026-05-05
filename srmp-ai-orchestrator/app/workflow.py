@@ -127,7 +127,7 @@ class LangGraphWorkflow:
         builder.set_entry_point("request_normalize")
         for left, right in zip(NODE_FLOW, NODE_FLOW[1:]):
             builder.add_edge(left, right)
-        builder.add_edge("tool_planning", END)
+        builder.add_edge("quality_guard", END)
         return builder.compile()
 
     async def _run_sequential(self, state: AgentState, nodes: List[str]) -> AgentState:

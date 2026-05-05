@@ -56,3 +56,39 @@ export function exportOrchestratorDiagnostics(limit = 30, status?: string): Prom
     params: status ? { limit, status } : { limit }
   })
 }
+
+export function getOrchestratorConfig(): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/config')
+}
+
+export function getOrchestratorHealthDetail(includeGateway = true, includeContract = true): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/health-detail', {
+    params: { includeGateway, includeContract }
+  })
+}
+
+export function getOrchestratorPersistence(): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/persistence')
+}
+
+export function getOrchestratorSnapshot(limit = 30, status?: string): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/snapshot', {
+    params: status ? { limit, status } : { limit }
+  })
+}
+
+export function pruneOrchestratorAudit(params: {
+  status?: string
+  beforeMs?: number
+  retainLatest?: number
+  includePersist?: boolean
+}): Promise<Record<string, any>> {
+  return aiRequest.delete('/api/agent/orchestrator/ops/prune', {
+    params: {
+      status: params.status || undefined,
+      beforeMs: params.beforeMs,
+      retainLatest: params.retainLatest ?? 20,
+      includePersist: params.includePersist ?? true
+    }
+  })
+}

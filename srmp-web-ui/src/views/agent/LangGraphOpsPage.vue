@@ -7,6 +7,7 @@
       <div class="header-actions">
         <el-button :loading="loading" @click="loadSummary">刷新</el-button>
         <el-button :loading="contractLoading" @click="loadContract">契约诊断</el-button>
+        <el-button :loading="healthLoading" @click="loadRuntimeDetails(true)">配置健康</el-button>
         <el-button :loading="exportLoading" @click="exportDiagnostics">导出诊断</el-button>
         <el-button type="primary" :loading="smoking" @click="runSmoke">运行 Smoke</el-button>
       </div>
@@ -74,6 +75,90 @@
         show-icon
         title="工具契约未闭合。建议先看下方 missingInJava / blockedByRuntimeWhitelist，再调整 Java 工具注册或 SRMP_LANGGRAPH_ALLOWED_TOOLS。"
       />
+
+      <section class="content-grid">
+        <el-card shadow="never" class="panel-card">
+          <template #header>
+            <div class="card-header">
+              <span>配置健康</span>
+              <div>
+                <el-button size="small" text :loading="snapshotLoading" @click="exportSnapshot">导出快照</el-button>
+                <el-button size="small" text :loading="healthLoading" @click="loadRuntimeDetails(true)">刷新</el-button>
+              </div>
+            </div>
+          </template>
+          <div class="diag-list">
+            <div class="diag-row">
+              <span>健康状态</span>
+              <strong>{{ healthStatus }}</strong>
+            </div>
+            <div class="diag-row">
+              <span>Runtime</span>
+              <strong>{{ runtimeAppVersion }}</strong>
+            </div>
+            <div class="diag-row">
+              <span>策略版本</span>
+              <strong>{{ configStrategyVersion }}</strong>
+            </div>
+            <div class="diag-row">
+              <span>配置指纹</span>
+              <strong>{{ configFingerprint }}</strong>
+            </div>
+            <div class="diag-row">
+              <span>配置告警</span>
+              <strong>{{ configWarningCount }} 个</strong>
+            </div>
+          </div>
+          <el-alert
+            v-if="configWarningTitle"
+            class="mt"
+            type="warning"
+            show-icon
+            :title="configWarningTitle"
+          />
+        </el-card>
+
+        <el-card shadow="never" class="panel-card">
+          <template #header>
+            <div class="card-header">
+              <span>审计持久化</span>
+              <el-button size="small" text :loading="healthLoading" @click="loadRuntimeDetails(true)">刷新</el-button>
+            </div>
+          </template>
+          <div class="diag-list">
+            <div class="diag-row">
+              <span>状态</span>
+              <strong>{{ persistenceEnabled ? '已启用' : '内存模式' }}</strong>
+            </div>
+            <div class="diag-row">
+              <span>路径</span>
+              <strong>{{ persistencePath || '-' }}</strong>
+            </div>
+            <div class="diag-row">
+              <span>容量</span>
+              <strong>{{ persistenceSize }} / {{ persistenceMaxSize }}</strong>
+            </div>
+            <div class="diag-row">
+              <span>写入/恢复</span>
+              <strong>{{ persistenceWritten }} / {{ persistenceLoaded }}</strong>
+            </div>
+            <div class="diag-row">
+              <span>最近错误</span>
+              <strong>{{ persistenceLastError || '-' }}</strong>
+            </div>
+          </div>
+          <div class="prune-row">
+            <el-select v-model="pruneForm.status" size="small" class="status-select">
+              <el-option label="全部" value="" />
+              <el-option label="成功" value="SUCCESS" />
+              <el-option label="失败" value="FAILED" />
+            </el-select>
+            <el-input-number v-model="pruneForm.retainLatest" size="small" :min="0" :max="1000" />
+            <el-checkbox v-model="pruneForm.includePersist">同步文件</el-checkbox>
+            <el-button size="small" type="warning" :loading="pruneLoading" @click="pruneAudit">清理审计</el-button>
+          </div>
+        </el-card>
+      </section>
 
       <section class="content-grid">
         <el-card shadow="never" class="panel-card">
@@ -274,10 +359,15 @@ import { ElMessage } from 'element-plus'
 import AgentPageShell from './components/AgentPageShell.vue'
 import {
   exportOrchestratorDiagnostics,
+  getOrchestratorConfig,
   getOrchestratorContract,
+  getOrchestratorHealthDetail,
   getOrchestratorOpsSummary,
+  getOrchestratorPersistence,
   getOrchestratorRecent,
   getOrchestratorRecord,
+  getOrchestratorSnapshot,
+  pruneOrchestratorAudit,
   replayOrchestratorRecord,
   runOrchestratorPlan,
   runOrchestratorSmoke
@@ -291,7 +381,13 @@ const planning = ref(false)
 const contractLoading = ref(false)
 const replaying = ref(false)
 const exportLoading = ref(false)
+const healthLoading = ref(false)
+const snapshotLoading = ref(false)
+const pruneLoading = ref(false)
 const summary = reactive<Record<string, any>>({})
+const configResult = reactive<Record<string, any>>({})
+const healthDetail = reactive<Record<string, any>>({})
+const persistenceResult = reactive<Record<string, any>>({})
 const recentRecords = ref<Record<string, any>[]>([])
 const recentStatus = ref('')
 const smokeResultText = ref('')
@@ -318,6 +414,12 @@ const planForm = reactive({
   geometryText: '{"type":"Polygon","coordinates":[]}'
 })
 
+const pruneForm = reactive({
+  status: '',
+  retainLatest: 20,
+  includePersist: true
+})
+
 const provider = computed(() => String(summary.provider || ''))
 const fallbackToNative = computed(() => Boolean(summary.fallbackToNative))
 const allowWriteTools = computed(() => Boolean(summary.allowWriteTools))
@@ -336,6 +438,38 @@ const missingTools = computed(() => asStringArray(value(contractBody.value, ['mi
 const blockedTools = computed(() => asStringArray(value(contractBody.value, ['blockedByRuntimeWhitelist'])))
 const writeBlockedTools = computed(() => asStringArray(value(contractBody.value, ['writeBlocked'])))
 const missingToolCount = computed(() => missingTools.value.length)
+const configBody = computed(() => value(configResult, ['body']) || configResult)
+const healthBody = computed(() => value(healthDetail, ['body']) || healthDetail)
+const persistenceBody = computed(() => value(persistenceResult, ['body']) || persistenceResult)
+const configWarnings = computed(() => {
+  const warnings = value(configBody.value, ['warnings'])
+  return Array.isArray(warnings) ? warnings : []
+})
+const configWarningCount = computed(() => Number(value(configBody.value, ['warningCount']) ?? configWarnings.value.length))
+const configWarningTitle = computed(() => configWarnings.value
+  .slice(0, 3)
+  .map((item: any) => String(item?.code || item?.message || item))
+  .join('；'))
+const healthStatus = computed(() => String(value(healthBody.value, ['status']) || '-'))
+const runtimeAppVersion = computed(() => {
+  const app = value(configBody.value, ['app']) || value(healthBody.value, ['app']) || '-'
+  const version = value(configBody.value, ['version']) || value(healthBody.value, ['version']) || '-'
+  return `${app} / ${version}`
+})
+const configStrategyVersion = computed(() => String(
+  value(configBody.value, ['safeConfig', 'strategyVersion'])
+  || value(configBody.value, ['strategy', 'strategyVersion'])
+  || value(healthBody.value, ['strategy', 'strategyVersion'])
+  || '-'
+))
+const configFingerprint = computed(() => String(value(configBody.value, ['fingerprint']) || '-'))
+const persistenceEnabled = computed(() => Boolean(value(persistenceBody.value, ['enabled'])))
+const persistencePath = computed(() => String(value(persistenceBody.value, ['path']) || ''))
+const persistenceSize = computed(() => formatBytes(Number(value(persistenceBody.value, ['sizeBytes']) || 0)))
+const persistenceMaxSize = computed(() => formatBytes(Number(value(persistenceBody.value, ['maxBytes']) || 0)))
+const persistenceWritten = computed(() => Number(value(persistenceBody.value, ['written']) || 0))
+const persistenceLoaded = computed(() => Number(value(persistenceBody.value, ['loadedFromDisk']) || 0))
+const persistenceLastError = computed(() => String(value(persistenceBody.value, ['lastError']) || ''))
 
 async function loadSummary() {
   loading.value = true
@@ -346,8 +480,28 @@ async function loadSummary() {
     const records = value(res, ['runtimeRecent', 'body', 'records'])
     recentRecords.value = Array.isArray(records) ? records : []
     contractResultText.value = JSON.stringify(value(res, ['contractDebug']) || {}, null, 2)
+    await loadRuntimeDetails(false)
   } finally {
     loading.value = false
+  }
+}
+
+async function loadRuntimeDetails(showMessage = false) {
+  healthLoading.value = true
+  try {
+    const [config, health, persistence] = await Promise.allSettled([
+      getOrchestratorConfig(),
+      getOrchestratorHealthDetail(true, true),
+      getOrchestratorPersistence()
+    ])
+    if (config.status === 'fulfilled') assignReactive(configResult, config.value || {})
+    if (health.status === 'fulfilled') assignReactive(healthDetail, health.value || {})
+    if (persistence.status === 'fulfilled') assignReactive(persistenceResult, persistence.value || {})
+    if (showMessage) {
+      ElMessage.success('配置健康已刷新')
+    }
+  } finally {
+    healthLoading.value = false
   }
 }
 
@@ -492,6 +646,46 @@ async function exportDiagnostics() {
   }
 }
 
+async function exportSnapshot() {
+  snapshotLoading.value = true
+  try {
+    const res = await getOrchestratorSnapshot(30, recentStatus.value || undefined)
+    const text = JSON.stringify(res, null, 2)
+    selectedRecordText.value = text
+    recordDialogVisible.value = true
+    await copyToClipboard(text)
+    ElMessage.success('Runtime 快照已复制，并已打开预览')
+  } catch (error: any) {
+    selectedRecordText.value = JSON.stringify(error?.response?.data || error?.message || error, null, 2)
+    recordDialogVisible.value = true
+    ElMessage.error('导出 Runtime 快照失败')
+  } finally {
+    snapshotLoading.value = false
+  }
+}
+
+async function pruneAudit() {
+  pruneLoading.value = true
+  try {
+    const res = await pruneOrchestratorAudit({
+      status: pruneForm.status || undefined,
+      retainLatest: pruneForm.retainLatest,
+      includePersist: pruneForm.includePersist
+    })
+    selectedRecordText.value = JSON.stringify(res, null, 2)
+    recordDialogVisible.value = true
+    ElMessage.success('审计记录已按条件清理')
+    await loadRuntimeDetails(false)
+    await loadRecent()
+  } catch (error: any) {
+    selectedRecordText.value = JSON.stringify(error?.response?.data || error?.message || error, null, 2)
+    recordDialogVisible.value = true
+    ElMessage.error('清理审计失败')
+  } finally {
+    pruneLoading.value = false
+  }
+}
+
 async function copySummary() {
   await copyToClipboard(JSON.stringify(summary, null, 2))
   ElMessage.success('诊断信息已复制')
@@ -535,6 +729,23 @@ function value(obj: any, keys: string[]) {
     cur = cur[key]
   }
   return cur
+}
+
+function assignReactive(target: Record<string, any>, data: Record<string, any>) {
+  Object.keys(target).forEach((key) => delete target[key])
+  Object.assign(target, data || {})
+}
+
+function formatBytes(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let size = value
+  let unitIndex = 0
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024
+    unitIndex += 1
+  }
+  return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
 }
 
 onMounted(loadSummary)
@@ -601,6 +812,10 @@ onMounted(loadSummary)
   margin-bottom: 0;
 }
 
+.mt {
+  margin-top: 12px;
+}
+
 .smoke-form {
   max-width: 720px;
 }
@@ -647,6 +862,14 @@ pre {
 .status-select {
   width: 110px;
   margin-right: 8px;
+}
+
+.prune-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
 }
 
 @media (max-width: 1200px) {
