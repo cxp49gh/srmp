@@ -149,16 +149,31 @@ class LangGraphWorkflow:
             raise AttributeError("LangGraphWorkflow has no handler for node: " + str(node))
         return handler
 
-    def _step(self, state: AgentState, node: str, message: str, data: Optional[Dict[str, Any]] = None) -> None:
+    def _step(
+        self,
+        state: AgentState,
+        node: str,
+        message: str,
+        data: Optional[Dict[str, Any]] = None,
+        status: str = "SUCCESS",
+        count: Optional[int] = None,
+        error: Optional[str] = None,
+    ) -> None:
         steps = state.setdefault("steps", [])
-        steps.append(
-            {
-                "node": node,
-                "message": message,
-                "data": data or {},
-                "elapsedMs": int((time.perf_counter() - state.get("started_at", time.perf_counter())) * 1000),
-            }
-        )
+        item = {
+            "node": node,
+            "name": node,
+            "message": message,
+            "status": status,
+            "data": data or {},
+            "elapsedMs": int((time.perf_counter() - state.get("started_at", time.perf_counter())) * 1000),
+        }
+        if count is not None:
+            item["count"] = count
+        if error:
+            item["error"] = error
+            item["errorMessage"] = error
+        steps.append(item)
 
     async def _request_normalize(self, state: AgentState) -> Dict[str, Any]:
         request = state["request"]
@@ -248,6 +263,8 @@ class LangGraphWorkflow:
                 "failed": sum(1 for item in results if not item.success),
                 "tools": [item.toolName for item in results],
             },
+            status="SUCCESS" if any(item.success for item in results) else "FAILED",
+            count=len(results),
         )
         return {"tool_results": results}
 
@@ -386,8 +403,10 @@ class LangGraphWorkflow:
             },
             data={
                 "orchestratorProvider": "langgraph",
+                "orchestratorFallback": False,
                 "strategyVersion": settings.strategy_version,
                 "intent": state.get("intent"),
+                "intentDetail": state.get("intent_detail", {}),
                 "nodeFlow": NODE_FLOW,
                 "toolPlan": [item.model_dump(exclude_none=True) for item in state.get("tool_plan", [])],
                 "toolResults": [item.model_dump(exclude_none=True) for item in tool_results],
@@ -402,6 +421,7 @@ class LangGraphWorkflow:
                 "sourceCount": len(sources),
                 "readOnly": not settings.allow_write_tools,
                 "langgraphAvailable": LANGGRAPH_AVAILABLE,
+                "parityVersion": "phase50.15-native-parity",
             },
         )
 
