@@ -129,7 +129,11 @@
           <div v-if="item.meta" class="message-meta">
             <el-tag v-if="item.meta.mapObjectUsed" size="small" type="success">对象上下文</el-tag>
             <el-tag v-if="item.meta.regionUsed || item.meta.mapRegionUsed" size="small" type="success">区域上下文</el-tag>
+            <el-tag v-if="item.meta.intent" size="small" type="info">{{ item.meta.intent }}</el-tag>
             <el-tag v-if="item.meta.answerSourceLabel" size="small">{{ item.meta.answerSourceLabel }}</el-tag>
+            <el-tag v-if="item.toolResults?.length" size="small" type="info">工具 {{ successfulTools(item.toolResults) }}/{{ item.toolResults.length }}</el-tag>
+            <el-tag v-if="item.sources?.length" size="small" type="info">来源 {{ item.sources.length }}</el-tag>
+            <el-tag v-if="item.meta.retriedWithCompactPrompt" size="small" type="warning">压缩重试</el-tag>
             <el-tag v-if="item.meta.fallback" size="small" type="warning">降级</el-tag>
           </div>
           <AiEvidencePanel
@@ -151,7 +155,13 @@
               生成结构化建议
             </el-button>
           </div>
-          <AiTraceButton v-if="item.role === 'assistant'" :trace="item.trace" class="trace-button" @open="openTrace" />
+          <AiTraceButton
+            v-if="item.role === 'assistant'"
+            :trace="item.trace"
+            :execution="{ trace: item.trace, answerMeta: item.meta, toolResults: item.toolResults, sources: item.sources }"
+            class="trace-button"
+            @open="openTrace"
+          />
         </div>
       </div>
 
@@ -176,7 +186,13 @@
     :saved-task="savedSolutionTask"
     @save="saveSolutionDraft"
   />
-  <AiTraceDrawer v-model:visible="traceDrawerVisible" :trace="activeTrace" />
+  <AiTraceDrawer
+    v-model:visible="traceDrawerVisible"
+    :trace="activeExecution?.trace || null"
+    :answer-meta="activeExecution?.answerMeta || null"
+    :tool-results="activeExecution?.toolResults || []"
+    :sources="activeExecution?.sources || []"
+  />
 </template>
 
 <script setup lang="ts">
@@ -241,7 +257,7 @@ const solutionResult = ref<MapObjectSolutionResponse | null>(null)
 const solutionSaveLoading = ref(false)
 const savedSolutionTask = ref<Record<string, any> | null>(null)
 const traceDrawerVisible = ref(false)
-const activeTrace = ref<Record<string, any> | null>(null)
+const activeExecution = ref<Record<string, any> | null>(null)
 const useAgentTools = ref(true)
 const showToolsPanel = ref(false)
 const showQuickPanel = ref(false)
@@ -868,6 +884,10 @@ async function send() {
       toolResults: payload.data?.toolResults || payload.toolResults || payload.data?.tools || [],
       meta: {
         ...meta,
+        intent: payload.data?.intent || payload.intent,
+        llmStatus: meta?.llmStatus || payload.data?.llmStatus,
+        llmModel: meta?.llmModel || payload.data?.llmModel,
+        retriedWithCompactPrompt: meta?.retriedWithCompactPrompt || payload.data?.retriedWithCompactPrompt,
         mapObjectUsed: payload.data?.mapObjectUsed || payload.mapObjectUsed || meta?.mapObjectUsed,
         regionUsed: payload.data?.regionUsed || payload.data?.mapRegionUsed || payload.mapRegionUsed || meta?.regionUsed
       }
@@ -943,8 +963,12 @@ function askWithSource(source: any) {
   emit('ask-with-source', source)
 }
 
-function openTrace(trace: Record<string, any>) {
-  activeTrace.value = trace
+function successfulTools(tools: any[] = []) {
+  return tools.filter((item) => item?.success !== false && String(item?.status || '').toUpperCase() !== 'FAILED').length
+}
+
+function openTrace(execution: Record<string, any>) {
+  activeExecution.value = execution
   traceDrawerVisible.value = true
 }
 </script>

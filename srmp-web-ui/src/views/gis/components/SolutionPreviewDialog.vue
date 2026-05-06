@@ -61,7 +61,11 @@
     <el-empty v-else description="暂无方案草稿" />
 
     <template #footer>
-      <AiTraceButton :trace="activeTrace" @open="traceDrawerVisible = true" />
+      <AiTraceButton
+        :trace="activeTrace"
+        :execution="{ trace: activeTrace, answerMeta, toolResults, sources, solution }"
+        @open="openTrace"
+      />
       <el-button :disabled="!solution?.markdown" @click="copyMarkdown">复制</el-button>
       <el-button :disabled="!solution?.markdown" @click="downloadMarkdown">下载 Markdown</el-button>
       <el-button
@@ -75,7 +79,14 @@
       </el-button>
     </template>
   </el-dialog>
-  <AiTraceDrawer v-model:visible="traceDrawerVisible" :trace="activeTrace" />
+  <AiTraceDrawer
+    v-model:visible="traceDrawerVisible"
+    :trace="activeExecution?.trace || activeTrace"
+    :answer-meta="activeExecution?.answerMeta || answerMeta"
+    :tool-results="activeExecution?.toolResults || toolResults"
+    :sources="activeExecution?.sources || sources"
+    :solution="activeExecution?.solution || solution"
+  />
 </template>
 
 <script setup lang="ts">
@@ -149,9 +160,13 @@ const summaryItems = computed(() => {
 const renderedMarkdown = computed(() => renderMarkdown(props.solution?.markdown || ''))
 const traceDrawerVisible = ref(false)
 const activeTrace = computed(() => props.trace || (props.solution as any)?.trace || null)
+const answerMeta = computed(() => (props.solution as any)?.answerMeta || (props.solution as any)?.answer_meta || null)
+const toolResults = computed(() => (props.solution as any)?.toolResults || [])
+const sources = computed(() => (props.solution as any)?.sources || (props.solution as any)?.knowledgeSources || [])
+const activeExecution = ref<Record<string, any> | null>(null)
 
 const answerNotice = computed(() => {
-  const meta = (props.solution as any)?.answerMeta || (props.solution as any)?.answer_meta || {}
+  const meta = answerMeta.value || {}
   if (!meta || Object.keys(meta).length === 0) return null
   if (meta.llmSuccess === true || meta.answerSource === 'LLM') {
     return { type: 'success' as const, title: '本次区域养护建议已调用大模型生成。' }
@@ -173,6 +188,11 @@ const qualityItems = computed(() => {
 
 function updateVisible(value: boolean) {
   emit('update:visible', value)
+}
+
+function openTrace(execution: Record<string, any>) {
+  activeExecution.value = execution
+  traceDrawerVisible.value = true
 }
 
 async function copyMarkdown() {
