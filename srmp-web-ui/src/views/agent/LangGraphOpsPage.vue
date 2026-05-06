@@ -387,17 +387,35 @@
           <el-table-column prop="messagePreview" label="问题" min-width="220" show-overflow-tooltip />
           <el-table-column label="操作" width="190" fixed="right">
             <template #default="scope">
-              <el-button size="small" text @click="openRecord(scope.row)">查看</el-button>
+              <el-button size="small" text @click="openRecord(scope.row)">执行过程</el-button>
               <el-button size="small" text :loading="replaying" @click="replayRecord(scope.row, false)">Plan回放</el-button>
-              <el-button size="small" text type="warning" :loading="replaying" @click="replayRecord(scope.row, true)">执行</el-button>
+              <el-button size="small" text type="warning" :loading="replaying" @click="replayRecord(scope.row, true)">执行回放</el-button>
             </template>
           </el-table-column>
         </el-table>
       </el-card>
 
+      <el-card v-if="replayCompare" shadow="never" class="result-card">
+        <template #header>回放对比</template>
+        <el-descriptions :column="3" border size="small">
+          <el-descriptions-item label="原始状态">{{ replayCompare.originalStatus || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="回放状态">{{ replayCompare.replayStatus || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="执行模式">{{ replayCompare.execute ? '执行回放' : 'Plan 回放' }}</el-descriptions-item>
+          <el-descriptions-item label="原始意图">{{ replayCompare.originalIntent || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="回放意图">{{ replayCompare.replayIntent || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="工具">{{ replayCompare.toolText || '-' }}</el-descriptions-item>
+        </el-descriptions>
+      </el-card>
+
       <el-dialog v-model="recordDialogVisible" title="Runtime 调用详情" width="760px">
         <pre>{{ selectedRecordText }}</pre>
       </el-dialog>
+
+      <AiTraceDrawer
+        v-model:visible="executionDrawerVisible"
+        :record="selectedExecutionRecord"
+        :replay-result="selectedReplayResult"
+      />
     </div>
   </AgentPageShell>
 </template>
@@ -406,6 +424,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import AgentPageShell from './components/AgentPageShell.vue'
+import AiTraceDrawer from './components/AiTraceDrawer.vue'
 import {
   exportOrchestratorDiagnostics,
   getOrchestratorConfig,
@@ -447,6 +466,10 @@ const planResultText = ref('')
 const contractResultText = ref('')
 const recordDialogVisible = ref(false)
 const selectedRecordText = ref('')
+const executionDrawerVisible = ref(false)
+const selectedExecutionRecord = ref<Record<string, any> | null>(null)
+const selectedReplayResult = ref<Record<string, any> | null>(null)
+const replayCompare = ref<Record<string, any> | null>(null)
 
 const smokeForm = reactive({
   tenantId: 'default',
@@ -683,12 +706,15 @@ async function runPlan() {
 
 async function openRecord(row: Record<string, any>) {
   selectedRecordText.value = JSON.stringify(row, null, 2)
-  recordDialogVisible.value = true
+  selectedExecutionRecord.value = row
+  selectedReplayResult.value = null
+  executionDrawerVisible.value = true
   const id = row?.id || row?.traceId
   if (!id) return
   try {
     const res = await getOrchestratorRecord(String(id))
     selectedRecordText.value = JSON.stringify(res, null, 2)
+    selectedExecutionRecord.value = value(res, ['body']) || value(res, ['data']) || res
   } catch (error: any) {
     selectedRecordText.value = JSON.stringify({ row, detailError: error?.response?.data || error?.message || error }, null, 2)
   }
@@ -703,9 +729,13 @@ async function replayRecord(row: Record<string, any>, execute: boolean) {
   replaying.value = true
   try {
     const res = await replayOrchestratorRecord(String(id), execute)
+    const body = value(res, ['body']) || value(res, ['data']) || res
     planResultText.value = JSON.stringify(res, null, 2)
     selectedRecordText.value = JSON.stringify(res, null, 2)
-    recordDialogVisible.value = true
+    selectedReplayResult.value = body
+    selectedExecutionRecord.value = row
+    executionDrawerVisible.value = true
+    replayCompare.value = buildReplayCompare(row, body, execute)
     ElMessage.success(execute ? '执行回放已完成' : 'Plan 回放已完成')
     if (execute) {
       await loadSummary()
@@ -717,6 +747,19 @@ async function replayRecord(row: Record<string, any>, execute: boolean) {
     ElMessage.error('回放失败，请查看详情')
   } finally {
     replaying.value = false
+  }
+}
+
+function buildReplayCompare(original: Record<string, any>, replay: Record<string, any>, execute: boolean) {
+  const response = value(replay, ['response']) || replay
+  const data = value(response, ['data']) || {}
+  return {
+    execute,
+    originalStatus: original.status,
+    replayStatus: value(replay, ['status']) || value(response, ['status']) || 'SUCCESS',
+    originalIntent: original.intent,
+    replayIntent: data.intent || value(response, ['intent']) || value(replay, ['intent']),
+    toolText: `${data.toolSuccessCount ?? original.toolSuccessCount ?? 0}/${data.toolTotalCount ?? original.toolTotalCount ?? 0}`
   }
 }
 
@@ -949,6 +992,10 @@ pre {
 
 .lower-card {
   min-height: 280px;
+}
+
+.result-card {
+  border-radius: 14px;
 }
 
 .status-select {
