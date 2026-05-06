@@ -34,6 +34,11 @@ def _safe_runtime_config() -> dict:
         "llmBaseUrlConfigured": bool(settings.llm_base_url),
         "llmModel": settings.llm_model,
         "llmApiKeyConfigured": bool(settings.llm_api_key),
+        "llmConnectTimeoutSeconds": settings.llm_connect_timeout_seconds,
+        "llmReadTimeoutSeconds": settings.llm_read_timeout_seconds,
+        "llmMaxTokens": settings.llm_max_tokens,
+        "llmCompactRetryEnabled": settings.llm_compact_retry_enabled,
+        "llmRawPreviewChars": settings.llm_raw_preview_chars,
         "allowedTools": settings.allowed_tools,
         "maxToolCalls": settings.max_tool_calls,
         "parallelToolExecution": settings.parallel_tool_execution,
@@ -321,6 +326,35 @@ async def debug_tool_gateway(
 @app.get("/api/srmp/langgraph/debug/contract")
 async def debug_contract(x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id")) -> dict:
     return await gateway.inspect_contract(tenant_id=x_tenant_id)
+
+
+@app.get("/api/srmp/langgraph/debug/llm-probe")
+async def debug_llm_probe(probe: bool = Query(default=False)) -> dict:
+    client = workflow.llm_client
+    diagnostics = client.diagnostics() if hasattr(client, "diagnostics") else {}
+    data = {
+        "enabled": settings.use_llm,
+        "status": diagnostics.get("status") or ("READY" if settings.use_llm else "SKIPPED"),
+        "available": False,
+        "model": settings.llm_model,
+        "baseUrlConfigured": bool(settings.llm_base_url),
+        "apiKeyConfigured": bool(settings.llm_api_key),
+        "connectTimeoutSeconds": settings.llm_connect_timeout_seconds,
+        "readTimeoutSeconds": settings.llm_read_timeout_seconds,
+        "maxTokens": settings.llm_max_tokens,
+        "temperature": settings.llm_temperature,
+        "compactRetryEnabled": settings.llm_compact_retry_enabled,
+        "diagnostics": diagnostics,
+    }
+    if probe:
+        if hasattr(client, "probe"):
+            probe_data = await client.probe()
+        else:
+            answer = await client.chat("请只返回 OK") if hasattr(client, "chat") else ""
+            probe_data = {"status": "SUCCESS" if answer else "FAILED", "available": bool(answer), "probeAnswerPreview": answer or ""}
+        data.update(probe_data or {})
+        data["available"] = data.get("status") == "SUCCESS"
+    return data
 
 
 @app.post("/api/srmp/langgraph/debug/plan")

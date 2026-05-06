@@ -125,6 +125,16 @@ public class AgentOrchestratorOpsController {
     }
 
     /**
+     * 转发 Runtime 的 LangGraph LLM 探测。
+     *
+     * 与 /api/ai/llm/health 区分：这里验证 Python LangGraph Runtime 自己的 LLM 配置和调用链路。
+     */
+    @GetMapping("/llm-probe")
+    public R<Object> llmProbe(@RequestParam(value = "probe", required = false, defaultValue = "false") Boolean probe) {
+        return R.ok(remoteGet("/api/srmp/langgraph/debug/llm-probe?probe=" + Boolean.TRUE.equals(probe), 180000));
+    }
+
+    /**
      * 转发 Runtime 的 Plan Debug：只做归一化、意图识别和工具规划，不执行工具。
      */
     @PostMapping("/plan")
@@ -257,6 +267,26 @@ public class AgentOrchestratorOpsController {
         return data;
     }
 
+    private Map<String, Object> remoteGet(String path, int readTimeoutMs) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        String url = buildUrl(properties.getLanggraphUrl(), path);
+        data.put("url", url);
+        long start = System.currentTimeMillis();
+        try {
+            RestTemplate restTemplate = buildRestTemplate(3000, readTimeoutMs);
+            ResponseEntity<Object> entity = restTemplate.getForEntity(url, Object.class);
+            data.put("ok", entity.getStatusCode().is2xxSuccessful());
+            data.put("httpStatus", entity.getStatusCodeValue());
+            data.put("costMs", System.currentTimeMillis() - start);
+            data.put("body", entity.getBody());
+        } catch (Exception e) {
+            data.put("ok", false);
+            data.put("costMs", System.currentTimeMillis() - start);
+            data.put("error", e.getMessage());
+        }
+        return data;
+    }
+
     private Map<String, Object> remotePost(String path, Object payload) {
         Map<String, Object> data = new LinkedHashMap<>();
         String url = buildUrl(properties.getLanggraphUrl(), path);
@@ -313,9 +343,13 @@ public class AgentOrchestratorOpsController {
     }
 
     private RestTemplate buildRestTemplate() {
+        return buildRestTemplate(3000, 8000);
+    }
+
+    private RestTemplate buildRestTemplate(int connectTimeoutMs, int readTimeoutMs) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(3000);
-        factory.setReadTimeout(8000);
+        factory.setConnectTimeout(connectTimeoutMs);
+        factory.setReadTimeout(readTimeoutMs);
         return new RestTemplate(factory);
     }
 
