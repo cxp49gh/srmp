@@ -1,6 +1,6 @@
 <template>
-  <el-button v-if="traceId" size="small" plain @click="openTrace">
-    查看 Trace
+  <el-button v-if="enabled" size="small" plain @click="openTrace">
+    AI 执行过程
   </el-button>
 </template>
 
@@ -9,17 +9,16 @@ import { computed } from 'vue'
 
 const props = defineProps<{
   trace?: Record<string, any> | null
+  execution?: Record<string, any> | null
 }>()
 
 const emit = defineEmits<{
   (e: 'open', value: Record<string, any>): void
 }>()
 
-const traceId = computed(() => props.trace?.traceId || props.trace?.trace_id || '')
+const enabled = computed(() => Boolean(props.execution || props.trace?.traceId || props.trace?.trace_id || props.trace?.steps))
 
 function openTrace() {
-  if (props.trace) {
-    emit('open', props.trace)
-  }
+  emit('open', props.execution || { trace: props.trace })
 }
 </script>
