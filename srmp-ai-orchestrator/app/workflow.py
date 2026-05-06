@@ -5,6 +5,7 @@ import uuid
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 from .config import settings
+from .answer_enhancers import enhance_answer
 from .intent import recognize_intent
 from .java_tools import JavaToolGateway, extract_knowledge_sources
 from .llm_client import LlmClient
@@ -314,6 +315,9 @@ class LangGraphWorkflow:
 
         if not answer:
             answer = fallback_answer(request, intent, context_summary, evidence, tool_results)
+
+        sources = extract_knowledge_sources(tool_results)
+        answer = enhance_answer(answer, request, intent, state.get("intent_detail", {}), tool_results, sources)
 
         self._step(state, "answer_generate", "生成回答", {"useLlm": settings.use_llm, "answerLength": len(answer)})
         return {"answer": answer}
