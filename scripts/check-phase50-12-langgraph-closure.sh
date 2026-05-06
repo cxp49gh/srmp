@@ -36,6 +36,8 @@ grep -q 'def _node_handler' "$WORKFLOW_FILE" \
   || fail "sequential plan execution should map node names to handlers"
 grep -q 'node == "tool_planning"' "$WORKFLOW_FILE" \
   || fail "sequential plan execution should resolve tool_planning to _tool_plan"
+grep -Fq 'tool_plan: List[ToolCall]' "$WORKFLOW_FILE" \
+  || fail "AgentState must declare tool_plan so compiled LangGraph preserves planned tools for tool_execute"
 
 grep -q 'getOrchestratorConfig' "$OPS_API_FILE" \
   || fail "frontend API should expose runtime config"

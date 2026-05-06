@@ -49,6 +49,7 @@ class AgentState(TypedDict, total=False):
     steps: List[Dict[str, Any]]
     context_summary: Dict[str, Any]
     intent: str
+    tool_plan: List[ToolCall]
     toolPlan: List[ToolCall]
     tool_results: List[ToolResult]
     evidence: Dict[str, Any]

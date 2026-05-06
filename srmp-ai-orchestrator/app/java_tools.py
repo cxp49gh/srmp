@@ -254,17 +254,24 @@ def _extract_source_candidates(data: Any) -> List[Dict[str, Any]]:
 
 def _normalize_source(hit: Dict[str, Any], idx: int) -> Dict[str, Any]:
     title = _first(hit, "title", "documentTitle", "docTitle", "name", "sourceName") or f"知识片段 {idx + 1}"
-    source_id = _first(hit, "id", "knowledgeId", "documentId", "docId", "sourceId")
+    chunk_id = _first(hit, "chunkId", "chunk_id", "id", "knowledgeId")
+    document_id = _first(hit, "documentId", "document_id", "docId")
+    source_id = _first(hit, "sourceId", "source_id", "knowledgeId", "id", "documentId", "docId")
+    source_type = _first(hit, "sourceType", "source_type", "type")
+    section_title = _first(hit, "sectionTitle", "section_title", "section", "heading")
     score = _first(hit, "score", "similarity", "distance")
     content = _first(hit, "content", "chunk", "text", "summary")
     metadata = hit.get("metadata") if isinstance(hit.get("metadata"), dict) else {}
     return {
-        "id": source_id,
+        "chunkId": chunk_id,
+        "documentId": document_id,
         "title": title,
+        "sectionTitle": section_title,
+        "sourceType": source_type,
+        "sourceId": source_id,
         "score": score,
         "content": str(content)[:500] if content is not None else None,
         "metadata": metadata,
-        "raw": hit,
     }
 
 
