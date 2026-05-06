@@ -6,7 +6,7 @@ spring:
     name: srmp-admin
 
   datasource:
-    url: jdbc:postgresql://127.0.0.1:5432/srmp
+    url: jdbc:postgresql://192.168.20.107:5432/srmp
     username: srmp
     password: srmp123
     driver-class-name: org.postgresql.Driver
@@ -26,6 +26,11 @@ srmp:
     enabled: true
     header-name: X-Tenant-Id
 
+  # 路网 Shapefile 导入：.dbf 中文等文本字段编码（UTF-8 常见；老测绘数据多为 GBK / GB18030）
+  import:
+    network:
+      dbf-charset: UTF-8
+
   minio:
     endpoint: http://127.0.0.1:9000
     access-key: minioadmin
@@ -35,7 +40,7 @@ srmp:
   llm:
     provider: openai-compatible
     base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
-    api-key: ${DASHSCOPE_API_KEY:}
+    api-key: ${DASHSCOPE_API_KEY:sk-f39cf265c5ad4c378dc052d01db084e3}
     model: qwen3.6-plus
     # 建立连接超时，默认 15 秒
     connect-timeout-ms: 15000
@@ -60,7 +65,7 @@ srmp:
     embedding:
       provider: openai-compatible
       endpoint: https://dashscope.aliyuncs.com/compatible-mode/v1
-      api-key: ${DASHSCOPE_API_KEY:}
+      api-key: ${DASHSCOPE_API_KEY:sk-f39cf265c5ad4c378dc052d01db084e3}
       model: text-embedding-v4
       dimensions: 1024
 

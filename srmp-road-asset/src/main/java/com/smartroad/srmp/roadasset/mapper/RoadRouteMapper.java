@@ -17,4 +17,6 @@ public interface RoadRouteMapper extends BaseMapper<RoadRoute> {
     int insertWithGeom(RoadRoute route);
     int updateWithGeom(RoadRoute route);
     List<RoadRouteVO> selectForMap(@Param("tenantId") String tenantId, @Param("q") RoadRouteQueryDTO query);
+
+    String selectIdByTenantAndRouteCode(@Param("tenantId") String tenantId, @Param("routeCode") String routeCode);
 }

@@ -10,6 +10,10 @@ VALUES
 ('default', 'assessment_grade', '评定等级', '技术状况评定等级')
 ON CONFLICT (tenant_id, dict_type) DO NOTHING;
 
+INSERT INTO sys_dict_item(tenant_id, dict_type, item_code, item_name, sort_no)
+VALUES ('default', 'route_type', 'OTHER', '外部路网导入', 99)
+ON CONFLICT (tenant_id, dict_type, item_code) DO NOTHING;
+
 INSERT INTO sys_dict_type(tenant_id, dict_type, dict_name, description)
 VALUES
 ('default', 'disease_category', '病害大类', '病害所属业务大类'),

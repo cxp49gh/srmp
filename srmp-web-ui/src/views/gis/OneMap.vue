@@ -7,11 +7,13 @@
         :query="query"
         :region-mode="regionMode"
         :has-region="!!regionGeometry"
+        :network-import-loading="importNetworkLoading"
         @search="handleSearch"
         @reset="handleReset"
         @fit="handleFitAll"
         @start-region="startRegionDraw"
         @clear-region="clearRegion"
+        @import-network="handleImportNetwork"
       />
     </div>
 
@@ -110,9 +112,12 @@ import {
   type GisLayerQuery,
   type MapRegionSolutionResponse
 } from '../../api/gis'
+import { importRoadNetwork } from '../../api/roadAsset'
 import { layerStyle } from '../../utils/leafletStyle'
+import { addTiandituBasemap, MAP_GEOGRAPHIC_CRS } from '../../utils/mapBasemap'
 import { getMetricGrade, getMetricMeta, getMetricValue } from '../../utils/roadConditionMetrics'
 import type { GeoJsonFeatureCollection } from '../../types/geojson'
+import type { ImportNetworkResultVO } from '../../types/importNetwork'
 import { type LayerState } from './components/LayerDrawer.vue'
 import GisLeftWorkbench from './components/GisLeftWorkbench.vue'
 import AgentChatFloat from './components/AgentChatFloat.vue'
@@ -141,6 +146,7 @@ const selectedDetail = ref<Record<string, any> | null>(null)
 const selectedFeatureProperties = ref<Record<string, any> | null>(null)
 const loading = ref(false)
 const mapLoadingMask = ref(false)
+const importNetworkLoading = ref(false)
 const agentVisible = ref(true)
 const pendingAiQuestion = ref('')
 const regionMode = ref<'NONE' | 'RECTANGLE' | 'POLYGON'>('NONE')
@@ -289,6 +295,7 @@ const agentContext = computed(() => ({
 
 onMounted(async () => {
   map = L.map('map', {
+    crs: L.CRS.EPSG3857,
     center: [26.65, 106.63],
     zoom: 11,
     preferCanvas: true,
@@ -296,10 +303,7 @@ onMounted(async () => {
     attributionControl: false
   })
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: ''
-  }).addTo(map)
+  addTiandituBasemap(map)
 
   currentZoom.value = map.getZoom()
   map.on('zoomend', () => {
@@ -348,6 +352,7 @@ async function handleSearch(nextQuery?: GisLayerQuery) {
   }
   await reloadLayers({ preserveViewport: true, clearSelection: true })
   await loadStatistics()
+  fitViewportToQueryRoadRoutes()
 }
 
 function handleLayerChange(nextLayers?: LayerState) {
@@ -368,6 +373,37 @@ function handleLayerChange(nextLayers?: LayerState) {
 async function handleLayerRefresh() {
   await reloadLayers({ preserveViewport: true, clearSelection: false })
   await loadStatistics()
+}
+
+async function handleImportNetwork(file: File) {
+  if (!file.name.toLowerCase().endsWith('.tar')) {
+    ElMessage.error('仅支持 .tar 格式')
+    return
+  }
+  if (!map) return
+  importNetworkLoading.value = true
+  try {
+    const r = (await importRoadNetwork(file)) as ImportNetworkResultVO
+    const parts = [`新增 ${r.insertedCount} 条`, `更新 ${r.updatedCount} 条`]
+    if (r.skippedCount) parts.push(`跳过 ${r.skippedCount} 条`)
+    ElMessage.success(`路网导入成功（${parts.join('，')}）`)
+    if (r.warnings?.length) {
+      ElMessage.warning(r.warnings.slice(0, 8).join('；'))
+    }
+    layers.roadRoute = true
+    removeLayerByKey('roadRoute')
+    await loadLayerSafely('roadRoute', () => getRoadRoutes(layerQuery()))
+    await loadStatistics()
+    fitViewportToQueryRoadRoutes()
+  } catch (error: any) {
+    const ax = error?.response?.data
+    const details = ax?.data?.details
+    if (Array.isArray(details) && details.length) {
+      ElMessage.error(`${ax?.message || error?.message || '导入失败'}：${details.slice(0, 12).join('；')}`)
+    }
+  } finally {
+    importNetworkLoading.value = false
+  }
 }
 
 async function handleReset() {
@@ -1248,7 +1284,8 @@ function currentViewport() {
   return {
     zoom: map.getZoom(),
     center: { lat: map.getCenter().lat, lng: map.getCenter().lng },
-    bbox: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]
+    bbox: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
+    crs: MAP_GEOGRAPHIC_CRS
   }
 }
 
@@ -1411,6 +1448,26 @@ function handleFitAll() {
   } else {
     map.setView([26.65, 106.63], 11)
   }
+}
+
+/** 查询/导入后：优先按当前查询条件下的路线图层范围定位，无有效路线则全图要素范围。 */
+function fitViewportToQueryRoadRoutes() {
+  if (!map) return
+  if (layers.roadRoute) {
+    const routeLayer = layerMap.get('roadRoute')
+    if (routeLayer) {
+      const b = (routeLayer as GeoJSON).getBounds()
+      if (b.isValid()) {
+        map.fitBounds(b, {
+          paddingTopLeft: [340, 120],
+          paddingBottomRight: [430, 140],
+          maxZoom: 16
+        })
+        return
+      }
+    }
+  }
+  handleFitAll()
 }
 </script>
 

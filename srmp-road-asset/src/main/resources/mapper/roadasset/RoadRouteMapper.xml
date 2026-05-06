@@ -22,6 +22,9 @@
     <select id="selectForMap" resultType="com.smartroad.srmp.roadasset.vo.RoadRouteVO">
         SELECT <include refid="RouteColumns"/> FROM road_route WHERE <include refid="RouteWhere"/> AND geom IS NOT NULL ORDER BY route_code ASC
     </select>
+    <select id="selectIdByTenantAndRouteCode" resultType="java.lang.String">
+        SELECT id FROM road_route WHERE tenant_id = #{tenantId} AND route_code = #{routeCode} AND deleted = false LIMIT 1
+    </select>
     <insert id="insertWithGeom" parameterType="com.smartroad.srmp.roadasset.entity.RoadRoute">
         INSERT INTO road_route(id, tenant_id, route_code, route_name, route_type, admin_grade, technical_grade, start_stake, end_stake, length_km, adcode, manage_org_id, geom, remark, created_by, updated_by, created_at, updated_at, deleted)
         VALUES (#{id}, #{tenantId}, #{routeCode}, #{routeName}, #{routeType}, #{adminGrade}, #{technicalGrade}, #{startStake}, #{endStake}, #{lengthKm}, #{adcode}, #{manageOrgId},

@@ -9,37 +9,54 @@
     </parent>
     <artifactId>srmp-road-asset</artifactId>
     <packaging>jar</packaging>
+
     <dependencies>
-
-<dependency>
-    <groupId>com.smartroad</groupId>
-    <artifactId>srmp-common</artifactId>
-    <version>${project.version}</version>
-</dependency>
-
-
-<dependency>
-    <groupId>com.smartroad</groupId>
-    <artifactId>srmp-tenant</artifactId>
-    <version>${project.version}</version>
-</dependency>
+        <dependency>
+            <groupId>com.smartroad</groupId>
+            <artifactId>srmp-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
 
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-web</artifactId>
-</dependency>
+        <dependency>
+            <groupId>com.smartroad</groupId>
+            <artifactId>srmp-tenant</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
 
-<dependency>
-    <groupId>com.baomidou</groupId>
-    <artifactId>mybatis-plus-boot-starter</artifactId>
-</dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
 
-    <dependency>
-    <groupId>org.projectlombok</groupId>
-    <artifactId>lombok</artifactId>
-</dependency>
+
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-boot-starter</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+        </dependency>
+
+        <!-- 路网 Shapefile/TAR 导入（GeoTools 24.x 兼容 Java 8） -->
+        <dependency>
+            <groupId>org.geotools</groupId>
+            <artifactId>gt-shapefile</artifactId>
+            <version>24.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.geotools</groupId>
+            <artifactId>gt-epsg-hsql</artifactId>
+            <version>24.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-compress</artifactId>
+            <version>1.26.1</version>
+        </dependency>
     </dependencies>
 
 </project>

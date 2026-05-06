@@ -39,6 +39,23 @@
       <el-form-item class="toolbar-actions">
         <el-button type="primary" @click="emitSearch">查询</el-button>
         <el-button @click="emitReset">重置</el-button>
+        <input
+          ref="networkFileInputRef"
+          type="file"
+          class="network-file-input"
+          accept=".tar"
+          aria-hidden="true"
+          tabindex="-1"
+          @change="onNetworkFileChange"
+        />
+        <el-button
+          :loading="networkImportLoading"
+          :disabled="networkImportLoading"
+          title="上传包含一组 Shapefile 的 .tar 包"
+          @click="triggerNetworkImport"
+        >
+          导入路网
+        </el-button>
         <div class="region-icon-actions" aria-label="区域框选工具">
           <el-button
             :type="regionMode === 'RECTANGLE' ? 'primary' : ''"
@@ -91,15 +108,20 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
+import { reactive, ref, watch, withDefaults } from 'vue'
+import { ElMessage } from 'element-plus'
 import type { GisLayerQuery } from '../../../api/gis'
 import { ROAD_CONDITION_GRADES, ROAD_CONDITION_METRICS } from '../../../utils/roadConditionMetrics'
 
-const props = defineProps<{
-  query: GisLayerQuery
-  regionMode?: 'NONE' | 'RECTANGLE' | 'POLYGON'
-  hasRegion?: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    query: GisLayerQuery
+    regionMode?: 'NONE' | 'RECTANGLE' | 'POLYGON'
+    hasRegion?: boolean
+    networkImportLoading?: boolean
+  }>(),
+  { networkImportLoading: false }
+)
 
 const emit = defineEmits<{
   (e: 'search', value: GisLayerQuery): void
@@ -107,7 +129,10 @@ const emit = defineEmits<{
   (e: 'fit'): void
   (e: 'start-region', value: 'RECTANGLE' | 'POLYGON'): void
   (e: 'clear-region'): void
+  (e: 'import-network', file: File): void
 }>()
+
+const networkFileInputRef = ref<HTMLInputElement | null>(null)
 
 const localQuery = reactive<GisLayerQuery>({ ...props.query })
 const metricOptions = ROAD_CONDITION_METRICS
@@ -133,6 +158,23 @@ function emitRegion(mode: 'RECTANGLE' | 'POLYGON') {
 
 function emitClearRegion() {
   emit('clear-region')
+}
+
+function triggerNetworkImport() {
+  networkFileInputRef.value?.click()
+}
+
+function onNetworkFileChange(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  const name = file.name.toLowerCase()
+  if (!name.endsWith('.tar')) {
+    ElMessage.error('仅支持 .tar 格式')
+    return
+  }
+  emit('import-network', file)
 }
 </script>
 
@@ -211,6 +253,15 @@ function emitClearRegion() {
   align-items: center;
   gap: 6px;
   flex-wrap: nowrap;
+}
+
+.network-file-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
 }
 
 .region-icon-actions {
