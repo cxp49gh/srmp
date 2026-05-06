@@ -49,6 +49,11 @@ class Settings:
     llm_api_key: str = os.getenv("SRMP_LLM_API_KEY", "")
     llm_model: str = os.getenv("SRMP_LLM_MODEL", "")
     llm_temperature: float = _float_env("SRMP_LLM_TEMPERATURE", 0.2)
+    llm_connect_timeout_seconds: int = _int_env("SRMP_LANGGRAPH_LLM_CONNECT_TIMEOUT_SECONDS", 10)
+    llm_read_timeout_seconds: int = _int_env("SRMP_LANGGRAPH_LLM_READ_TIMEOUT_SECONDS", 180)
+    llm_max_tokens: int = _int_env("SRMP_LANGGRAPH_LLM_MAX_TOKENS", 2048)
+    llm_compact_retry_enabled: bool = _bool_env("SRMP_LANGGRAPH_LLM_COMPACT_RETRY_ENABLED", True)
+    llm_raw_preview_chars: int = _int_env("SRMP_LANGGRAPH_LLM_RAW_PREVIEW_CHARS", 500)
     max_tool_items_in_prompt: int = _int_env("SRMP_LANGGRAPH_MAX_TOOL_ITEMS_IN_PROMPT", 8)
 
     strategy_version: str = os.getenv("SRMP_LANGGRAPH_STRATEGY_VERSION", "phase50.11-config-health-guard-v1")
@@ -80,7 +85,7 @@ class Settings:
             "allowed_tools",
             _list_env(
                 "SRMP_LANGGRAPH_ALLOWED_TOOLS",
-                "knowledge.retrieve,gis.queryDiseases,gis.queryAssessmentResults,gis.queryDiseasesByStakeRange,gis.queryRegionSummary,gis.queryNearbyObjects,template.match",
+                "knowledge.retrieve,gis.queryDiseases,gis.queryAssessmentResults,gis.queryDiseasesByStakeRange,gis.queryRegionSummary,gis.queryNearbyObjects,template.match,solution.generateDraft",
             ),
         )
         object.__setattr__(

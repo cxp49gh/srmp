@@ -34,9 +34,9 @@ srmp:
 
   llm:
     provider: openai-compatible
-    base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
-    api-key: ${DASHSCOPE_API_KEY:}
-    model: qwen3.6-plus
+    base-url: ${SRMP_LLM_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    api-key: ${SRMP_LLM_API_KEY:}
+    model: ${SRMP_LLM_MODEL:qwen3.6-plus}
     # 建立连接超时，默认 15 秒
     connect-timeout-ms: 15000
     # 等待模型返回超时，区域养护方案建议 180~300 秒
@@ -59,10 +59,10 @@ srmp:
       allow-write-tools: ${SRMP_AI_TOOL_ALLOW_WRITE:false}
     embedding:
       provider: openai-compatible
-      endpoint: https://dashscope.aliyuncs.com/compatible-mode/v1
-      api-key: ${DASHSCOPE_API_KEY:}
-      model: text-embedding-v4
-      dimensions: 1024
+      endpoint: ${SRMP_EMBEDDING_ENDPOINT:https://dashscope.aliyuncs.com/compatible-mode/v1}
+      api-key: ${SRMP_LLM_API_KEY:}
+      model: ${SRMP_EMBEDDING_MODEL:text-embedding-v4}
+      dimensions: ${SRMP_EMBEDDING_DIMENSIONS:1024}
 
   outline:
     enabled: ${OUTLINE_ENABLED:false}

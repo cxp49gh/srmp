@@ -85,12 +85,14 @@ HTTPS_PROXY=http://127.0.0.1:7890
 ./scripts/srmp-one-click-start.sh
 ```
 
-脚本会启动 PostGIS、Redis、MinIO，初始化数据库和样例数据，构建并运行后端和前端 Docker 容器。
+脚本会启动 PostGIS、Redis、MinIO，初始化数据库和样例数据，构建并运行后端、`srmp-ai-orchestrator` 和前端 Docker 容器。
 
 访问地址：
 
 - 前端：http://localhost:5173
 - 后端：http://localhost:8080
+- LangGraph Runtime：http://localhost:18080
+- LangGraph 运维页：http://localhost:5173/agent/langgraph-ops
 - MinIO 控制台：http://localhost:9001
 
 常用命令：
@@ -99,6 +101,7 @@ HTTPS_PROXY=http://127.0.0.1:7890
 ./scripts/srmp-one-click-start.sh --check-only
 ./scripts/srmp-one-click-start.sh --reset-demo
 ./scripts/srmp-one-click-start.sh --skip-build
+./scripts/srmp-one-click-start.sh --no-orchestrator
 ```
 
 本地 Java/Node 开发模式：

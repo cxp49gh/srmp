@@ -39,6 +39,32 @@ def build_answer_prompt(
     return "\n".join(lines)
 
 
+def build_compact_answer_prompt(
+    request: MapAiAgentRequest,
+    intent: str,
+    context_summary: Dict[str, Any],
+    tool_results: List[ToolResult],
+    evidence: Dict[str, Any],
+) -> str:
+    tool_lines = []
+    for item in tool_results[: min(settings.max_tool_items_in_prompt, 4)]:
+        tool_lines.append(
+            f"- {item.toolName}: success={item.success}, count={item.count}, summary={item.summary or item.reason}"
+        )
+    return "\n".join(
+        [
+            "你是道路养护一张图 AI 助手。请基于证据给出简洁、可追溯的建议，不要编造。",
+            f"意图：{intent}",
+            f"上下文：{context_summary}",
+            f"证据：{evidence}",
+            "工具摘要：",
+            "\n".join(tool_lines) if tool_lines else "- 无工具结果",
+            f"用户问题：{request.message}",
+            "输出不超过 600 字，包含：主要发现、处置建议、数据不足说明。",
+        ]
+    )
+
+
 def fallback_answer(
     request: MapAiAgentRequest,
     intent: str,

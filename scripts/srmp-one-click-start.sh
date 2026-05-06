@@ -11,6 +11,7 @@ FRONTEND_ONLY=0
 NO_START=0
 CHECK_ONLY=0
 LOCAL_DEV=0
+NO_ORCHESTRATOR=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -42,6 +43,10 @@ while [ "$#" -gt 0 ]; do
       LOCAL_DEV=1
       shift
       ;;
+    --no-orchestrator)
+      NO_ORCHESTRATOR=1
+      shift
+      ;;
     --help)
       cat <<'USAGE'
 Usage: ./scripts/srmp-one-click-start.sh [options]
@@ -54,6 +59,7 @@ Options:
   --no-start         Start dependencies and initialize database; do not start app services.
   --check-only       Run readiness checks only.
   --local-dev        Use local Java/Maven/Node processes instead of backend/frontend Docker containers.
+  --no-orchestrator  Do not start srmp-ai-orchestrator; force native Java orchestration checks.
   --help             Show this help.
 USAGE
       exit 0
@@ -74,6 +80,68 @@ require_cmd() {
 
 compose() {
   docker compose "$@"
+}
+
+compose_stack() {
+  if [ "$NO_ORCHESTRATOR" = "1" ]; then
+    docker compose -f docker-compose.yml -f docker-compose.app.yml "$@"
+  else
+    docker compose -f docker-compose.yml -f docker-compose.app.yml -f docker-compose.langgraph.yml "$@"
+  fi
+}
+
+configure_docker_orchestrator() {
+  if [ "$NO_ORCHESTRATOR" = "1" ]; then
+    export SRMP_AI_ORCHESTRATOR_PROVIDER="native"
+    return 0
+  fi
+  export SRMP_AI_ORCHESTRATOR_PROVIDER="${SRMP_AI_ORCHESTRATOR_PROVIDER:-langgraph}"
+  export SRMP_LANGGRAPH_URL="${SRMP_LANGGRAPH_URL:-http://srmp-ai-orchestrator:18080}"
+  export SRMP_JAVA_BASE_URL="${SRMP_JAVA_BASE_URL:-http://backend:8080}"
+  export SRMP_LANGGRAPH_AUDIT_PERSIST_ENABLED="${SRMP_LANGGRAPH_AUDIT_PERSIST_ENABLED:-true}"
+  export SRMP_LANGGRAPH_AUDIT_PERSIST_PATH="${SRMP_LANGGRAPH_AUDIT_PERSIST_PATH:-/var/lib/srmp/langgraph/runtime-audit.jsonl}"
+}
+
+run_ready_check() {
+  local args=()
+  if [ "$BACKEND_ONLY" = "1" ]; then
+    args+=(--backend-only)
+  fi
+  if [ "$FRONTEND_ONLY" = "1" ]; then
+    args+=(--frontend-only)
+  fi
+  if [ "$NO_ORCHESTRATOR" = "1" ]; then
+    args+=(--no-orchestrator)
+  fi
+  if [ "${#args[@]}" -gt 0 ]; then
+    ./scripts/srmp-check-ready.sh "${args[@]}"
+  else
+    ./scripts/srmp-check-ready.sh
+  fi
+}
+
+start_docker_app_services() {
+  local services=()
+  if [ "$FRONTEND_ONLY" = "1" ]; then
+    services+=(frontend)
+  elif [ "$BACKEND_ONLY" = "1" ]; then
+    services+=(backend)
+    if [ "$NO_ORCHESTRATOR" = "0" ]; then
+      services+=(srmp-ai-orchestrator)
+    fi
+  else
+    services+=(backend)
+    if [ "$NO_ORCHESTRATOR" = "0" ]; then
+      services+=(srmp-ai-orchestrator)
+    fi
+    services+=(frontend)
+  fi
+
+  if [ "$SKIP_BUILD" = "1" ]; then
+    compose_stack up -d "${services[@]}"
+  else
+    compose_stack up -d --build "${services[@]}"
+  fi
 }
 
 wait_postgres() {
@@ -132,11 +200,18 @@ start_local_frontend() {
 }
 
 if [ "$CHECK_ONLY" = "1" ]; then
-  ./scripts/srmp-check-ready.sh
+  run_ready_check
   exit 0
 fi
 
 require_cmd docker
+
+if [ "$LOCAL_DEV" = "1" ] && [ "$NO_ORCHESTRATOR" = "0" ]; then
+  echo "[INFO] --local-dev keeps srmp-ai-orchestrator external; pass --no-orchestrator automatically for readiness checks."
+  echo "[INFO] To run LangGraph locally, start ./scripts/run-langgraph-orchestrator-dev.sh in another shell."
+  NO_ORCHESTRATOR=1
+  export SRMP_AI_ORCHESTRATOR_PROVIDER="native"
+fi
 
 if [ "$FRONTEND_ONLY" = "0" ]; then
   echo "==> starting dependency containers"
@@ -170,45 +245,30 @@ if [ "$LOCAL_DEV" = "1" ]; then
     start_local_frontend
   fi
 else
-  if [ "$BACKEND_ONLY" = "1" ]; then
-    if [ "$SKIP_BUILD" = "1" ]; then
-      compose -f docker-compose.yml -f docker-compose.app.yml up -d backend
-    else
-      compose -f docker-compose.yml -f docker-compose.app.yml up -d --build backend
-    fi
-  elif [ "$FRONTEND_ONLY" = "1" ]; then
-    if [ "$SKIP_BUILD" = "1" ]; then
-      compose -f docker-compose.yml -f docker-compose.app.yml up -d frontend
-    else
-      compose -f docker-compose.yml -f docker-compose.app.yml up -d --build frontend
-    fi
-  else
-    if [ "$SKIP_BUILD" = "1" ]; then
-      compose -f docker-compose.yml -f docker-compose.app.yml up -d backend frontend
-    else
-      compose -f docker-compose.yml -f docker-compose.app.yml up -d --build backend frontend
-    fi
+  configure_docker_orchestrator
+  start_docker_app_services
+fi
+
+run_ready_check
+
+echo
+echo "[OK] SRMP started"
+if [ "$BACKEND_ONLY" = "0" ]; then
+  echo "Frontend: http://localhost:${FRONTEND_PORT:-5173}"
+fi
+if [ "$FRONTEND_ONLY" = "0" ]; then
+  echo "Backend:  http://localhost:${BACKEND_PORT:-8080}"
+fi
+if [ "$NO_ORCHESTRATOR" = "0" ]; then
+  echo "LangGraph: http://localhost:${SRMP_AI_ORCHESTRATOR_PORT:-18080}"
+  if [ "$BACKEND_ONLY" = "0" ]; then
+    echo "Ops page:  http://localhost:${FRONTEND_PORT:-5173}/agent/langgraph-ops"
   fi
-fi
-
-CHECK_ARGS=()
-if [ "$BACKEND_ONLY" = "1" ]; then
-  CHECK_ARGS+=(--backend-only)
-fi
-if [ "$FRONTEND_ONLY" = "1" ]; then
-  CHECK_ARGS+=(--frontend-only)
-fi
-if [ "${#CHECK_ARGS[@]}" -gt 0 ]; then
-  ./scripts/srmp-check-ready.sh "${CHECK_ARGS[@]}"
+  echo "Backend logs:      docker compose -f docker-compose.yml -f docker-compose.app.yml -f docker-compose.langgraph.yml logs -f backend"
+  echo "Frontend logs:     docker compose -f docker-compose.yml -f docker-compose.app.yml -f docker-compose.langgraph.yml logs -f frontend"
+  echo "Orchestrator logs: docker compose -f docker-compose.yml -f docker-compose.app.yml -f docker-compose.langgraph.yml logs -f srmp-ai-orchestrator"
 else
-  ./scripts/srmp-check-ready.sh
+  echo "LangGraph: disabled (--no-orchestrator)"
+  echo "Backend logs:  docker compose -f docker-compose.yml -f docker-compose.app.yml logs -f backend"
+  echo "Frontend logs: docker compose -f docker-compose.yml -f docker-compose.app.yml logs -f frontend"
 fi
-
-cat <<INFO
-
-[OK] SRMP started
-Frontend: http://localhost:${FRONTEND_PORT:-5173}
-Backend:  http://localhost:${BACKEND_PORT:-8080}
-Backend logs:  docker compose -f docker-compose.yml -f docker-compose.app.yml logs -f backend
-Frontend logs: docker compose -f docker-compose.yml -f docker-compose.app.yml logs -f frontend
-INFO

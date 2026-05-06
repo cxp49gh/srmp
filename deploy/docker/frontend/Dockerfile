@@ -3,8 +3,10 @@ FROM node:20-alpine AS builder
 WORKDIR /workspace/srmp-web-ui
 ARG VITE_API_BASE_URL=
 ARG VITE_TENANT_ID=default
+ARG VITE_AI_TIMEOUT=310000
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 ENV VITE_TENANT_ID=${VITE_TENANT_ID}
+ENV VITE_AI_TIMEOUT=${VITE_AI_TIMEOUT}
 
 COPY srmp-web-ui/package.json srmp-web-ui/package-lock.json ./
 RUN npm ci

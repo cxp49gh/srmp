@@ -5,9 +5,12 @@ import uuid
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 from .config import settings
+from .answer_enhancers import enhance_answer
+from .intent import recognize_intent
 from .java_tools import JavaToolGateway, extract_knowledge_sources
-from .llm_client import LlmClient
-from .prompt import build_answer_prompt, fallback_answer
+from .llm_client import LlmClient, LlmResult
+from .planner import plan_tools
+from .prompt import build_answer_prompt, build_compact_answer_prompt, fallback_answer
 from .schemas import MapAiAgentRequest, MapAiAgentResponse, MapAiContext, ToolCall, ToolResult
 
 try:
@@ -49,10 +52,13 @@ class AgentState(TypedDict, total=False):
     steps: List[Dict[str, Any]]
     context_summary: Dict[str, Any]
     intent: str
+    intent_detail: Dict[str, Any]
+    tool_plan: List[ToolCall]
     toolPlan: List[ToolCall]
     tool_results: List[ToolResult]
     evidence: Dict[str, Any]
     answer: str
+    answer_meta: Dict[str, Any]
     quality: Dict[str, Any]
 
 
@@ -144,16 +150,31 @@ class LangGraphWorkflow:
             raise AttributeError("LangGraphWorkflow has no handler for node: " + str(node))
         return handler
 
-    def _step(self, state: AgentState, node: str, message: str, data: Optional[Dict[str, Any]] = None) -> None:
+    def _step(
+        self,
+        state: AgentState,
+        node: str,
+        message: str,
+        data: Optional[Dict[str, Any]] = None,
+        status: str = "SUCCESS",
+        count: Optional[int] = None,
+        error: Optional[str] = None,
+    ) -> None:
         steps = state.setdefault("steps", [])
-        steps.append(
-            {
-                "node": node,
-                "message": message,
-                "data": data or {},
-                "elapsedMs": int((time.perf_counter() - state.get("started_at", time.perf_counter())) * 1000),
-            }
-        )
+        item = {
+            "node": node,
+            "name": node,
+            "message": message,
+            "status": status,
+            "data": data or {},
+            "elapsedMs": int((time.perf_counter() - state.get("started_at", time.perf_counter())) * 1000),
+        }
+        if count is not None:
+            item["count"] = count
+        if error:
+            item["error"] = error
+            item["errorMessage"] = error
+        steps.append(item)
 
     async def _request_normalize(self, state: AgentState) -> Dict[str, Any]:
         request = state["request"]
@@ -168,25 +189,9 @@ class LangGraphWorkflow:
         return {"context_summary": summary}
 
     async def _intent_recognize(self, state: AgentState) -> Dict[str, Any]:
-        request = state["request"]
-        text = (request.message or "").lower()
-        ctx = request.mapContext
-        obj = ctx.mapObject if ctx and ctx.mapObject else {}
-        joined = " ".join([text, str(obj).lower(), str(ctx.mode if ctx else "").lower(), str(ctx.selectedLayers if ctx else "").lower()])
-
-        if _contains_any(joined, ["框选", "多边形", "区域", "范围", "统计", "汇总", "polygon", "box", "region", "selection"]):
-            intent = "REGION_ANALYSIS"
-        elif _contains_any(joined, ["评定", "评定单元", "mqi", "pqi", "pci", "rqi", "rdi", "低分", "assessment"]):
-            intent = "ASSESSMENT_ANALYSIS"
-        elif _contains_any(joined, ["养护建议", "处置建议", "方案", "修复", "维修", "预防性养护", "template", "draft"]):
-            intent = "MAINTENANCE_ADVICE"
-        elif _contains_any(joined, ["病害", "裂缝", "坑槽", "龟裂", "沉陷", "车辙", "object", "disease"]):
-            intent = "OBJECT_ANALYSIS"
-        else:
-            intent = "KNOWLEDGE_QA"
-
-        self._step(state, "intent_recognize", "识别用户意图", {"intent": intent})
-        return {"intent": intent}
+        intent, detail = recognize_intent(state["request"])
+        self._step(state, "intent_recognize", "识别用户意图", {"intent": intent, "intentDetail": detail})
+        return {"intent": intent, "intent_detail": detail}
 
     async def _context_enrich(self, state: AgentState) -> Dict[str, Any]:
         if not settings.enable_context_enrich:
@@ -227,34 +232,7 @@ class LangGraphWorkflow:
         return {"request": request, "context_summary": summary}
 
     async def _tool_plan(self, state: AgentState) -> Dict[str, Any]:
-        request = state["request"]
-        intent = state["intent"]
-        calls: List[ToolCall] = []
-        map_context = request.mapContext
-        obj = map_context.mapObject if map_context and map_context.mapObject else {}
-        query = _build_query(request, intent)
-        context_args = _context_filter_args(map_context)
-
-        if intent == "REGION_ANALYSIS":
-            calls.append(ToolCall(toolName="gis.queryRegionSummary", args=_merge_args({"limit": 50}, _region_args(map_context)), reason="区域/框选范围统计"))
-            calls.append(ToolCall(toolName="gis.queryDiseases", args=_merge_args({"limit": 50}, _region_args(map_context)), reason="区域病害明细"))
-            calls.append(ToolCall(toolName="gis.queryAssessmentResults", args=_merge_args({"limit": 20}, context_args), reason="区域/路线评定结果辅助判断"))
-        elif intent == "ASSESSMENT_ANALYSIS":
-            calls.append(ToolCall(toolName="gis.queryAssessmentResults", args=_merge_args({"limit": 20}, _merge_args(context_args, _object_filter_args(obj))), reason="评定结果查询"))
-            if _has_stake_range(obj):
-                calls.append(ToolCall(toolName="gis.queryDiseasesByStakeRange", args=_stake_args(obj, {"limit": 50}), reason="评定单元内病害查询"))
-            else:
-                calls.append(ToolCall(toolName="gis.queryDiseases", args=_merge_args({"limit": 30}, context_args), reason="评定上下文缺少桩号时查询相关病害"))
-        elif intent in {"OBJECT_ANALYSIS", "MAINTENANCE_ADVICE"}:
-            calls.append(ToolCall(toolName="gis.queryDiseases", args=_merge_args({"limit": 30}, _merge_args(context_args, _object_filter_args(obj))), reason="当前对象病害查询"))
-            calls.append(ToolCall(toolName="gis.queryNearbyObjects", args=_merge_args({"limit": 20}, context_args), reason="周边对象辅助判断"))
-            if _has_stake_range(obj):
-                calls.append(ToolCall(toolName="gis.queryAssessmentResults", args=_stake_args(obj, {"limit": 10}), reason="对象所在单元评定结果"))
-            if intent == "MAINTENANCE_ADVICE":
-                calls.append(ToolCall(toolName="template.match", args={"intent": intent, "routeCode": context_args.get("routeCode"), "year": context_args.get("year")}, reason="方案模板匹配预检查"))
-
-        calls.append(ToolCall(toolName="knowledge.retrieve", args={"query": query, "topK": _option_int(request, "topK", 5)}, reason="知识库检索处置规则"))
-        calls = _dedupe_and_limit_calls(calls)
+        calls = plan_tools(state["request"], state["intent"], state.get("intent_detail", {}))
         self._step(state, "tool_plan", "规划只读工具", {"strategy": settings.strategy_version, "tools": [item.model_dump() for item in calls]})
         return {"tool_plan": calls}
 
@@ -286,6 +264,8 @@ class LangGraphWorkflow:
                 "failed": sum(1 for item in results if not item.success),
                 "tools": [item.toolName for item in results],
             },
+            status="SUCCESS" if any(item.success for item in results) else "FAILED",
+            count=len(results),
         )
         return {"tool_results": results}
 
@@ -335,6 +315,60 @@ class LangGraphWorkflow:
         self._step(state, "evidence_fuse", "融合 GIS 与知识库证据", evidence)
         return {"evidence": evidence}
 
+    async def _call_llm(self, prompt: str) -> LlmResult:
+        if not settings.use_llm:
+            return LlmResult.skipped("SRMP_LANGGRAPH_USE_LLM=false", "DISABLED")
+        if hasattr(self.llm_client, "generate"):
+            result = await self.llm_client.generate(prompt)
+            if isinstance(result, LlmResult):
+                return result
+            if isinstance(result, dict):
+                return LlmResult(**result)
+        if hasattr(self.llm_client, "chat"):
+            try:
+                answer = await self.llm_client.chat(prompt)
+            except Exception as exc:  # noqa: BLE001
+                return LlmResult.failed("UNKNOWN", str(exc), model=settings.llm_model)
+            if answer:
+                return LlmResult.success(answer=str(answer), model=settings.llm_model)
+        return LlmResult.failed("EMPTY_RESPONSE", "LLM 返回为空", model=settings.llm_model)
+
+    def _record_llm_step(
+        self,
+        state: AgentState,
+        result: LlmResult,
+        retried: bool,
+        first_attempt: LlmResult,
+    ) -> None:
+        data = result.to_dict()
+        data["retriedWithCompactPrompt"] = retried
+        data["firstAttempt"] = first_attempt.to_dict()
+        self._step(
+            state,
+            "llm_answer",
+            "大模型回答",
+            data,
+            status=result.status,
+            count=1 if result.status == "SUCCESS" else 0,
+            error=result.errorMessage if result.status == "FAILED" else None,
+        )
+
+    def _answer_meta(self, result: LlmResult, source: str, retried: bool, fallback_reason: str = "") -> Dict[str, Any]:
+        meta = {
+            "answerSource": source,
+            "llmSuccess": result.status == "SUCCESS" and source == "LLM",
+            "llmStatus": result.status,
+            "retriedWithCompactPrompt": retried,
+            "llmModel": result.model or settings.llm_model,
+        }
+        if fallback_reason:
+            meta["fallbackReason"] = fallback_reason
+        if result.errorType:
+            meta["errorType"] = result.errorType
+        if result.errorMessage:
+            meta["errorMessage"] = result.errorMessage
+        return meta
+
     async def _answer_generate(self, state: AgentState) -> Dict[str, Any]:
         request = state["request"]
         tool_results = state.get("tool_results", [])
@@ -342,20 +376,47 @@ class LangGraphWorkflow:
         context_summary = state.get("context_summary", {})
         intent = state.get("intent", "KNOWLEDGE_QA")
 
-        answer = ""
-        if settings.use_llm:
-            try:
-                prompt = build_answer_prompt(request, intent, context_summary, tool_results, evidence)
-                answer = await self.llm_client.chat(prompt) or ""
-            except Exception as exc:  # noqa: BLE001
-                answer = ""
-                self._step(state, "answer_generate", "LLM 生成失败，使用 fallback", {"error": str(exc)})
+        prompt = build_answer_prompt(request, intent, context_summary, tool_results, evidence)
+        first_result = await self._call_llm(prompt)
+        result = first_result
+        retried = False
 
+        if (
+            settings.use_llm
+            and settings.llm_compact_retry_enabled
+            and result.status != "SUCCESS"
+            and result.errorType in {"EMPTY_RESPONSE", ""}
+        ):
+            compact_prompt = build_compact_answer_prompt(request, intent, context_summary, tool_results, evidence)
+            result = await self._call_llm(compact_prompt)
+            retried = True
+
+        self._record_llm_step(state, result, retried, first_result)
+
+        answer = result.answer if result.status == "SUCCESS" and result.answer else ""
+        answer_source = "LLM" if answer else "FALLBACK"
+        fallback_reason = ""
         if not answer:
+            fallback_reason = result.errorType or ("DISABLED" if not settings.use_llm else "EMPTY_RESPONSE")
             answer = fallback_answer(request, intent, context_summary, evidence, tool_results)
 
-        self._step(state, "answer_generate", "生成回答", {"useLlm": settings.use_llm, "answerLength": len(answer)})
-        return {"answer": answer}
+        sources = extract_knowledge_sources(tool_results)
+        answer = enhance_answer(answer, request, intent, state.get("intent_detail", {}), tool_results, sources)
+        answer_meta = self._answer_meta(result, answer_source, retried, fallback_reason)
+
+        self._step(
+            state,
+            "answer_generate",
+            "生成回答",
+            {
+                "useLlm": settings.use_llm,
+                "answerLength": len(answer),
+                "answerSource": answer_meta.get("answerSource"),
+                "llmSuccess": answer_meta.get("llmSuccess"),
+                "fallbackReason": answer_meta.get("fallbackReason"),
+            },
+        )
+        return {"answer": answer, "answer_meta": answer_meta}
 
     async def _quality_guard(self, state: AgentState) -> Dict[str, Any]:
         answer = state.get("answer") or ""
@@ -382,6 +443,12 @@ class LangGraphWorkflow:
                 state.get("tool_results", []),
             )
             changed.append("short_answer_fallback")
+            meta = dict(state.get("answer_meta") or {})
+            meta["answerSource"] = "FALLBACK"
+            meta["llmSuccess"] = False
+            meta["qualityFallback"] = True
+            meta["fallbackReason"] = "QUALITY_GUARD_SHORT_ANSWER"
+            state["answer_meta"] = meta
 
         if not settings.allow_write_tools and re.search(r"(已保存|已派单|已转工单|已更新|已删除|已经写入)", answer):
             answer += "\n\n注意：当前 LangGraph 编排处于只读模式，未执行保存、派单或数据库更新。"
@@ -394,7 +461,7 @@ class LangGraphWorkflow:
             "afterLength": len(answer),
         }
         self._step(state, "quality_guard", "回答质量保护", quality)
-        return {"answer": answer, "quality": quality}
+        return {"answer": answer, "quality": quality, "answer_meta": state.get("answer_meta", {})}
 
     def _to_response(self, state: AgentState) -> MapAiAgentResponse:
         tool_results = state.get("tool_results", [])
@@ -403,6 +470,7 @@ class LangGraphWorkflow:
         context_dump = request.mapContext.model_dump(exclude_none=True) if request.mapContext else None
         has_map_object = bool(request.mapContext and request.mapContext.mapObject)
         has_region = bool(request.mapContext and (request.mapContext.regionSummary or request.mapContext.geometry or str(request.mapContext.mode or "").upper() in {"BOX", "POLYGON", "REGION", "SELECTION"}))
+        answer_meta = state.get("answer_meta", {})
         return MapAiAgentResponse(
             answer=state.get("answer", ""),
             mode="LANGGRAPH_AGENT",
@@ -421,8 +489,10 @@ class LangGraphWorkflow:
             },
             data={
                 "orchestratorProvider": "langgraph",
+                "orchestratorFallback": False,
                 "strategyVersion": settings.strategy_version,
                 "intent": state.get("intent"),
+                "intentDetail": state.get("intent_detail", {}),
                 "nodeFlow": NODE_FLOW,
                 "toolPlan": [item.model_dump(exclude_none=True) for item in state.get("tool_plan", [])],
                 "toolResults": [item.model_dump(exclude_none=True) for item in tool_results],
@@ -430,6 +500,9 @@ class LangGraphWorkflow:
                 "toolSuccessCount": sum(1 for item in tool_results if item.success),
                 "toolFailedCount": sum(1 for item in tool_results if not item.success),
                 "evidence": state.get("evidence", {}),
+                "answerMeta": answer_meta,
+                "answerSource": answer_meta.get("answerSource"),
+                "llmSuccess": answer_meta.get("llmSuccess"),
                 "quality": state.get("quality", {}),
                 "mapObjectUsed": has_map_object,
                 "mapContextUsed": bool(request.mapContext),
@@ -437,6 +510,7 @@ class LangGraphWorkflow:
                 "sourceCount": len(sources),
                 "readOnly": not settings.allow_write_tools,
                 "langgraphAvailable": LANGGRAPH_AVAILABLE,
+                "parityVersion": "phase50.15-native-parity",
             },
         )
 

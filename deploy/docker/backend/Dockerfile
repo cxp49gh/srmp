@@ -44,4 +44,4 @@ COPY --from=builder /workspace/srmp-admin/target/srmp-admin-1.0.0.jar /app/srmp-
 
 EXPOSE 8080
 
-ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -Djava.net.useSystemProxies=false -Dhttp.nonProxyHosts='localhost|127.*|[::1]|postgres|redis|minio|backend|frontend' -Dhttps.nonProxyHosts='localhost|127.*|[::1]|postgres|redis|minio|backend|frontend' -jar /app/srmp-admin.jar"]
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -Djava.net.useSystemProxies=false -Dhttp.nonProxyHosts='localhost|127.*|[::1]|postgres|redis|minio|backend|frontend|srmp-ai-orchestrator' -Dhttps.nonProxyHosts='localhost|127.*|[::1]|postgres|redis|minio|backend|frontend|srmp-ai-orchestrator' -jar /app/srmp-admin.jar"]
