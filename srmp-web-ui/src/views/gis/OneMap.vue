@@ -81,7 +81,14 @@
       @save="saveRegionDraft"
     />
 
-    <AiTraceDrawer v-model:visible="regionTraceDrawerVisible" :trace="regionSolution?.trace || null" />
+    <AiTraceDrawer
+      v-model:visible="regionTraceDrawerVisible"
+      :trace="regionSolution?.trace || null"
+      :answer-meta="regionSolution?.answerMeta || null"
+      :tool-results="regionSolutionToolResults"
+      :sources="regionSolutionSources"
+      :solution="regionSolution || null"
+    />
 
     <div v-if="mapLoadingMask" class="loading-mask">
       <el-icon class="is-loading"><Loading /></el-icon>
@@ -148,6 +155,8 @@ const regionGeometryType = ref<'RECTANGLE' | 'POLYGON'>('RECTANGLE')
 const regionGeometry = ref<Record<string, any> | null>(null)
 const regionSummary = ref<Record<string, any> | null>(null)
 const regionSolution = ref<MapRegionSolutionResponse | null>(null)
+const regionSolutionToolResults = computed(() => (regionSolution.value as any)?.toolResults || [])
+const regionSolutionSources = computed(() => (regionSolution.value as any)?.sources || (regionSolution.value as any)?.knowledgeSources || [])
 const regionLoading = ref(false)
 const regionSummaryLoading = ref(false)
 const regionPreviewVisible = ref(false)
@@ -1180,7 +1189,12 @@ async function generateRegionSolution() {
       layers: activeLayerNames(),
       options: { useBusinessData: true, useKnowledge: true, useOutline: false, topK: 5, requireAi: true, indexCode: query.indexCode, grade: query.grade }
     })) as MapRegionSolutionResponse
-    regionSolution.value = result
+    regionSolution.value = {
+      ...result,
+      answerMeta: result.answerMeta || (result as any).data?.answerMeta || null,
+      toolResults: (result as any).toolResults || (result as any).data?.toolResults || [],
+      sources: (result as any).sources || (result as any).knowledgeSources || (result as any).data?.sources || []
+    } as MapRegionSolutionResponse
     if (result.regionSummary) {
       regionSummary.value = normalizeRegionSummary(result.regionSummary, regionGeometry.value)
     }
