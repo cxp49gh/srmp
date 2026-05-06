@@ -41,6 +41,12 @@ export function getOrchestratorContract(): Promise<Record<string, any>> {
   return aiRequest.get('/api/agent/orchestrator/ops/contract')
 }
 
+export function probeOrchestratorLlm(probe = false): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/llm-probe', {
+    params: { probe }
+  })
+}
+
 export function getOrchestratorRecord(recordId: string): Promise<Record<string, any>> {
   return aiRequest.get(`/api/agent/orchestrator/ops/record/${encodeURIComponent(recordId)}`)
 }

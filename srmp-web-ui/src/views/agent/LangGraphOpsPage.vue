@@ -8,6 +8,7 @@
         <el-button :loading="loading" @click="loadSummary">刷新</el-button>
         <el-button :loading="contractLoading" @click="loadContract">契约诊断</el-button>
         <el-button :loading="healthLoading" @click="loadRuntimeDetails(true)">配置健康</el-button>
+        <el-button :loading="llmProbeLoading" type="warning" plain @click="probeLangGraphLlm(true)">LLM 探测</el-button>
         <el-button :loading="exportLoading" @click="exportDiagnostics">导出诊断</el-button>
         <el-button type="primary" :loading="smoking" @click="runSmoke">运行 Smoke</el-button>
       </div>
@@ -31,6 +32,15 @@
           </div>
           <div class="metric-value">{{ value(langgraphReady, ['costMs']) || 0 }}ms</div>
           <div class="metric-desc">{{ value(langgraphReady, ['url']) || '-' }}</div>
+        </el-card>
+
+        <el-card shadow="never" class="metric-card">
+          <div class="metric-head">
+            <span>LangGraph LLM</span>
+            <el-tag :type="langGraphLlmTagType">{{ langGraphLlmStatusText }}</el-tag>
+          </div>
+          <div class="metric-value">{{ langGraphLlmModel || '-' }}</div>
+          <div class="metric-desc">enabled：{{ langGraphLlmEnabled ? 'true' : 'false' }}；retry：{{ langGraphLlmRetry ? 'true' : 'false' }}；{{ langGraphLlmCost }}</div>
         </el-card>
 
         <el-card shadow="never" class="metric-card">
@@ -116,6 +126,45 @@
             show-icon
             :title="configWarningTitle"
           />
+        </el-card>
+
+        <el-card shadow="never" class="panel-card">
+          <template #header>
+            <div class="card-header">
+              <span>LangGraph LLM</span>
+              <el-button size="small" text :loading="llmProbeLoading" @click="probeLangGraphLlm(true)">探测</el-button>
+            </div>
+          </template>
+          <div class="diag-list">
+            <div class="diag-row">
+              <span>状态</span>
+              <strong>{{ langGraphLlmStatusText }}</strong>
+            </div>
+            <div class="diag-row">
+              <span>模型</span>
+              <strong>{{ langGraphLlmModel || '-' }}</strong>
+            </div>
+            <div class="diag-row">
+              <span>配置</span>
+              <strong>base={{ langGraphLlmBaseConfigured ? 'yes' : 'no' }}；key={{ langGraphLlmKeyConfigured ? 'yes' : 'no' }}</strong>
+            </div>
+            <div class="diag-row">
+              <span>超时/Token</span>
+              <strong>{{ langGraphLlmConnectTimeout }}s / {{ langGraphLlmReadTimeout }}s / {{ langGraphLlmMaxTokens }}</strong>
+            </div>
+            <div class="diag-row">
+              <span>最近耗时</span>
+              <strong>{{ langGraphLlmCost }}</strong>
+            </div>
+            <div class="diag-row">
+              <span>错误</span>
+              <strong>{{ langGraphLlmError || '-' }}</strong>
+            </div>
+            <div class="diag-row">
+              <span>响应预览</span>
+              <strong>{{ langGraphLlmPreview || '-' }}</strong>
+            </div>
+          </div>
         </el-card>
 
         <el-card shadow="never" class="panel-card">
@@ -367,6 +416,7 @@ import {
   getOrchestratorRecent,
   getOrchestratorRecord,
   getOrchestratorSnapshot,
+  probeOrchestratorLlm,
   pruneOrchestratorAudit,
   replayOrchestratorRecord,
   runOrchestratorPlan,
@@ -382,12 +432,14 @@ const contractLoading = ref(false)
 const replaying = ref(false)
 const exportLoading = ref(false)
 const healthLoading = ref(false)
+const llmProbeLoading = ref(false)
 const snapshotLoading = ref(false)
 const pruneLoading = ref(false)
 const summary = reactive<Record<string, any>>({})
 const configResult = reactive<Record<string, any>>({})
 const healthDetail = reactive<Record<string, any>>({})
 const persistenceResult = reactive<Record<string, any>>({})
+const langGraphLlmResult = reactive<Record<string, any>>({})
 const recentRecords = ref<Record<string, any>[]>([])
 const recentStatus = ref('')
 const smokeResultText = ref('')
@@ -470,6 +522,29 @@ const persistenceMaxSize = computed(() => formatBytes(Number(value(persistenceBo
 const persistenceWritten = computed(() => Number(value(persistenceBody.value, ['written']) || 0))
 const persistenceLoaded = computed(() => Number(value(persistenceBody.value, ['loadedFromDisk']) || 0))
 const persistenceLastError = computed(() => String(value(persistenceBody.value, ['lastError']) || ''))
+const langGraphLlmBody = computed(() => value(langGraphLlmResult, ['body']) || langGraphLlmResult)
+const langGraphLlmEnabled = computed(() => Boolean(value(langGraphLlmBody.value, ['enabled'])))
+const langGraphLlmStatusText = computed(() => String(value(langGraphLlmBody.value, ['status']) || (langGraphLlmEnabled.value ? 'READY' : 'SKIPPED')))
+const langGraphLlmTagType = computed(() => {
+  const status = langGraphLlmStatusText.value
+  if (status === 'SUCCESS') return 'success'
+  if (status === 'SKIPPED' || status === 'DISABLED') return 'info'
+  if (status === 'FAILED' || status.includes('TIMEOUT') || status.includes('ERROR')) return 'danger'
+  return 'warning'
+})
+const langGraphLlmModel = computed(() => String(value(langGraphLlmBody.value, ['model']) || value(configBody.value, ['safeConfig', 'llmModel']) || ''))
+const langGraphLlmRetry = computed(() => Boolean(value(langGraphLlmBody.value, ['compactRetryEnabled']) ?? value(configBody.value, ['safeConfig', 'llmCompactRetryEnabled'])))
+const langGraphLlmBaseConfigured = computed(() => Boolean(value(langGraphLlmBody.value, ['baseUrlConfigured']) ?? value(configBody.value, ['safeConfig', 'llmBaseUrlConfigured'])))
+const langGraphLlmKeyConfigured = computed(() => Boolean(value(langGraphLlmBody.value, ['apiKeyConfigured']) ?? value(configBody.value, ['safeConfig', 'llmApiKeyConfigured'])))
+const langGraphLlmConnectTimeout = computed(() => Number(value(langGraphLlmBody.value, ['connectTimeoutSeconds']) || value(configBody.value, ['safeConfig', 'llmConnectTimeoutSeconds']) || 0))
+const langGraphLlmReadTimeout = computed(() => Number(value(langGraphLlmBody.value, ['readTimeoutSeconds']) || value(configBody.value, ['safeConfig', 'llmReadTimeoutSeconds']) || 0))
+const langGraphLlmMaxTokens = computed(() => Number(value(langGraphLlmBody.value, ['maxTokens']) || value(configBody.value, ['safeConfig', 'llmMaxTokens']) || 0))
+const langGraphLlmCost = computed(() => {
+  const cost = value(langGraphLlmBody.value, ['probeCostMs']) ?? value(langGraphLlmBody.value, ['costMs'])
+  return cost == null ? '-' : `${cost}ms`
+})
+const langGraphLlmError = computed(() => String(value(langGraphLlmBody.value, ['errorMessage']) || value(langGraphLlmBody.value, ['diagnostics', 'errorMessage']) || ''))
+const langGraphLlmPreview = computed(() => String(value(langGraphLlmBody.value, ['probeAnswerPreview']) || value(langGraphLlmBody.value, ['rawResponsePreview']) || value(langGraphLlmBody.value, ['diagnostics', 'rawResponsePreview']) || ''))
 
 async function loadSummary() {
   loading.value = true
@@ -489,19 +564,36 @@ async function loadSummary() {
 async function loadRuntimeDetails(showMessage = false) {
   healthLoading.value = true
   try {
-    const [config, health, persistence] = await Promise.allSettled([
+    const [config, health, persistence, llmProbe] = await Promise.allSettled([
       getOrchestratorConfig(),
       getOrchestratorHealthDetail(true, true),
-      getOrchestratorPersistence()
+      getOrchestratorPersistence(),
+      probeOrchestratorLlm(false)
     ])
     if (config.status === 'fulfilled') assignReactive(configResult, config.value || {})
     if (health.status === 'fulfilled') assignReactive(healthDetail, health.value || {})
     if (persistence.status === 'fulfilled') assignReactive(persistenceResult, persistence.value || {})
+    if (llmProbe.status === 'fulfilled') assignReactive(langGraphLlmResult, llmProbe.value || {})
     if (showMessage) {
       ElMessage.success('配置健康已刷新')
     }
   } finally {
     healthLoading.value = false
+  }
+}
+
+async function probeLangGraphLlm(runProbe = true) {
+  llmProbeLoading.value = true
+  try {
+    const res = await probeOrchestratorLlm(runProbe)
+    assignReactive(langGraphLlmResult, res || {})
+    const body = value(res, ['body']) || res || {}
+    ElMessage.success(body?.status === 'SUCCESS' ? 'LangGraph LLM 探测通过' : 'LangGraph LLM 探测完成')
+  } catch (error: any) {
+    assignReactive(langGraphLlmResult, error?.response?.data || { error: error?.message || String(error) })
+    ElMessage.error('LangGraph LLM 探测失败')
+  } finally {
+    llmProbeLoading.value = false
   }
 }
 
