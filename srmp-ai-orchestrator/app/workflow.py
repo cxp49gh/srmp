@@ -5,6 +5,7 @@ import uuid
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 from .config import settings
+from .intent import recognize_intent
 from .java_tools import JavaToolGateway, extract_knowledge_sources
 from .llm_client import LlmClient
 from .prompt import build_answer_prompt, fallback_answer
@@ -49,6 +50,7 @@ class AgentState(TypedDict, total=False):
     steps: List[Dict[str, Any]]
     context_summary: Dict[str, Any]
     intent: str
+    intent_detail: Dict[str, Any]
     tool_plan: List[ToolCall]
     toolPlan: List[ToolCall]
     tool_results: List[ToolResult]
@@ -169,25 +171,9 @@ class LangGraphWorkflow:
         return {"context_summary": summary}
 
     async def _intent_recognize(self, state: AgentState) -> Dict[str, Any]:
-        request = state["request"]
-        text = (request.message or "").lower()
-        ctx = request.mapContext
-        obj = ctx.mapObject if ctx and ctx.mapObject else {}
-        joined = " ".join([text, str(obj).lower(), str(ctx.mode if ctx else "").lower(), str(ctx.selectedLayers if ctx else "").lower()])
-
-        if _contains_any(joined, ["框选", "多边形", "区域", "范围", "统计", "汇总", "polygon", "box", "region", "selection"]):
-            intent = "REGION_ANALYSIS"
-        elif _contains_any(joined, ["评定", "评定单元", "mqi", "pqi", "pci", "rqi", "rdi", "低分", "assessment"]):
-            intent = "ASSESSMENT_ANALYSIS"
-        elif _contains_any(joined, ["养护建议", "处置建议", "方案", "修复", "维修", "预防性养护", "template", "draft"]):
-            intent = "MAINTENANCE_ADVICE"
-        elif _contains_any(joined, ["病害", "裂缝", "坑槽", "龟裂", "沉陷", "车辙", "object", "disease"]):
-            intent = "OBJECT_ANALYSIS"
-        else:
-            intent = "KNOWLEDGE_QA"
-
-        self._step(state, "intent_recognize", "识别用户意图", {"intent": intent})
-        return {"intent": intent}
+        intent, detail = recognize_intent(state["request"])
+        self._step(state, "intent_recognize", "识别用户意图", {"intent": intent, "intentDetail": detail})
+        return {"intent": intent, "intent_detail": detail}
 
     async def _context_enrich(self, state: AgentState) -> Dict[str, Any]:
         if not settings.enable_context_enrich:
