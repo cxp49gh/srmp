@@ -8,6 +8,7 @@ from .config import settings
 from .intent import recognize_intent
 from .java_tools import JavaToolGateway, extract_knowledge_sources
 from .llm_client import LlmClient
+from .planner import plan_tools
 from .prompt import build_answer_prompt, fallback_answer
 from .schemas import MapAiAgentRequest, MapAiAgentResponse, MapAiContext, ToolCall, ToolResult
 
@@ -214,34 +215,7 @@ class LangGraphWorkflow:
         return {"request": request, "context_summary": summary}
 
     async def _tool_plan(self, state: AgentState) -> Dict[str, Any]:
-        request = state["request"]
-        intent = state["intent"]
-        calls: List[ToolCall] = []
-        map_context = request.mapContext
-        obj = map_context.mapObject if map_context and map_context.mapObject else {}
-        query = _build_query(request, intent)
-        context_args = _context_filter_args(map_context)
-
-        if intent == "REGION_ANALYSIS":
-            calls.append(ToolCall(toolName="gis.queryRegionSummary", args=_merge_args({"limit": 50}, _region_args(map_context)), reason="区域/框选范围统计"))
-            calls.append(ToolCall(toolName="gis.queryDiseases", args=_merge_args({"limit": 50}, _region_args(map_context)), reason="区域病害明细"))
-            calls.append(ToolCall(toolName="gis.queryAssessmentResults", args=_merge_args({"limit": 20}, context_args), reason="区域/路线评定结果辅助判断"))
-        elif intent == "ASSESSMENT_ANALYSIS":
-            calls.append(ToolCall(toolName="gis.queryAssessmentResults", args=_merge_args({"limit": 20}, _merge_args(context_args, _object_filter_args(obj))), reason="评定结果查询"))
-            if _has_stake_range(obj):
-                calls.append(ToolCall(toolName="gis.queryDiseasesByStakeRange", args=_stake_args(obj, {"limit": 50}), reason="评定单元内病害查询"))
-            else:
-                calls.append(ToolCall(toolName="gis.queryDiseases", args=_merge_args({"limit": 30}, context_args), reason="评定上下文缺少桩号时查询相关病害"))
-        elif intent in {"OBJECT_ANALYSIS", "MAINTENANCE_ADVICE"}:
-            calls.append(ToolCall(toolName="gis.queryDiseases", args=_merge_args({"limit": 30}, _merge_args(context_args, _object_filter_args(obj))), reason="当前对象病害查询"))
-            calls.append(ToolCall(toolName="gis.queryNearbyObjects", args=_merge_args({"limit": 20}, context_args), reason="周边对象辅助判断"))
-            if _has_stake_range(obj):
-                calls.append(ToolCall(toolName="gis.queryAssessmentResults", args=_stake_args(obj, {"limit": 10}), reason="对象所在单元评定结果"))
-            if intent == "MAINTENANCE_ADVICE":
-                calls.append(ToolCall(toolName="template.match", args={"intent": intent, "routeCode": context_args.get("routeCode"), "year": context_args.get("year")}, reason="方案模板匹配预检查"))
-
-        calls.append(ToolCall(toolName="knowledge.retrieve", args={"query": query, "topK": _option_int(request, "topK", 5)}, reason="知识库检索处置规则"))
-        calls = _dedupe_and_limit_calls(calls)
+        calls = plan_tools(state["request"], state["intent"], state.get("intent_detail", {}))
         self._step(state, "tool_plan", "规划只读工具", {"strategy": settings.strategy_version, "tools": [item.model_dump() for item in calls]})
         return {"tool_plan": calls}
 

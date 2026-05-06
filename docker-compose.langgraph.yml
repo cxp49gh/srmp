@@ -10,7 +10,7 @@ services:
       SRMP_JAVA_TOOL_EXECUTE_PATH: ${SRMP_JAVA_TOOL_EXECUTE_PATH:-/api/agent/tools/execute}
       SRMP_JAVA_TOOL_LIST_PATH: ${SRMP_JAVA_TOOL_LIST_PATH:-/api/agent/tools}
       SRMP_LANGGRAPH_ALLOW_WRITE_TOOLS: ${SRMP_LANGGRAPH_ALLOW_WRITE_TOOLS:-false}
-      SRMP_LANGGRAPH_ALLOWED_TOOLS: ${SRMP_LANGGRAPH_ALLOWED_TOOLS:-knowledge.retrieve,gis.queryDiseases,gis.queryAssessmentResults,gis.queryDiseasesByStakeRange,gis.queryRegionSummary,gis.queryNearbyObjects,template.match}
+      SRMP_LANGGRAPH_ALLOWED_TOOLS: ${SRMP_LANGGRAPH_ALLOWED_TOOLS:-knowledge.retrieve,gis.queryDiseases,gis.queryAssessmentResults,gis.queryDiseasesByStakeRange,gis.queryRegionSummary,gis.queryNearbyObjects,template.match,solution.generateDraft}
       SRMP_LANGGRAPH_STRATEGY_VERSION: ${SRMP_LANGGRAPH_STRATEGY_VERSION:-phase50.11-config-health-guard-v1}
       SRMP_LANGGRAPH_USE_LLM: ${SRMP_LANGGRAPH_USE_LLM:-false}
       SRMP_LLM_BASE_URL: ${SRMP_LLM_BASE_URL:-}

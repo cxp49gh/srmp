@@ -80,7 +80,7 @@ class Settings:
             "allowed_tools",
             _list_env(
                 "SRMP_LANGGRAPH_ALLOWED_TOOLS",
-                "knowledge.retrieve,gis.queryDiseases,gis.queryAssessmentResults,gis.queryDiseasesByStakeRange,gis.queryRegionSummary,gis.queryNearbyObjects,template.match",
+                "knowledge.retrieve,gis.queryDiseases,gis.queryAssessmentResults,gis.queryDiseasesByStakeRange,gis.queryRegionSummary,gis.queryNearbyObjects,template.match,solution.generateDraft",
             ),
         )
         object.__setattr__(
