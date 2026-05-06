@@ -8,9 +8,9 @@ from .config import settings
 from .answer_enhancers import enhance_answer
 from .intent import recognize_intent
 from .java_tools import JavaToolGateway, extract_knowledge_sources
-from .llm_client import LlmClient
+from .llm_client import LlmClient, LlmResult
 from .planner import plan_tools
-from .prompt import build_answer_prompt, fallback_answer
+from .prompt import build_answer_prompt, build_compact_answer_prompt, fallback_answer
 from .schemas import MapAiAgentRequest, MapAiAgentResponse, MapAiContext, ToolCall, ToolResult
 
 try:
@@ -58,6 +58,7 @@ class AgentState(TypedDict, total=False):
     tool_results: List[ToolResult]
     evidence: Dict[str, Any]
     answer: str
+    answer_meta: Dict[str, Any]
     quality: Dict[str, Any]
 
 
@@ -314,6 +315,60 @@ class LangGraphWorkflow:
         self._step(state, "evidence_fuse", "融合 GIS 与知识库证据", evidence)
         return {"evidence": evidence}
 
+    async def _call_llm(self, prompt: str) -> LlmResult:
+        if not settings.use_llm:
+            return LlmResult.skipped("SRMP_LANGGRAPH_USE_LLM=false", "DISABLED")
+        if hasattr(self.llm_client, "generate"):
+            result = await self.llm_client.generate(prompt)
+            if isinstance(result, LlmResult):
+                return result
+            if isinstance(result, dict):
+                return LlmResult(**result)
+        if hasattr(self.llm_client, "chat"):
+            try:
+                answer = await self.llm_client.chat(prompt)
+            except Exception as exc:  # noqa: BLE001
+                return LlmResult.failed("UNKNOWN", str(exc), model=settings.llm_model)
+            if answer:
+                return LlmResult.success(answer=str(answer), model=settings.llm_model)
+        return LlmResult.failed("EMPTY_RESPONSE", "LLM 返回为空", model=settings.llm_model)
+
+    def _record_llm_step(
+        self,
+        state: AgentState,
+        result: LlmResult,
+        retried: bool,
+        first_attempt: LlmResult,
+    ) -> None:
+        data = result.to_dict()
+        data["retriedWithCompactPrompt"] = retried
+        data["firstAttempt"] = first_attempt.to_dict()
+        self._step(
+            state,
+            "llm_answer",
+            "大模型回答",
+            data,
+            status=result.status,
+            count=1 if result.status == "SUCCESS" else 0,
+            error=result.errorMessage if result.status == "FAILED" else None,
+        )
+
+    def _answer_meta(self, result: LlmResult, source: str, retried: bool, fallback_reason: str = "") -> Dict[str, Any]:
+        meta = {
+            "answerSource": source,
+            "llmSuccess": result.status == "SUCCESS" and source == "LLM",
+            "llmStatus": result.status,
+            "retriedWithCompactPrompt": retried,
+            "llmModel": result.model or settings.llm_model,
+        }
+        if fallback_reason:
+            meta["fallbackReason"] = fallback_reason
+        if result.errorType:
+            meta["errorType"] = result.errorType
+        if result.errorMessage:
+            meta["errorMessage"] = result.errorMessage
+        return meta
+
     async def _answer_generate(self, state: AgentState) -> Dict[str, Any]:
         request = state["request"]
         tool_results = state.get("tool_results", [])
@@ -321,23 +376,47 @@ class LangGraphWorkflow:
         context_summary = state.get("context_summary", {})
         intent = state.get("intent", "KNOWLEDGE_QA")
 
-        answer = ""
-        if settings.use_llm:
-            try:
-                prompt = build_answer_prompt(request, intent, context_summary, tool_results, evidence)
-                answer = await self.llm_client.chat(prompt) or ""
-            except Exception as exc:  # noqa: BLE001
-                answer = ""
-                self._step(state, "answer_generate", "LLM 生成失败，使用 fallback", {"error": str(exc)})
+        prompt = build_answer_prompt(request, intent, context_summary, tool_results, evidence)
+        first_result = await self._call_llm(prompt)
+        result = first_result
+        retried = False
 
+        if (
+            settings.use_llm
+            and settings.llm_compact_retry_enabled
+            and result.status != "SUCCESS"
+            and result.errorType in {"EMPTY_RESPONSE", ""}
+        ):
+            compact_prompt = build_compact_answer_prompt(request, intent, context_summary, tool_results, evidence)
+            result = await self._call_llm(compact_prompt)
+            retried = True
+
+        self._record_llm_step(state, result, retried, first_result)
+
+        answer = result.answer if result.status == "SUCCESS" and result.answer else ""
+        answer_source = "LLM" if answer else "FALLBACK"
+        fallback_reason = ""
         if not answer:
+            fallback_reason = result.errorType or ("DISABLED" if not settings.use_llm else "EMPTY_RESPONSE")
             answer = fallback_answer(request, intent, context_summary, evidence, tool_results)
 
         sources = extract_knowledge_sources(tool_results)
         answer = enhance_answer(answer, request, intent, state.get("intent_detail", {}), tool_results, sources)
+        answer_meta = self._answer_meta(result, answer_source, retried, fallback_reason)
 
-        self._step(state, "answer_generate", "生成回答", {"useLlm": settings.use_llm, "answerLength": len(answer)})
-        return {"answer": answer}
+        self._step(
+            state,
+            "answer_generate",
+            "生成回答",
+            {
+                "useLlm": settings.use_llm,
+                "answerLength": len(answer),
+                "answerSource": answer_meta.get("answerSource"),
+                "llmSuccess": answer_meta.get("llmSuccess"),
+                "fallbackReason": answer_meta.get("fallbackReason"),
+            },
+        )
+        return {"answer": answer, "answer_meta": answer_meta}
 
     async def _quality_guard(self, state: AgentState) -> Dict[str, Any]:
         answer = state.get("answer") or ""
@@ -364,6 +443,12 @@ class LangGraphWorkflow:
                 state.get("tool_results", []),
             )
             changed.append("short_answer_fallback")
+            meta = dict(state.get("answer_meta") or {})
+            meta["answerSource"] = "FALLBACK"
+            meta["llmSuccess"] = False
+            meta["qualityFallback"] = True
+            meta["fallbackReason"] = "QUALITY_GUARD_SHORT_ANSWER"
+            state["answer_meta"] = meta
 
         if not settings.allow_write_tools and re.search(r"(已保存|已派单|已转工单|已更新|已删除|已经写入)", answer):
             answer += "\n\n注意：当前 LangGraph 编排处于只读模式，未执行保存、派单或数据库更新。"
@@ -376,7 +461,7 @@ class LangGraphWorkflow:
             "afterLength": len(answer),
         }
         self._step(state, "quality_guard", "回答质量保护", quality)
-        return {"answer": answer, "quality": quality}
+        return {"answer": answer, "quality": quality, "answer_meta": state.get("answer_meta", {})}
 
     def _to_response(self, state: AgentState) -> MapAiAgentResponse:
         tool_results = state.get("tool_results", [])
@@ -385,6 +470,7 @@ class LangGraphWorkflow:
         context_dump = request.mapContext.model_dump(exclude_none=True) if request.mapContext else None
         has_map_object = bool(request.mapContext and request.mapContext.mapObject)
         has_region = bool(request.mapContext and (request.mapContext.regionSummary or request.mapContext.geometry or str(request.mapContext.mode or "").upper() in {"BOX", "POLYGON", "REGION", "SELECTION"}))
+        answer_meta = state.get("answer_meta", {})
         return MapAiAgentResponse(
             answer=state.get("answer", ""),
             mode="LANGGRAPH_AGENT",
@@ -414,6 +500,9 @@ class LangGraphWorkflow:
                 "toolSuccessCount": sum(1 for item in tool_results if item.success),
                 "toolFailedCount": sum(1 for item in tool_results if not item.success),
                 "evidence": state.get("evidence", {}),
+                "answerMeta": answer_meta,
+                "answerSource": answer_meta.get("answerSource"),
+                "llmSuccess": answer_meta.get("llmSuccess"),
                 "quality": state.get("quality", {}),
                 "mapObjectUsed": has_map_object,
                 "mapContextUsed": bool(request.mapContext),
