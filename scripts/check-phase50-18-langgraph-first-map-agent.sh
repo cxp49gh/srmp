@@ -42,6 +42,9 @@ require_pattern "srmp-ai-orchestrator/app/main.py" "/api/srmp/langgraph/map-agen
 require_pattern "srmp-agent/src/main/java/com/smartroad/srmp/agent/mapagent/controller/MapAiAgentController.java" "/run" "Java run endpoint exists"
 require_pattern "srmp-admin/src/main/resources/application-dev.yml" "/api/srmp/langgraph/map-agent/run" "Java dev config points to Python run endpoint"
 require_pattern "docker-compose.app.yml" "/api/srmp/langgraph/map-agent/run" "Docker app config points to Python run endpoint"
+if [ -f ".env" ]; then
+  require_pattern ".env" "/api/srmp/langgraph/map-agent/run" "local Compose env file points to Python run endpoint"
+fi
 require_pattern "srmp-agent/src/main/java/com/smartroad/srmp/agent/orchestrator/AgentOrchestratorRouter.java" "orchestratorFallback.*false" "Java router disables native fallback"
 require_pattern "srmp-web-ui/src/api/agent.ts" "mapAgentRun" "Frontend mapAgentRun exists"
 require_pattern "srmp-web-ui/src/views/gis/components/AgentChatFloat.vue" "mapAgentRun" "One-map chat uses mapAgentRun"
@@ -58,6 +61,9 @@ reject_pattern "srmp-agent/src/main/java/com/smartroad/srmp/agent/mapagent" "/ch
 reject_pattern "srmp-ai-orchestrator/app" "map-agent/chat" "old Python map-agent chat endpoint removed"
 reject_pattern "srmp-admin/src/main/resources" "map-agent/chat|fallback-to-native|SRMP_AI_ORCHESTRATOR_PROVIDER|SRMP_LANGGRAPH_FALLBACK_TO_NATIVE" "runtime YAML no longer points to native or old chat"
 reject_pattern "docker-compose.app.yml" "map-agent/chat|SRMP_AI_ORCHESTRATOR_PROVIDER|SRMP_LANGGRAPH_FALLBACK_TO_NATIVE" "Docker runtime env no longer points to native or old chat"
+if [ -f ".env" ]; then
+  reject_pattern ".env" "map-agent/chat|SRMP_AI_ORCHESTRATOR_PROVIDER|SRMP_LANGGRAPH_FALLBACK_TO_NATIVE" "local Compose env file no longer points to native or old chat"
+fi
 
 srmp-ai-orchestrator/.venv/bin/python -m py_compile srmp-ai-orchestrator/app/*.py
 mvn -pl srmp-agent,srmp-gis test
