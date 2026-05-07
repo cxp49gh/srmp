@@ -9,6 +9,8 @@
         <button type="button" class="close-btn" @click="emit('update:visible', false)">×</button>
       </div>
 
+      <MapAiContextPanel :scope="contextMode" :context="props.context" :map-object="activeMapObject" />
+
       <section class="analysis-workbench" :class="contextMode.toLowerCase()">
         <div class="analysis-title-row">
           <div>
@@ -165,6 +167,9 @@
         </div>
       </div>
 
+      <MapAiActionResultPanel :result="latestActionResult" />
+      <MapAiSuggestedActions :actions="latestSuggestedActions" @run-action="runSuggestedAction" />
+
 
       <div class="input-row">
         <el-input
@@ -198,12 +203,15 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { mapAgentRun, type MapAgentRunResponse } from '../../../api/agent'
+import { mapAgentRun, type MapAgentActionResult, type MapAgentRunResponse, type MapAgentSuggestedAction } from '../../../api/agent'
 import { saveMapObjectSolutionDraft, updateSolutionTaskAiContext } from '../../../api/solution'
 import SolutionPreviewDialog from './SolutionPreviewDialog.vue'
 import AiTraceButton from '../../agent/components/AiTraceButton.vue'
 import AiTraceDrawer from '../../agent/components/AiTraceDrawer.vue'
 import AiEvidencePanel from './AiEvidencePanel.vue'
+import MapAiActionResultPanel from './map-ai/MapAiActionResultPanel.vue'
+import MapAiContextPanel from './map-ai/MapAiContextPanel.vue'
+import MapAiSuggestedActions from './map-ai/MapAiSuggestedActions.vue'
 import { copyText } from '../../../utils/clipboard'
 import { gisContextTypeLabel, sourceToMapTarget, type GisSourceMapTarget } from '../../../utils/gisUnifiedContext'
 import { formatMetricValue, getMetricGrade, getMetricMeta, getMetricValue, gradeLabel } from '../../../utils/roadConditionMetrics'
@@ -215,6 +223,8 @@ interface MessageItem {
   trace?: Record<string, any> | null
   sources?: any[]
   toolResults?: any[]
+  actionResult?: MapAgentActionResult | null
+  suggestedActions?: MapAgentSuggestedAction[]
 }
 
 type MapObjectSolutionType =
@@ -291,6 +301,14 @@ const optionSummary = computed(() => {
   if (useAgentTools.value) parts.push('Agent工具')
   return parts.length ? parts.join('、') : '未启用'
 })
+
+const latestAssistant = computed(() => {
+  const list = messages.value.filter((it) => it.role === 'assistant')
+  return list.length ? list[list.length - 1] : null
+})
+
+const latestActionResult = computed(() => latestAssistant.value?.actionResult || null)
+const latestSuggestedActions = computed(() => latestAssistant.value?.suggestedActions || [])
 
 const activeMetricMeta = computed(() => getMetricMeta(props.context?.query?.indexCode || props.context?.indexCode || 'MQI'))
 
@@ -897,6 +915,8 @@ async function send() {
       trace: payload.data?.trace || payload.trace || null,
       sources: payload.data?.sources || payload.sources || payload.data?.knowledgeHits || [],
       toolResults: payload.data?.toolResults || payload.toolResults || payload.data?.tools || [],
+      actionResult: payload.actionResult || null,
+      suggestedActions: payload.suggestedActions || [],
       meta: {
         ...meta,
         intent: payload.data?.intent || payload.intent,
@@ -919,6 +939,26 @@ async function send() {
   } finally {
     loading.value = false
   }
+}
+
+function runSuggestedAction(action: MapAgentSuggestedAction) {
+  if (action.action === 'GENERATE_REGION_SOLUTION') {
+    emit('generate-region')
+    return
+  }
+  if (action.action === 'GENERATE_ROUTE_REPORT') {
+    generateSolutionDraft('ROUTE_REPORT')
+    return
+  }
+  if (action.action === 'GENERATE_OBJECT_SOLUTION') {
+    generateDefaultSolutionDraft()
+    return
+  }
+  if (action.action === 'SAVE_SOLUTION_DRAFT') {
+    saveSolutionDraft()
+    return
+  }
+  input.value = action.label || action.action
 }
 
 function normalizeResponse(res: any) {
