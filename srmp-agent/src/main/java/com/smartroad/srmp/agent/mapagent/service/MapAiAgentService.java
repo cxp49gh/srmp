@@ -1,8 +1,8 @@
 package com.smartroad.srmp.agent.mapagent.service;
 
-import com.smartroad.srmp.agent.mapagent.dto.MapAiAgentRequest;
-import com.smartroad.srmp.agent.mapagent.dto.MapAiAgentResponse;
+import com.smartroad.srmp.agent.mapagent.dto.MapAgentRunRequest;
+import com.smartroad.srmp.agent.mapagent.dto.MapAgentRunResponse;
 
 public interface MapAiAgentService {
-    MapAiAgentResponse chat(MapAiAgentRequest request);
+    MapAgentRunResponse run(MapAgentRunRequest request);
 }

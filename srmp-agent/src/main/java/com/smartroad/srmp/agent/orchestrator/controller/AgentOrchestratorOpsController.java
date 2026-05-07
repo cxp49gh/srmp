@@ -1,9 +1,8 @@
 package com.smartroad.srmp.agent.orchestrator.controller;
 
-import com.smartroad.srmp.agent.mapagent.dto.MapAiAgentRequest;
-import com.smartroad.srmp.agent.mapagent.dto.MapAiAgentResponse;
+import com.smartroad.srmp.agent.mapagent.dto.MapAgentRunRequest;
+import com.smartroad.srmp.agent.mapagent.dto.MapAgentRunResponse;
 import com.smartroad.srmp.agent.mapagent.dto.MapAiContext;
-import com.smartroad.srmp.agent.orchestrator.AgentOrchestrator;
 import com.smartroad.srmp.agent.orchestrator.AgentOrchestratorProperties;
 import com.smartroad.srmp.agent.orchestrator.AgentOrchestratorRouter;
 import com.smartroad.srmp.agent.tool.AiToolRegistry;
@@ -26,9 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.Resource;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -36,7 +33,7 @@ import java.util.UUID;
  * Phase50.9：LangGraph 编排观测与灰度控制台接口。
  *
  * 目标：不用直接登录 Python 容器，也能从 Java 后端看到当前编排配置、
- * LangGraph Runtime 最近调用、失败/回退情况，并触发一条只读 smoke 请求。
+ * LangGraph Runtime 最近调用、失败情况，并触发一条只读 smoke 请求。
  */
 @RestController
 @RequestMapping("/api/agent/orchestrator/ops")
@@ -44,9 +41,6 @@ public class AgentOrchestratorOpsController {
 
     @Resource
     private AgentOrchestratorProperties properties;
-
-    @Resource
-    private List<AgentOrchestrator> orchestrators;
 
     @Resource
     private AiToolRegistry aiToolRegistry;
@@ -58,10 +52,9 @@ public class AgentOrchestratorOpsController {
     public R<Map<String, Object>> summary(@RequestParam(value = "recentLimit", required = false, defaultValue = "10") Integer recentLimit) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("status", "UP");
-        data.put("provider", properties.getProvider());
-        data.put("fallbackToNative", properties.getFallbackToNative());
+        data.put("provider", "langgraph");
         data.put("allowWriteTools", properties.getAllowWriteTools());
-        data.put("availableProviders", providerNames());
+        data.put("availableProviders", java.util.Collections.singletonList("langgraph"));
         data.put("localToolCount", aiToolRegistry.list().size());
         data.put("langgraphUrl", properties.getLanggraphUrl());
         data.put("langgraphEndpointPath", properties.getLanggraphEndpointPath());
@@ -85,7 +78,8 @@ public class AgentOrchestratorOpsController {
 
     @PostMapping("/smoke")
     public R<Map<String, Object>> smoke(@RequestBody(required = false) Map<String, Object> body) {
-        MapAiAgentRequest request = new MapAiAgentRequest();
+        MapAgentRunRequest request = new MapAgentRunRequest();
+        request.setAction("CHAT");
         request.setMessage(stringValue(body, "message", "Phase50.9 LangGraph 编排 smoke：请基于 G210 和知识库给出道路养护建议摘要"));
 
         MapAiContext context = new MapAiContext();
@@ -103,7 +97,7 @@ public class AgentOrchestratorOpsController {
         request.setOptions(options);
 
         long start = System.currentTimeMillis();
-        MapAiAgentResponse response = router.chat(request);
+        MapAgentRunResponse response = router.run(request);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("costMs", System.currentTimeMillis() - start);
         result.put("request", request);
@@ -176,18 +170,6 @@ public class AgentOrchestratorOpsController {
     public R<Object> replay(@PathVariable("recordId") String recordId,
                             @RequestParam(value = "execute", required = false, defaultValue = "false") Boolean execute) {
         return R.ok(remotePost("/api/srmp/langgraph/debug/replay/" + recordId + "?execute=" + Boolean.TRUE.equals(execute), new LinkedHashMap<String, Object>()));
-    }
-
-    private List<String> providerNames() {
-        List<String> list = new ArrayList<>();
-        if (orchestrators != null) {
-            for (AgentOrchestrator orchestrator : orchestrators) {
-                if (orchestrator != null && orchestrator.provider() != null) {
-                    list.add(orchestrator.provider());
-                }
-            }
-        }
-        return list;
     }
 
     @GetMapping("/config")
