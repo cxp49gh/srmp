@@ -1,6 +1,8 @@
 package com.smartroad.srmp.agent.orchestrator.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartroad.srmp.agent.mapagent.dto.MapAgentRunRequest;
+import com.smartroad.srmp.agent.mapagent.dto.MapAgentRunResponse;
 import com.smartroad.srmp.agent.mapagent.dto.MapAiAgentRequest;
 import com.smartroad.srmp.agent.mapagent.dto.MapAiAgentResponse;
 import com.smartroad.srmp.agent.mapagent.dto.MapAiContext;
@@ -74,6 +76,34 @@ public class RemoteLangGraphOrchestrator implements AgentOrchestrator {
         return response;
     }
 
+    public MapAgentRunResponse run(MapAgentRunRequest request) {
+        MapAgentRunRequest safeRequest = request == null ? new MapAgentRunRequest() : request;
+        String url = buildUrl(properties.getLanggraphUrl(), properties.getLanggraphEndpointPath());
+        RestTemplate restTemplate = buildRestTemplate(defaultInt(properties.getConnectTimeoutMs(), 10000),
+                defaultInt(properties.getReadTimeoutMs(), 300000));
+
+        String tenantId = resolveTenantId(safeRequest);
+        String traceId = resolveTraceId(safeRequest);
+        HttpHeaders headers = buildHeaders(tenantId, traceId);
+        HttpEntity<MapAgentRunRequest> httpEntity = new HttpEntity<>(safeRequest, headers);
+
+        long start = System.currentTimeMillis();
+        ResponseEntity<Map> entity = restTemplate.exchange(url, HttpMethod.POST, httpEntity, Map.class);
+        if (!entity.getStatusCode().is2xxSuccessful()) {
+            throw new IllegalStateException("LangGraph 编排服务 HTTP 状态异常：" + entity.getStatusCodeValue());
+        }
+
+        Map body = entity.getBody();
+        if (body == null) {
+            throw new IllegalStateException("LangGraph 编排服务返回为空");
+        }
+
+        Object responseBody = unwrapResponseBody(body);
+        MapAgentRunResponse response = objectMapper.convertValue(responseBody, MapAgentRunResponse.class);
+        normalizeRunResponse(response, url, tenantId, traceId, System.currentTimeMillis() - start);
+        return response;
+    }
+
     private Object unwrapResponseBody(Map body) {
         if (body.containsKey("data") && (body.containsKey("code") || body.containsKey("message"))) {
             Object code = body.get("code");
@@ -129,6 +159,35 @@ public class RemoteLangGraphOrchestrator implements AgentOrchestrator {
         trace.put("remoteCostMs", costMs);
     }
 
+    private void normalizeRunResponse(MapAgentRunResponse response, String url, String tenantId, String traceId, long costMs) {
+        if (response == null) {
+            throw new IllegalStateException("LangGraph 编排服务响应无法转换为 MapAgentRunResponse");
+        }
+        if (isBlank(response.getAnswer())) {
+            response.setAnswer("LangGraph 未返回回答正文，请查看 AI 执行过程。");
+        }
+        if (isBlank(response.getMode())) {
+            response.setMode("LANGGRAPH_MAP_AGENT");
+        }
+        if (response.getData() == null) {
+            response.setData(new LinkedHashMap<String, Object>());
+        }
+        response.getData().put("orchestratorProvider", "langgraph");
+        response.getData().put("orchestratorFallback", false);
+        response.getData().put("remoteLangGraphUrl", url);
+        response.getData().put("remoteCostMs", costMs);
+        response.getData().put("tenantId", tenantId);
+        response.getData().put("traceId", traceId);
+        if (response.getTrace() == null) {
+            response.setTrace(new LinkedHashMap<String, Object>());
+        }
+        response.getTrace().put("traceId", traceId);
+        response.getTrace().put("mode", response.getMode());
+        response.getTrace().put("orchestratorProvider", "langgraph");
+        response.getTrace().put("orchestratorFallback", false);
+        response.getTrace().put("remoteCostMs", costMs);
+    }
+
     private HttpHeaders buildHeaders(String tenantId, String traceId) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -166,6 +225,25 @@ public class RemoteLangGraphOrchestrator implements AgentOrchestrator {
             }
         }
         return "lg-" + UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private String resolveTenantId(MapAgentRunRequest request) {
+        MapAiContext context = request.getMapContext();
+        String tenantId = context == null ? null : context.getTenantId();
+        if (isBlank(tenantId)) {
+            tenantId = TenantContextHolder.getTenantId();
+        }
+        return isBlank(tenantId) ? "default" : tenantId.trim();
+    }
+
+    private String resolveTraceId(MapAgentRunRequest request) {
+        if (request.getOptions() != null) {
+            Object optionTraceId = request.getOptions().get("traceId");
+            if (optionTraceId != null && !isBlank(String.valueOf(optionTraceId))) {
+                return String.valueOf(optionTraceId).trim();
+            }
+        }
+        return "java-lg-" + UUID.randomUUID().toString().replace("-", "");
     }
 
     private String buildUrl(String baseUrl, String path) {
