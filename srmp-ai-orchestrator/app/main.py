@@ -445,35 +445,3 @@ async def map_agent_run(
         )
         raise
 
-
-@app.post("/api/srmp/langgraph/map-agent/chat")
-async def map_agent_chat(
-    request: MapAiAgentRequest,
-    x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id"),
-    x_ai_trace_id: Optional[str] = Header(default=None, alias="X-AI-Trace-Id"),
-) -> MapAiAgentResponse:
-    started_at = time.perf_counter()
-    try:
-        response = await workflow.run(request=request, tenant_id=x_tenant_id, trace_id=x_ai_trace_id)
-        cost_ms = int((time.perf_counter() - started_at) * 1000)
-        audit_record = runtime_audit_store.record_success(
-            request=request,
-            response=response,
-            tenant_id=x_tenant_id,
-            trace_id=x_ai_trace_id,
-            cost_ms=cost_ms,
-        )
-        response.data.setdefault("runtimeAuditId", audit_record.get("id"))
-        response.data.setdefault("runtimeCostMs", cost_ms)
-        response.trace.setdefault("runtimeAuditId", audit_record.get("id"))
-        return response
-    except Exception as exc:  # noqa: BLE001
-        cost_ms = int((time.perf_counter() - started_at) * 1000)
-        runtime_audit_store.record_failure(
-            request=request,
-            tenant_id=x_tenant_id,
-            trace_id=x_ai_trace_id,
-            cost_ms=cost_ms,
-            error=exc,
-        )
-        raise
