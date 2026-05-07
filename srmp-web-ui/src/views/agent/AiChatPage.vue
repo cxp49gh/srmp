@@ -111,7 +111,7 @@ import { ref } from 'vue'
 import AgentPageShell from './components/AgentPageShell.vue'
 import AiTraceButton from './components/AiTraceButton.vue'
 import AiTraceDrawer from './components/AiTraceDrawer.vue'
-import { chat } from '../../api/agent'
+import { mapAgentRun } from '../../api/agent'
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -157,24 +157,33 @@ async function send() {
   loading.value = true
 
   try {
-    const result = await chat({
+    const result = await mapAgentRun({
+      action: 'CHAT',
       message: text,
-      context: context.value,
+      mapContext: {
+        mode: 'ROUTE',
+        routeCode: context.value.routeCode,
+        year: Number(context.value.year),
+        extra: {
+          indexCode: context.value.indexCode
+        }
+      },
       options: options.value
     })
 
     const data = result?.data || {}
-    const sources = data.sources || data.knowledgeSources || result?.sources || []
+    const actionResult = (result?.actionResult || {}) as Record<string, any>
+    const sources = result?.sources || result?.knowledgeSources || data.sources || data.knowledgeSources || []
     messages.value.push({
       role: 'assistant',
-      content: result?.answer || data.answer || JSON.stringify(result),
-      trace: data.trace || result?.trace || null,
-      answerMeta: data.answerMeta || result?.answerMeta || null,
-      toolResults: data.toolResults || result?.toolResults || [],
+      content: result?.answer || actionResult.markdown || JSON.stringify(result),
+      trace: result?.trace || data.trace || null,
+      answerMeta: result?.answerMeta || data.answerMeta || null,
+      toolResults: result?.toolResults || data.toolResults || [],
       sources
     })
 
-    knowledgeSources.value = data.knowledgeSources || data.sources || []
+    knowledgeSources.value = result?.knowledgeSources || result?.sources || data.knowledgeSources || data.sources || []
     outlineSources.value = data.outlineSources || []
   } catch (error: any) {
     messages.value.push({

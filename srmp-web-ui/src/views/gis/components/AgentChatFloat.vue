@@ -198,13 +198,7 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import {
-  chat,
-  mapAgentChat,
-  generateMapObjectSolution,
-  type MapObjectSolutionResponse,
-  type MapObjectSolutionType
-} from '../../../api/agent'
+import { mapAgentRun, type MapAgentRunResponse } from '../../../api/agent'
 import { saveMapObjectSolutionDraft, updateSolutionTaskAiContext } from '../../../api/solution'
 import SolutionPreviewDialog from './SolutionPreviewDialog.vue'
 import AiTraceButton from '../../agent/components/AiTraceButton.vue'
@@ -221,6 +215,26 @@ interface MessageItem {
   trace?: Record<string, any> | null
   sources?: any[]
   toolResults?: any[]
+}
+
+type MapObjectSolutionType =
+  | 'DISEASE_REVIEW'
+  | 'DISEASE_TREATMENT'
+  | 'LOW_SCORE_TREATMENT'
+  | 'EVALUATION_UNIT_ADVICE'
+  | 'SECTION_PLAN'
+  | 'ROUTE_REPORT'
+  | 'GENERAL_ADVICE'
+
+type PreviewSolution = MapAgentRunResponse & {
+  solutionType?: string
+  title?: string
+  markdown?: string
+  objectSummary?: Record<string, any>
+  regionSummary?: Record<string, any>
+  qualityCheck?: Record<string, any>
+  templateMeta?: Record<string, any>
+  sourceSummaries?: Record<string, any>[]
 }
 
 const props = defineProps<{
@@ -253,7 +267,7 @@ const sourceSummary = ref('')
 const solutionLoading = ref(false)
 const activeSolutionType = ref<MapObjectSolutionType | ''>('')
 const solutionDialogVisible = ref(false)
-const solutionResult = ref<MapObjectSolutionResponse | null>(null)
+const solutionResult = ref<PreviewSolution | null>(null)
 const solutionSaveLoading = ref(false)
 const savedSolutionTask = ref<Record<string, any> | null>(null)
 const traceDrawerVisible = ref(false)
@@ -743,14 +757,19 @@ async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
 
   try {
     savedSolutionTask.value = null
-    const res = await generateMapObjectSolution({
-      objectType: normalizeObjectType(obj),
-      objectId: String(obj.objectId || obj.object_id || obj.id || obj.featureId || ''),
-      routeCode: String(obj.routeCode || obj.route_code || query.routeCode || ''),
-      year: normalizeYear(obj.year || query.year),
-      solutionType,
-      mapObject: obj,
-      options: { ...options }
+    const res = await mapAgentRun({
+      action: solutionType === 'ROUTE_REPORT' ? 'GENERATE_ROUTE_REPORT' : 'GENERATE_OBJECT_SOLUTION',
+      message: '生成当前对象的结构化养护建议',
+      mapContext: buildMapAiContext('生成当前对象的结构化养护建议'),
+      actionInput: {
+        objectType: normalizeObjectType(obj),
+        objectId: String(obj.objectId || obj.object_id || obj.id || obj.featureId || ''),
+        routeCode: String(obj.routeCode || obj.route_code || query.routeCode || ''),
+        year: normalizeYear(obj.year || query.year),
+        solutionType,
+        mapObject: obj
+      },
+      options: { ...options, requireAi: true }
     })
     solutionResult.value = normalizeSolutionResponse(res)
     solutionDialogVisible.value = true
@@ -804,8 +823,8 @@ async function saveSolutionDraft() {
     }
     const assistantMessage = latestAssistantMessage()
     savedSolutionTask.value = await saveMapObjectSolutionDraft({
-      solutionType: solution.solutionType,
-      title: solution.title,
+      solutionType: solution.solutionType || activeSolutionType.value || 'GENERAL_ADVICE',
+      title: solution.title || '方案草稿',
       markdown: solution.markdown,
       routeCode: String(obj.routeCode || obj.route_code || query.routeCode || ''),
       year: normalizeYear(obj.year || query.year),
@@ -854,19 +873,15 @@ async function send() {
   loading.value = true
 
   try {
-    const requestPayload = {
+    const res: any = await mapAgentRun({
+      action: contextMode.value === 'REGION' ? 'ANALYZE_REGION' : contextMode.value === 'OBJECT' ? 'ANALYZE_OBJECT' : 'CHAT',
       message: text,
-      context: props.context,
-      mapObject: activeMapObject.value,
+      mapContext: buildMapAiContext(text),
+      actionInput: {
+        mapObject: activeMapObject.value
+      },
       options: { ...options, useTools: useAgentTools.value }
-    }
-
-    const res: any = useAgentTools.value
-      ? await mapAgentChat({
-          ...requestPayload,
-          mapContext: buildMapAiContext(text)
-        })
-      : await chat(requestPayload)
+    })
 
     const payload = normalizeResponse(res)
     const answer = String(payload.answer || payload.data?.answer || '未返回内容')
@@ -907,14 +922,30 @@ async function send() {
 }
 
 function normalizeResponse(res: any) {
-  if (res?.answer || res?.data?.answerMeta || res?.data?.mapObjectUsed) return res
+  if (res?.answer || res?.answerMeta || res?.actionResult) {
+    return { ...res, data: { ...(res.data || {}), answerMeta: res.answerMeta, toolResults: res.toolResults, sources: res.sources, trace: res.trace, intent: res.intent } }
+  }
   if (res?.data?.answer || res?.data?.data) return res.data
   return res || {}
 }
 
-function normalizeSolutionResponse(res: any): MapObjectSolutionResponse {
-  if (res?.data?.markdown) return res.data
-  return res
+function normalizeSolutionResponse(res: MapAgentRunResponse): PreviewSolution {
+  const actionResult = (res.actionResult || {}) as Record<string, any>
+  return {
+    ...res,
+    solutionType: String((res.action === 'GENERATE_ROUTE_REPORT' ? 'ROUTE_REPORT' : (res as any).solutionType) || activeSolutionType.value || res.action || ''),
+    title: actionResult.title || '方案草稿',
+    markdown: actionResult.markdown || res.answer || '',
+    objectSummary: actionResult.objectSummary || {},
+    regionSummary: actionResult.regionSummary || {},
+    qualityCheck: actionResult.qualityCheck || {},
+    templateMeta: actionResult.templateMeta || {},
+    sourceSummaries: res.sources || res.knowledgeSources || [],
+    trace: res.trace,
+    answerMeta: res.answerMeta,
+    toolResults: res.toolResults || [],
+    sources: res.sources || res.knowledgeSources || []
+  } as PreviewSolution
 }
 
 function normalizeYear(value: any) {

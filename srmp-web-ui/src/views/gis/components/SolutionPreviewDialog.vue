@@ -92,13 +92,24 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import type { MapObjectSolutionResponse } from '../../../api/agent'
-import type { MapRegionSolutionResponse } from '../../../api/gis'
 import AiTraceButton from '../../agent/components/AiTraceButton.vue'
 import AiTraceDrawer from '../../agent/components/AiTraceDrawer.vue'
 import TemplateMetaCard from '../../agent/components/TemplateMetaCard.vue'
 
-type PreviewSolution = MapObjectSolutionResponse | MapRegionSolutionResponse
+type PreviewSolution = {
+  solutionType?: string
+  title?: string
+  markdown?: string
+  objectSummary?: Record<string, any>
+  regionSummary?: Record<string, any>
+  qualityCheck?: Record<string, any>
+  templateMeta?: Record<string, any>
+  answerMeta?: Record<string, any>
+  toolResults?: Record<string, any>[]
+  sources?: Record<string, any>[]
+  knowledgeSources?: Record<string, any>[]
+  trace?: Record<string, any>
+}
 
 const props = defineProps<{
   visible: boolean

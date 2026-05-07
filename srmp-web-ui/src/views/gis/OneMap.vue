@@ -105,7 +105,6 @@ import { Loading } from '@element-plus/icons-vue'
 import MapToolbar from './components/MapToolbar.vue'
 import {
   analyzeMapRegion,
-  generateMapRegionSolution,
   getAssessmentResults,
   getDiseases,
   getEvaluationUnits,
@@ -114,9 +113,9 @@ import {
   getRoadRoutes,
   getRoadSections,
   saveMapRegionSolutionDraft,
-  type GisLayerQuery,
-  type MapRegionSolutionResponse
+  type GisLayerQuery
 } from '../../api/gis'
+import { mapAgentRun } from '../../api/agent'
 import { layerStyle } from '../../utils/leafletStyle'
 import { getMetricGrade, getMetricMeta, getMetricValue } from '../../utils/roadConditionMetrics'
 import type { GeoJsonFeatureCollection } from '../../types/geojson'
@@ -127,6 +126,21 @@ import LegendPanel from './components/LegendPanel.vue'
 import SolutionPreviewDialog from './components/SolutionPreviewDialog.vue'
 import AiTraceDrawer from '../agent/components/AiTraceDrawer.vue'
 import { buildRegionUnifiedContext, buildUnifiedAnalysisTargets, sourceToMapTarget, type GisSourceMapTarget } from '../../utils/gisUnifiedContext'
+
+type MapRegionSolutionResponse = {
+  solutionType: string
+  title: string
+  markdown: string
+  regionSummary?: Record<string, any>
+  qualityCheck?: Record<string, any>
+  templateMeta?: Record<string, any>
+  answerMeta?: Record<string, any>
+  sourceSummaries?: Record<string, any>[]
+  trace?: Record<string, any>
+  toolResults?: Record<string, any>[]
+  sources?: Record<string, any>[]
+  knowledgeSources?: Record<string, any>[]
+}
 
 const query = reactive<GisLayerQuery>({
   routeCode: 'G210',
@@ -1182,21 +1196,44 @@ async function generateRegionSolution() {
   contextScope.value = 'REGION'
   regionLoading.value = true
   try {
-    const result = unwrapApiPayload(await generateMapRegionSolution({
-      solutionType: 'REGION_MAINTENANCE_SUGGESTION',
-      geometry: regionGeometry.value,
-      query: { ...query, indexCode: query.indexCode, grade: query.grade },
-      layers: activeLayerNames(),
+    const result = unwrapApiPayload(await mapAgentRun({
+      action: 'GENERATE_REGION_SOLUTION',
+      message: '生成框选区域养护建议',
+      mapContext: {
+        tenantId: 'default',
+        mode: 'REGION',
+        routeCode: query.routeCode,
+        year: Number(query.year),
+        geometry: regionGeometry.value,
+        regionSummary: regionSummary.value || undefined,
+        selectedLayers: activeLayerNames(),
+        extra: {
+          indexCode: query.indexCode,
+          grade: query.grade,
+          geometryType: regionGeometryType.value
+        }
+      },
+      actionInput: {
+        solutionType: 'REGION_MAINTENANCE_SUGGESTION'
+      },
       options: { useBusinessData: true, useKnowledge: true, useOutline: false, topK: 5, requireAi: true, indexCode: query.indexCode, grade: query.grade }
-    })) as MapRegionSolutionResponse
+    })) as any
+    const actionResult = result.actionResult || {}
     regionSolution.value = {
-      ...result,
-      answerMeta: result.answerMeta || (result as any).data?.answerMeta || null,
-      toolResults: (result as any).toolResults || (result as any).data?.toolResults || [],
-      sources: (result as any).sources || (result as any).knowledgeSources || (result as any).data?.sources || []
+      solutionType: String(result.action || 'GENERATE_REGION_SOLUTION'),
+      title: actionResult.title || '区域养护建议',
+      markdown: actionResult.markdown || result.answer || '',
+      regionSummary: actionResult.regionSummary || regionSummary.value || {},
+      qualityCheck: actionResult.qualityCheck || {},
+      templateMeta: actionResult.templateMeta || {},
+      answerMeta: result.answerMeta || {},
+      toolResults: result.toolResults || [],
+      sources: result.sources || result.knowledgeSources || [],
+      sourceSummaries: result.sources || result.knowledgeSources || [],
+      trace: result.trace || {}
     } as MapRegionSolutionResponse
-    if (result.regionSummary) {
-      regionSummary.value = normalizeRegionSummary(result.regionSummary, regionGeometry.value)
+    if (actionResult.regionSummary) {
+      regionSummary.value = normalizeRegionSummary(actionResult.regionSummary, regionGeometry.value)
     }
     regionSavedTask.value = null
     regionPreviewVisible.value = true
