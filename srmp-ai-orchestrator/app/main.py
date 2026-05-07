@@ -8,8 +8,9 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from .config import settings
 from .java_tools import JavaToolGateway
 from .llm_client import LlmClient
+from .map_agent_run import MapAgentRunWorkflow
 from .observability import runtime_audit_store
-from .schemas import MapAiAgentRequest, MapAiAgentResponse, ToolCall
+from .schemas import MapAgentRunRequest, MapAgentRunResponse, MapAiAgentRequest, MapAiAgentResponse, ToolCall
 from .workflow import LANGGRAPH_AVAILABLE, LangGraphWorkflow, strategy_metadata
 
 APP_VERSION = "50.11.0"
@@ -18,6 +19,7 @@ app = FastAPI(title="SRMP LangGraph Orchestrator", version=APP_VERSION)
 
 gateway = JavaToolGateway()
 workflow = LangGraphWorkflow(gateway=gateway, llm_client=LlmClient())
+map_agent_run_workflow = MapAgentRunWorkflow(base_workflow=workflow, gateway=gateway)
 
 
 def _safe_runtime_config() -> dict:
@@ -409,6 +411,39 @@ async def debug_replay(
 @app.get("/api/srmp/langgraph/tools")
 async def list_tools(x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id")) -> dict:
     return await gateway.list_tools(tenant_id=x_tenant_id)
+
+
+@app.post("/api/srmp/langgraph/map-agent/run")
+async def map_agent_run(
+    request: MapAgentRunRequest,
+    x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id"),
+    x_ai_trace_id: Optional[str] = Header(default=None, alias="X-AI-Trace-Id"),
+) -> MapAgentRunResponse:
+    started_at = time.perf_counter()
+    try:
+        response = await map_agent_run_workflow.run(request=request, tenant_id=x_tenant_id, trace_id=x_ai_trace_id)
+        cost_ms = int((time.perf_counter() - started_at) * 1000)
+        audit_record = runtime_audit_store.record_success(
+            request=request,
+            response=response,
+            tenant_id=x_tenant_id,
+            trace_id=x_ai_trace_id,
+            cost_ms=cost_ms,
+        )
+        response.data.setdefault("runtimeAuditId", audit_record.get("id"))
+        response.data.setdefault("runtimeCostMs", cost_ms)
+        response.trace.setdefault("runtimeAuditId", audit_record.get("id"))
+        return response
+    except Exception as exc:  # noqa: BLE001
+        cost_ms = int((time.perf_counter() - started_at) * 1000)
+        runtime_audit_store.record_failure(
+            request=request,
+            tenant_id=x_tenant_id,
+            trace_id=x_ai_trace_id,
+            cost_ms=cost_ms,
+            error=exc,
+        )
+        raise
 
 
 @app.post("/api/srmp/langgraph/map-agent/chat")
