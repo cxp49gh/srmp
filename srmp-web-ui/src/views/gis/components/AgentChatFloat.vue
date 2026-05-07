@@ -282,6 +282,7 @@ const solutionSaveLoading = ref(false)
 const savedSolutionTask = ref<Record<string, any> | null>(null)
 const traceDrawerVisible = ref(false)
 const activeExecution = ref<Record<string, any> | null>(null)
+const autoQuestionInFlight = ref(false)
 const useAgentTools = ref(true)
 const showToolsPanel = ref(false)
 const showQuickPanel = ref(false)
@@ -644,17 +645,26 @@ const contextText = computed(() => {
 })
 
 watch(
-  () => props.autoQuestion,
-  async (question) => {
-    const text = String(question || '').trim()
-    if (!props.visible || !text || loading.value) return
+  [() => props.autoQuestion, () => props.visible, loading],
+  () => {
+    void consumeAutoQuestionWhenReady()
+  },
+  { immediate: true }
+)
+
+async function consumeAutoQuestionWhenReady() {
+  const text = String(props.autoQuestion || '').trim()
+  if (autoQuestionInFlight.value || !props.visible || !text || loading.value) return
+  autoQuestionInFlight.value = true
+  try {
     input.value = text
     await nextTick()
     await send()
     emit('auto-question-consumed')
-  },
-  { immediate: true }
-)
+  } finally {
+    autoQuestionInFlight.value = false
+  }
+}
 
 function quickAsk(text: string) {
   input.value = text

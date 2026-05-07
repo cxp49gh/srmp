@@ -126,6 +126,7 @@ import LegendPanel from './components/LegendPanel.vue'
 import SolutionPreviewDialog from './components/SolutionPreviewDialog.vue'
 import AiTraceDrawer from '../agent/components/AiTraceDrawer.vue'
 import { buildRegionUnifiedContext, buildUnifiedAnalysisTargets, sourceToMapTarget, type GisSourceMapTarget } from '../../utils/gisUnifiedContext'
+import { createLatestRequestGuard } from '../../utils/latestRequestGuard'
 
 type MapRegionSolutionResponse = {
   solutionType: string
@@ -199,6 +200,9 @@ let aiSourceHighlightLayer: L.Layer | null = null
 let rectangleStart: L.LatLng | null = null
 let regionSummaryRequestSeq = 0
 let layerChangeTimer: ReturnType<typeof window.setTimeout> | null = null
+let mapDisposed = false
+const objectDetailRequestGuard = createLatestRequestGuard()
+const regionSolutionRequestGuard = createLatestRequestGuard()
 
 const regionFinalStyle = { color: '#0284c7', weight: 3, fillColor: '#38bdf8', fillOpacity: 0.16 }
 const regionPreviewStyle = { color: '#2563eb', weight: 2, dashArray: '6 5', fillColor: '#7dd3fc', fillOpacity: 0.1 }
@@ -311,6 +315,7 @@ const agentContext = computed(() => ({
 }))
 
 onMounted(async () => {
+  mapDisposed = false
   map = L.map('map', {
     center: [26.65, 106.63],
     zoom: 11,
@@ -345,11 +350,27 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  mapDisposed = true
+  objectDetailRequestGuard.invalidate()
+  regionSolutionRequestGuard.invalidate()
+  regionSummaryRequestSeq += 1
+  regionLoading.value = false
+  regionSummaryLoading.value = false
   window.removeEventListener('keydown', handleRegionKeydown)
   if (layerChangeTimer) {
     window.clearTimeout(layerChangeTimer)
     layerChangeTimer = null
   }
+  if (map) {
+    map.off()
+    map.remove()
+  }
+  layerMap.clear()
+  selectedLayer = null
+  regionLayer = null
+  regionPreviewLayer = null
+  aiSourceHighlightLayer = null
+  rectangleStart = null
 })
 
 function isBlankQueryValue(value: any) {
@@ -423,7 +444,7 @@ function restoreViewSnapshot(snapshot: ViewSnapshot | null) {
 }
 
 async function reloadLayers(options: ReloadLayerOptions = {}) {
-  if (!map) return
+  if (!map || mapDisposed) return
   const snapshot = options.preserveViewport ? captureViewSnapshot() : null
   loading.value = true
   mapLoadingMask.value = Boolean(options.mask)
@@ -454,7 +475,7 @@ async function reloadLayers(options: ReloadLayerOptions = {}) {
 }
 
 async function syncVisibleLayers() {
-  if (!map) return
+  if (!map || mapDisposed) return
   loading.value = true
   mapLoadingMask.value = false
   try {
@@ -505,6 +526,7 @@ function clearLayers(options: { clearSelection?: boolean } = {}) {
   selectedLayer = null
   clearAiSourceHighlight()
   if (options.clearSelection !== false) {
+    objectDetailRequestGuard.invalidate()
     selectedDetail.value = null
     selectedFeatureProperties.value = null
     contextScope.value = regionGeometry.value ? 'REGION' : 'ROUTE'
@@ -558,6 +580,7 @@ async function settleLayerTasks(tasks: Promise<void>[], actionName: string) {
 
 async function loadLayer(layerKey: string, loader: () => Promise<GeoJsonFeatureCollection>) {
   const collection: any = await loader()
+  if (mapDisposed) return
   layerCounts[layerKey] = Array.isArray(collection?.features) ? collection.features.length : 0
   if (!collection || !collection.features || collection.features.length === 0) return
 
@@ -592,8 +615,8 @@ async function handleFeatureClick(layerKey: string, feature: any, layer: L.Layer
   highlightLayer(layer)
   openFeaturePopup(layer, properties)
 
-  await loadObjectDetail(properties)
-  if (selectedDetail.value) openFeaturePopup(layer, selectedDetail.value)
+  const detailApplied = await loadObjectDetail(properties)
+  if (detailApplied && selectedDetail.value) openFeaturePopup(layer, selectedDetail.value)
 }
 
 function normalizeFeatureProperties(layerKey: string, feature: any) {
@@ -848,18 +871,22 @@ function layerKeyToObjectType(layerKey: string) {
 }
 
 async function loadObjectDetail(properties: Record<string, any>) {
+  const requestToken = objectDetailRequestGuard.next()
+  if (mapDisposed) return false
   const objectType = normalizeObjectType(
     firstValue(properties.objectType, properties.object_type, properties.type, properties.layerType)
   )
   const id = firstValue(properties.objectId, properties.object_id, properties.id)
 
   if (!objectType || !id) {
+    if (!objectDetailRequestGuard.isCurrent(requestToken)) return false
     selectedDetail.value = { ...properties, objectType, objectId: id, id }
-    return
+    return true
   }
 
   try {
     const detail = await getObjectDetail({ objectType, id })
+    if (!objectDetailRequestGuard.isCurrent(requestToken)) return false
     selectedDetail.value = {
       ...properties,
       ...(detail || {}),
@@ -867,17 +894,21 @@ async function loadObjectDetail(properties: Record<string, any>) {
       objectId: id,
       id
     }
+    return true
   } catch {
+    if (!objectDetailRequestGuard.isCurrent(requestToken)) return false
     selectedDetail.value = {
       ...properties,
       objectType,
       objectId: id,
       id
     }
+    return true
   }
 }
 
 function clearSelection() {
+  objectDetailRequestGuard.invalidate()
   if (map) map.closePopup()
   selectedDetail.value = null
   selectedFeatureProperties.value = null
@@ -936,6 +967,7 @@ function startRegionDraw(mode: 'RECTANGLE' | 'POLYGON') {
   clearRegion()
   regionMode.value = mode
   regionGeometryType.value = mode
+  objectDetailRequestGuard.invalidate()
   selectedDetail.value = null
   selectedFeatureProperties.value = null
   polygonPoints.value = []
@@ -955,6 +987,7 @@ function startRegionDraw(mode: 'RECTANGLE' | 'POLYGON') {
 
 function clearRegion() {
   regionSummaryRequestSeq += 1
+  regionSolutionRequestGuard.invalidate()
   if (regionLayer && map) {
     map.removeLayer(regionLayer)
     regionLayer = null
@@ -968,6 +1001,7 @@ function clearRegion() {
   regionGeometry.value = null
   regionSummary.value = null
   regionSolution.value = null
+  regionLoading.value = false
   regionSummaryLoading.value = false
   regionSavedTask.value = null
   regionPreviewVisible.value = false
@@ -978,6 +1012,7 @@ function clearRegion() {
 }
 
 function setRegionLayer(layer: L.Layer, geometry: Record<string, any>, geometryType: 'RECTANGLE' | 'POLYGON') {
+  regionSolutionRequestGuard.invalidate()
   if (regionLayer && map) {
     map.removeLayer(regionLayer)
   }
@@ -1193,6 +1228,12 @@ async function generateRegionSolution() {
     ElMessage.warning('请先绘制区域')
     return
   }
+  const requestToken = regionSolutionRequestGuard.next()
+  const geometrySnapshot = regionGeometry.value
+  const geometryTypeSnapshot = regionGeometryType.value
+  const querySnapshot = { ...query }
+  const layerSnapshot = activeLayerNames()
+  const summarySnapshot = regionSummary.value || undefined
   contextScope.value = 'REGION'
   regionLoading.value = true
   try {
@@ -1202,22 +1243,23 @@ async function generateRegionSolution() {
       mapContext: {
         tenantId: 'default',
         mode: 'REGION',
-        routeCode: query.routeCode,
-        year: Number(query.year),
-        geometry: regionGeometry.value,
-        regionSummary: regionSummary.value || undefined,
-        selectedLayers: activeLayerNames(),
+        routeCode: querySnapshot.routeCode,
+        year: Number(querySnapshot.year),
+        geometry: geometrySnapshot,
+        regionSummary: summarySnapshot,
+        selectedLayers: layerSnapshot,
         extra: {
-          indexCode: query.indexCode,
-          grade: query.grade,
-          geometryType: regionGeometryType.value
+          indexCode: querySnapshot.indexCode,
+          grade: querySnapshot.grade,
+          geometryType: geometryTypeSnapshot
         }
       },
       actionInput: {
         solutionType: 'REGION_MAINTENANCE_SUGGESTION'
       },
-      options: { useBusinessData: true, useKnowledge: true, useOutline: false, topK: 5, requireAi: true, indexCode: query.indexCode, grade: query.grade }
+      options: { useBusinessData: true, useKnowledge: true, useOutline: false, topK: 5, requireAi: true, indexCode: querySnapshot.indexCode, grade: querySnapshot.grade }
     })) as any
+    if (!regionSolutionRequestGuard.isCurrent(requestToken) || !isSameRegionSolutionContext(geometrySnapshot, querySnapshot, layerSnapshot)) return
     const actionResult = result.actionResult || {}
     const toolData = Array.isArray(result.toolResults)
       ? (result.toolResults.find((item: any) => item?.toolName === 'solution.generateDraft')?.data || result.toolResults[0]?.data || {})
@@ -1240,16 +1282,34 @@ async function generateRegionSolution() {
       trace: result.trace || {}
     } as MapRegionSolutionResponse
     if (actionResult.regionSummary) {
-      regionSummary.value = normalizeRegionSummary(actionResult.regionSummary, regionGeometry.value)
+      regionSummary.value = normalizeRegionSummary(actionResult.regionSummary, geometrySnapshot)
     }
     regionSavedTask.value = null
     regionPreviewVisible.value = true
     ElMessage.success(result.answerMeta?.llmSuccess ? '区域养护建议已由 AI 生成' : '区域养护建议已生成（未使用 AI）')
   } catch (error: any) {
-    ElMessage.error(error?.message || '生成区域养护建议失败')
+    if (regionSolutionRequestGuard.isCurrent(requestToken)) {
+      ElMessage.error(error?.message || '生成区域养护建议失败')
+    }
   } finally {
-    regionLoading.value = false
+    if (regionSolutionRequestGuard.isCurrent(requestToken)) {
+      regionLoading.value = false
+    }
   }
+}
+
+function isSameRegionSolutionContext(geometry: Record<string, any>, querySnapshot: GisLayerQuery, layerSnapshot: string[]) {
+  return regionGeometry.value === geometry &&
+    String(query.routeCode || '') === String(querySnapshot.routeCode || '') &&
+    String(query.year || '') === String(querySnapshot.year || '') &&
+    String(query.indexCode || '') === String(querySnapshot.indexCode || '') &&
+    String(query.grade || '') === String(querySnapshot.grade || '') &&
+    sameStringList(activeLayerNames(), layerSnapshot)
+}
+
+function sameStringList(left: string[], right: string[]) {
+  if (left.length !== right.length) return false
+  return left.every((item, index) => item === right[index])
 }
 
 function activeLayerNames() {
@@ -1301,7 +1361,7 @@ async function saveRegionDraft() {
 }
 
 function currentViewport() {
-  if (typeof map === 'undefined' || !map) return null
+  if (mapDisposed || typeof map === 'undefined' || !map) return null
   const bounds = map.getBounds()
   return {
     zoom: map.getZoom(),
@@ -1436,18 +1496,20 @@ function zoomOutMap() {
 }
 
 async function loadStatistics() {
+  if (mapDisposed) return
   try {
     const viewport = currentViewport()
     const selectedLayers = activeLayerNames()
-    statistics.value = await getMapStatistics({
+    const nextStatistics = await getMapStatistics({
       ...layerQuery(),
       bbox: viewport?.bbox,
       viewport,
       layers: selectedLayers,
       enabledLayers: selectedLayers
     } as any)
+    if (!mapDisposed) statistics.value = nextStatistics
   } catch {
-    statistics.value = {}
+    if (!mapDisposed) statistics.value = {}
   }
 }
 
