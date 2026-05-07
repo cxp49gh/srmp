@@ -135,6 +135,8 @@ class MapAgentRunWorkflow:
             )
         save_args = dict(request.actionInput or {})
         save_args["confirmed"] = True
+        if request.mapContext:
+            save_args["mapContext"] = request.mapContext.model_dump(exclude_none=True)
         tool_result = await self.gateway.execute_tool(
             call=ToolCall(toolName="solution.saveTask", args=save_args, reason="Save confirmed solution draft"),
             request=self._to_agent_request(request, request.action),
