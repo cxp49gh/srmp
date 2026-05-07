@@ -417,13 +417,14 @@ Ops 页面增加：
 
 - `mapAgentRun(request)`
 
-旧 helper 改为包装：
+旧 helper 直接删除：
 
-- `mapAgentChat()` → `mapAgentRun({ action: 'CHAT' })`
-- `generateMapObjectSolution()` → `mapAgentRun({ action: 'GENERATE_OBJECT_SOLUTION' })`
-- `generateMapRegionSolution()` → `mapAgentRun({ action: 'GENERATE_REGION_SOLUTION' })`
+- 删除 `chat()`。
+- 删除 `mapAgentChat()`。
+- 删除 `generateMapObjectSolution()`。
+- 删除 `generateMapRegionSolution()`。
 
-最终组件只直接调用 `mapAgentRun`。
+最终组件只直接调用 `mapAgentRun`，不保留 wrapper。
 
 ### 一张图 AI Workbench
 
