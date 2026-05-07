@@ -1219,17 +1219,24 @@ async function generateRegionSolution() {
       options: { useBusinessData: true, useKnowledge: true, useOutline: false, topK: 5, requireAi: true, indexCode: query.indexCode, grade: query.grade }
     })) as any
     const actionResult = result.actionResult || {}
+    const toolData = Array.isArray(result.toolResults)
+      ? (result.toolResults.find((item: any) => item?.toolName === 'solution.generateDraft')?.data || result.toolResults[0]?.data || {})
+      : {}
+    const sourceSummaries = Array.isArray(toolData.sourceSummaries)
+      ? toolData.sourceSummaries
+      : (Array.isArray(result.sources) ? result.sources : (Array.isArray(result.knowledgeSources) ? result.knowledgeSources : []))
+    const templateMeta = actionResult.templateMeta || toolData.templateMeta || {}
     regionSolution.value = {
-      solutionType: String(result.action || 'GENERATE_REGION_SOLUTION'),
-      title: actionResult.title || '区域养护建议',
-      markdown: actionResult.markdown || result.answer || '',
-      regionSummary: actionResult.regionSummary || regionSummary.value || {},
-      qualityCheck: actionResult.qualityCheck || {},
-      templateMeta: actionResult.templateMeta || {},
-      answerMeta: result.answerMeta || {},
+      solutionType: String(actionResult.solutionType || toolData.solutionType || 'REGION_MAINTENANCE_SUGGESTION'),
+      title: actionResult.title || toolData.title || '区域养护建议',
+      markdown: actionResult.markdown || toolData.markdown || result.answer || '',
+      regionSummary: actionResult.regionSummary || toolData.regionSummary || regionSummary.value || {},
+      qualityCheck: actionResult.qualityCheck || toolData.qualityCheck || {},
+      templateMeta,
+      answerMeta: result.answerMeta || toolData.answerMeta || {},
       toolResults: result.toolResults || [],
       sources: result.sources || result.knowledgeSources || [],
-      sourceSummaries: result.sources || result.knowledgeSources || [],
+      sourceSummaries,
       trace: result.trace || {}
     } as MapRegionSolutionResponse
     if (actionResult.regionSummary) {

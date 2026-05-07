@@ -26,7 +26,7 @@ print("[OK] knowledge search:", data.get("searchMode"), data.get("retrievalStrat
 PY
 
 echo "==> 一张图 Agent Hybrid RAG 验证"
-AGENT="$(curl -fsS -X POST "$BASE_URL/api/agent/map-agent/chat" \
+AGENT="$(curl -fsS -X POST "$BASE_URL/api/agent/map-agent/run" \
   -H "Content-Type: application/json" \
   -d '{
     "message": "分析当前对象，给出处置建议",

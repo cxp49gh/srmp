@@ -4,7 +4,7 @@ set -euo pipefail
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 
 echo "==> Phase37.4.4 回答展示收口与评定单元病害联动验收"
-RESP="$(curl -fsS -X POST "$BASE_URL/api/agent/map-agent/chat" \
+RESP="$(curl -fsS -X POST "$BASE_URL/api/agent/map-agent/run" \
   -H "Content-Type: application/json" \
   -d '{
     "message": "分析当前地图选中对象，说明主要问题、成因判断，并给出养护处置建议",

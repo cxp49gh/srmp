@@ -29,7 +29,7 @@ run_case() {
 
   echo "==> MapAgent 回归：${case_id}"
   local resp_file="$tmp_dir/${case_id}.json"
-  curl -fsS -X POST "$BASE_URL/api/agent/map-agent/chat" \
+  curl -fsS -X POST "$BASE_URL/api/agent/map-agent/run" \
     -H "Content-Type: application/json" \
     -d "$payload" > "$resp_file"
 

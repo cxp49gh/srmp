@@ -59,14 +59,14 @@ assert_contains "$READY" 'toolGateway' 'ready should include toolGateway status'
 
 printf '[3/5] LangGraph direct chat strategy smoke...\n'
 BODY='{"message":"Phase50.6 smoke：请分析 G210 当前对象养护建议","mapContext":{"tenantId":"'"${TENANT_ID}"'","mode":"ROUTE","routeCode":"G210","year":2026,"mapObject":{"objectType":"disease","diseaseName":"裂缝","severity":"中度","routeCode":"G210"}},"options":{"topK":3}}'
-LG_CHAT="$(curl_json POST "${LANGGRAPH_URL}/api/srmp/langgraph/map-agent/chat" "$BODY")"
+LG_CHAT="$(curl_json POST "${LANGGRAPH_URL}/api/srmp/langgraph/map-agent/run" "$BODY")"
 assert_contains "$LG_CHAT" 'strategyVersion' 'LangGraph response should include strategyVersion'
 assert_contains "$LG_CHAT" 'toolPlan' 'LangGraph response should include toolPlan'
 assert_contains "$LG_CHAT" 'evidence' 'LangGraph response should include evidence'
 assert_contains "$LG_CHAT" 'quality_guard' 'LangGraph trace should include quality_guard'
 
 printf '[4/5] Java orchestrator path smoke...\n'
-JAVA_CHAT="$(curl_json POST "${JAVA_BASE_URL}/api/agent/map-agent/chat" "$BODY")"
+JAVA_CHAT="$(curl_json POST "${JAVA_BASE_URL}/api/agent/map-agent/run" "$BODY")"
 assert_contains "$JAVA_CHAT" 'code' 'Java chat should be wrapped by ApiResult/R'
 if [ "$REQUIRE_LANGGRAPH" = "true" ]; then
   assert_contains "$JAVA_CHAT" 'langgraph' 'Java chat should route to langgraph when REQUIRE_LANGGRAPH=true'
