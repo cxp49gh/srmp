@@ -80,6 +80,13 @@ class RuntimeAuditStore:
     def record_success(self, request: MapAiAgentRequest, response: MapAiAgentResponse, tenant_id: Optional[str], trace_id: Optional[str], cost_ms: int) -> Dict[str, Any]:
         trace = response.trace or {}
         data = response.data or {}
+        action_result = _model_or_dict(getattr(response, "actionResult", None))
+        action = getattr(response, "action", None)
+        if not action and isinstance(data, dict):
+            action = data.get("action")
+        graph_name = data.get("graphName") if isinstance(data, dict) else None
+        if not graph_name and isinstance(trace, dict):
+            graph_name = trace.get("graphName")
         steps = trace.get("steps") if isinstance(trace, dict) else None
         tool_results = response.toolResults or []
         tool_total = data.get("toolTotalCount") if isinstance(data, dict) else len(tool_results)
@@ -94,6 +101,12 @@ class RuntimeAuditStore:
             "messageLength": _safe_len(request.message),
             "mode": response.mode,
             "intent": response.intent,
+            "action": action,
+            "graphName": graph_name,
+            "actionResultType": action_result.get("type"),
+            "actionResultStatus": action_result.get("status"),
+            "writeBlocked": bool(data.get("writeBlocked") or data.get("writeConfirmation") is False) if isinstance(data, dict) else False,
+            "needsConfirmation": action_result.get("status") == "NEEDS_CONFIRMATION",
             "mapMode": _mode_from_request(request),
             "routeCode": _route_from_request(request),
             "answerLength": _safe_len(response.answer),
@@ -159,6 +172,10 @@ class RuntimeAuditStore:
                 "recentIntents": [item.get("intent") for item in recent if item.get("intent")],
                 "recentFailedTools": _recent_failed_tools(recent),
                 "intentBuckets": _bucket(records, "intent"),
+                "actionBuckets": _bucket(records, "action", max_items=12),
+                "graphBuckets": _bucket(records, "graphName", max_items=12),
+                "writeBlockedCount": sum(1 for item in records if item.get("writeBlocked")),
+                "needsConfirmationCount": sum(1 for item in records if item.get("needsConfirmation")),
                 "routeBuckets": _bucket(records, "routeCode", max_items=8),
                 "toolBuckets": _tool_buckets(records),
                 "persistence": self.persistence_status(compact=True),
@@ -400,14 +417,29 @@ def _request_payload(request: Optional[MapAiAgentRequest]) -> Optional[Dict[str,
 
 
 def _compact_response(response: MapAiAgentResponse) -> Dict[str, Any]:
+    action_result = _model_or_dict(getattr(response, "actionResult", None))
     return {
         "answerPreview": (response.answer or "")[:500],
         "mode": response.mode,
         "intent": response.intent,
+        "action": getattr(response, "action", None),
+        "actionResult": _compact_value(action_result),
         "sourceCount": len(response.sources or []),
         "toolResultCount": len(response.toolResults or []),
         "data": _compact_value(response.data or {}, depth=0),
     }
+
+
+def _model_or_dict(value: Any) -> Dict[str, Any]:
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if hasattr(value, "model_dump"):
+        return value.model_dump(exclude_none=True)
+    if hasattr(value, "dict"):
+        return value.dict(exclude_none=True)
+    return {}
 
 
 def _compact_value(value: Any, depth: int = 0) -> Any:

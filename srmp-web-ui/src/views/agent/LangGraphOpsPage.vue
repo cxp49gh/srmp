@@ -21,8 +21,8 @@
             <span>当前 Provider</span>
             <el-tag :type="provider === 'langgraph' ? 'success' : 'info'">{{ provider || '-' }}</el-tag>
           </div>
-          <div class="metric-value">{{ provider === 'langgraph' ? '远程编排' : '原生链路' }}</div>
-          <div class="metric-desc">fallback：{{ fallbackToNative ? '开启' : '关闭' }}；写工具：{{ allowWriteTools ? '允许' : '禁止' }}</div>
+          <div class="metric-value">{{ provider === 'langgraph' ? '远程编排' : '未连接' }}</div>
+          <div class="metric-desc">写工具：{{ allowWriteTools ? '允许' : '禁止' }}；失败不回退 native</div>
         </el-card>
 
         <el-card shadow="never" class="metric-card">
@@ -62,15 +62,17 @@
           <div class="metric-value">{{ contractToolCount }}</div>
           <div class="metric-desc">Java 工具 / Runtime 白名单；缺失 {{ missingToolCount }} 个</div>
         </el-card>
+
+        <el-card shadow="never" class="metric-card">
+          <div class="metric-head">
+            <span>Action 执行</span>
+            <el-tag type="info">{{ value(runtimeSummary, ['needsConfirmationCount']) || 0 }} 待确认</el-tag>
+          </div>
+          <div class="metric-value">{{ Object.keys(value(runtimeSummary, ['actionBuckets']) || {}).length }}</div>
+          <div class="metric-desc">写阻断 {{ value(runtimeSummary, ['writeBlockedCount']) || 0 }}；Graph {{ Object.keys(value(runtimeSummary, ['graphBuckets']) || {}).length }}</div>
+        </el-card>
       </section>
 
-      <el-alert
-        v-if="provider !== 'langgraph'"
-        class="mb"
-        type="info"
-        show-icon
-        title="当前 Java 后端 provider 不是 langgraph。页面仍可查看 Runtime 状态，但 /api/agent/map-agent/chat 默认不会走 LangGraph。"
-      />
       <el-alert
         v-if="!readyOk"
         class="mb"
@@ -376,6 +378,8 @@
             </template>
           </el-table-column>
           <el-table-column prop="traceId" label="Trace" min-width="190" show-overflow-tooltip />
+          <el-table-column prop="action" label="Action" width="160" show-overflow-tooltip />
+          <el-table-column prop="graphName" label="Graph" width="170" show-overflow-tooltip />
           <el-table-column prop="intent" label="意图" width="150" show-overflow-tooltip />
           <el-table-column prop="routeCode" label="路线" width="90" />
           <el-table-column prop="costMs" label="耗时" width="90">
@@ -496,7 +500,6 @@ const pruneForm = reactive({
 })
 
 const provider = computed(() => String(summary.provider || ''))
-const fallbackToNative = computed(() => Boolean(summary.fallbackToNative))
 const allowWriteTools = computed(() => Boolean(summary.allowWriteTools))
 const availableProviders = computed(() => Array.isArray(summary.availableProviders) ? summary.availableProviders : [])
 const langgraphUrl = computed(() => String(summary.langgraphUrl || ''))
