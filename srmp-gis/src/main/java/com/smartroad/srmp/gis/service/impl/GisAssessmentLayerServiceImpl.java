@@ -5,7 +5,6 @@ import com.smartroad.srmp.assessment.service.AssessmentResultService;
 import com.smartroad.srmp.assessment.vo.AssessmentResultVO;
 import com.smartroad.srmp.gis.service.GisAssessmentLayerService;
 import com.smartroad.srmp.gis.util.GeoJsonParseUtils;
-import com.smartroad.srmp.gis.util.GisStyleUtils;
 import com.smartroad.srmp.gis.vo.GeoJsonFeatureCollectionVO;
 import com.smartroad.srmp.gis.vo.GeoJsonFeatureVO;
 import org.springframework.stereotype.Service;
@@ -40,7 +39,6 @@ public class GisAssessmentLayerServiceImpl implements GisAssessmentLayerService 
             f.getProperties().put("rqi", item.getRqi());
             f.getProperties().put("rdi", item.getRdi());
             f.getProperties().put("grade", item.getGrade());
-            f.getProperties().put("color", GisStyleUtils.colorByGrade(item.getGrade()));
             fc.getFeatures().add(f);
         }
         return fc;

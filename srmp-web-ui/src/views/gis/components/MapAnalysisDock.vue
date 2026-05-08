@@ -38,7 +38,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { GisLayerQuery } from '../../../api/gis'
-import { formatMetricValue, getMetricGrade, getMetricMeta, getMetricValue, gradeFromScore, gradeLabel } from '../../../utils/roadConditionMetrics'
+import {
+  formatMetricValue,
+  getMetricGrade,
+  getMetricMeta,
+  getMetricValue,
+  gradeFromScore,
+  gradeLabel
+} from '../../../utils/roadConditionMetrics'
 
 const props = defineProps<{
   detail: Record<string, any> | null

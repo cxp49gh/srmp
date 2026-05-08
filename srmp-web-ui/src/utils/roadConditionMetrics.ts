@@ -143,6 +143,11 @@ export function getMetricGrade(source: Record<string, any> | undefined | null, i
     if (value !== undefined && value !== null && value !== '') return String(value).toUpperCase()
   }
   const explicitGrade = source.grade || source.conditionGrade || source.condition_grade
+  if (explicitGrade) return String(explicitGrade).toUpperCase()
   const score = getMetricValue(source, indexCode)
-  return explicitGrade ? String(explicitGrade).toUpperCase() : gradeFromScore(score)
+  const scoreNum = Number(score)
+  if (score !== undefined && score !== null && score !== '' && Number.isFinite(scoreNum)) {
+    return gradeFromScore(scoreNum)
+  }
+  return ''
 }

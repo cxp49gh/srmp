@@ -8,12 +8,14 @@
         :region-mode="regionMode"
         :has-region="!!regionGeometry"
         :network-import-loading="importNetworkLoading"
+        :section-package-import-loading="importSectionPackageLoading"
         @search="handleSearch"
         @reset="handleReset"
         @fit="handleFitAll"
         @start-region="startRegionDraw"
         @clear-region="clearRegion"
         @import-network="handleImportNetwork"
+        @import-section-package="handleImportSectionPackage"
       />
     </div>
 
@@ -112,12 +114,12 @@ import {
   type GisLayerQuery,
   type MapRegionSolutionResponse
 } from '../../api/gis'
-import { importRoadNetwork } from '../../api/roadAsset'
-import { layerStyle } from '../../utils/leafletStyle'
+import { importRoadNetwork, importSectionPackage } from '../../api/roadAsset'
+import { styleForMapLayer } from '../../utils/leafletStyle'
 import { addTiandituBasemap, MAP_GEOGRAPHIC_CRS } from '../../utils/mapBasemap'
 import { getMetricGrade, getMetricMeta, getMetricValue } from '../../utils/roadConditionMetrics'
 import type { GeoJsonFeatureCollection } from '../../types/geojson'
-import type { ImportNetworkResultVO } from '../../types/importNetwork'
+import type { ImportNetworkResultVO, ImportSectionPackageResultVO } from '../../types/importNetwork'
 import { type LayerState } from './components/LayerDrawer.vue'
 import GisLeftWorkbench from './components/GisLeftWorkbench.vue'
 import AgentChatFloat from './components/AgentChatFloat.vue'
@@ -147,6 +149,7 @@ const selectedFeatureProperties = ref<Record<string, any> | null>(null)
 const loading = ref(false)
 const mapLoadingMask = ref(false)
 const importNetworkLoading = ref(false)
+const importSectionPackageLoading = ref(false)
 const agentVisible = ref(true)
 const pendingAiQuestion = ref('')
 const regionMode = ref<'NONE' | 'RECTANGLE' | 'POLYGON'>('NONE')
@@ -375,6 +378,49 @@ async function handleLayerRefresh() {
   await loadStatistics()
 }
 
+async function handleImportSectionPackage(file: File) {
+  if (!file.name.toLowerCase().endsWith('.tar')) {
+    ElMessage.error('仅支持 .tar 格式')
+    return
+  }
+  if (!map) return
+  importSectionPackageLoading.value = true
+  try {
+    const r = (await importSectionPackage(file)) as ImportSectionPackageResultVO
+    const parts = [
+      `路段 ${r.routeSectionCount} 条`,
+      `评定单元 ${r.evaluationUnitCount} 条`,
+      `评定记录 ${r.assessmentRowCount} 条`
+    ]
+    if (r.ignoredShapefileGroups?.length) {
+      parts.push(`已忽略 ${r.ignoredShapefileGroups.length} 组未支持级别`)
+    }
+    ElMessage.success(`路段包导入成功（${parts.join('，')}）`)
+    if (r.warnings?.length) {
+      ElMessage.warning(r.warnings.slice(0, 8).join('；'))
+    }
+    layers.roadSection = true
+    layers.evaluationUnit = true
+    removeLayerByKey('roadSection')
+    removeLayerByKey('evaluationUnit')
+    const params = layerQuery()
+    await loadLayerSafely('roadSection', () => getRoadSections(params))
+    await loadLayerSafely('evaluationUnit', () => getEvaluationUnits(params))
+    await loadStatistics()
+    fitViewportToQueryRoadRoutes()
+  } catch (error: any) {
+    const ax = error?.response?.data
+    const details = ax?.data?.details
+    if (Array.isArray(details) && details.length) {
+      ElMessage.error(`${ax?.message || error?.message || '导入失败'}：${details.slice(0, 12).join('；')}`)
+    } else {
+      ElMessage.error(ax?.message || error?.message || '路段包导入失败')
+    }
+  } finally {
+    importSectionPackageLoading.value = false
+  }
+}
+
 async function handleImportNetwork(file: File) {
   if (!file.name.toLowerCase().endsWith('.tar')) {
     ElMessage.error('仅支持 .tar 格式')
@@ -575,9 +621,9 @@ async function loadLayer(layerKey: string, loader: () => Promise<GeoJsonFeatureC
   if (!collection || !collection.features || collection.features.length === 0) return
 
   const geoLayer = L.geoJSON(collection as any, {
-    style: (feature: any) => layerStyle(feature?.properties || feature, query.indexCode || 'MQI'),
+    style: (feature: any) => styleForMapLayer(layerKey, feature?.properties || feature, query.indexCode || 'MQI'),
     pointToLayer: (feature, latlng) => {
-      const style = layerStyle(feature?.properties || feature, query.indexCode || 'MQI') as any
+      const style = styleForMapLayer(layerKey, feature?.properties || feature, query.indexCode || 'MQI') as any
       return L.circleMarker(latlng, {
         radius: style.radius || 5,
         color: style.color || '#2563eb',
@@ -587,6 +633,7 @@ async function loadLayer(layerKey: string, loader: () => Promise<GeoJsonFeatureC
       })
     },
     onEachFeature: (feature: any, layer: L.Layer) => {
+      ;(layer as any)._srmpLayerKey = layerKey
       layer.on('click', () => handleFeatureClick(layerKey, feature, layer))
     }
   })
@@ -627,7 +674,8 @@ function normalizeFeatureProperties(layerKey: string, feature: any) {
 function highlightLayer(layer: L.Layer) {
   if (selectedLayer && (selectedLayer as any).setStyle) {
     const feature = (selectedLayer as any).feature
-    ;(selectedLayer as any).setStyle(layerStyle(feature?.properties || feature, query.indexCode || 'MQI'))
+    const lk = (selectedLayer as any)._srmpLayerKey as string | undefined
+    ;(selectedLayer as any).setStyle(styleForMapLayer(lk, feature?.properties || feature, query.indexCode || 'MQI'))
   }
 
   selectedLayer = layer
@@ -897,7 +945,8 @@ function clearSelection() {
   contextScope.value = regionGeometry.value ? 'REGION' : 'ROUTE' 
   if (selectedLayer && (selectedLayer as any).setStyle) {
     const feature = (selectedLayer as any).feature
-    ;(selectedLayer as any).setStyle(layerStyle(feature?.properties || feature, query.indexCode || 'MQI'))
+    const lk = (selectedLayer as any)._srmpLayerKey as string | undefined
+    ;(selectedLayer as any).setStyle(styleForMapLayer(lk, feature?.properties || feature, query.indexCode || 'MQI'))
   }
   selectedLayer = null
 }
@@ -1450,9 +1499,23 @@ function handleFitAll() {
   }
 }
 
-/** 查询/导入后：优先按当前查询条件下的路线图层范围定位，无有效路线则全图要素范围。 */
+/** 查询/导入后：优先路段图层，其次路线图层，否则全图要素范围。 */
 function fitViewportToQueryRoadRoutes() {
   if (!map) return
+  if (layers.roadSection) {
+    const sectionLayer = layerMap.get('roadSection')
+    if (sectionLayer) {
+      const b = (sectionLayer as GeoJSON).getBounds()
+      if (b.isValid()) {
+        map.fitBounds(b, {
+          paddingTopLeft: [340, 120],
+          paddingBottomRight: [430, 140],
+          maxZoom: 16
+        })
+        return
+      }
+    }
+  }
   if (layers.roadRoute) {
     const routeLayer = layerMap.get('roadRoute')
     if (routeLayer) {
