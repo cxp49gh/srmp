@@ -4,7 +4,7 @@ set -euo pipefail
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 
 echo "==> Phase37.4.2 地图对象专病种回答验收：重度沉陷"
-RESP="$(curl -fsS -X POST "$BASE_URL/api/agent/map-agent/chat" \
+RESP="$(curl -fsS -X POST "$BASE_URL/api/agent/map-agent/run" \
   -H "Content-Type: application/json" \
   -d '{
     "message": "分析当前对象，给出处置建议",

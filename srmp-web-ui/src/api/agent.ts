@@ -1,65 +1,5 @@
 import { aiRequest } from '../utils/request'
 
-export interface AgentChatRequest {
-  message: string
-  context?: Record<string, any>
-  mapObject?: Record<string, any> | null
-  options?: Record<string, any>
-}
-
-export type MapObjectSolutionType =
-  | 'DISEASE_REVIEW'
-  | 'DISEASE_TREATMENT'
-  | 'LOW_SCORE_TREATMENT'
-  | 'EVALUATION_UNIT_ADVICE'
-  | 'SECTION_PLAN'
-  | 'ROUTE_REPORT'
-  | 'GENERAL_ADVICE'
-
-export interface MapObjectSolutionRequest {
-  tenantId?: string
-  objectType?: string
-  objectId?: string
-  routeCode?: string
-  year?: number
-  solutionType: MapObjectSolutionType
-  mapObject?: Record<string, any> | null
-  options?: Record<string, any>
-}
-
-export interface MapObjectSolutionQualityItem {
-  name: string
-  passed: boolean
-  message?: string
-  level?: string
-  code?: string
-}
-
-export interface MapObjectSolutionQualityCheck {
-  passed: boolean
-  warnings?: string[]
-  items?: MapObjectSolutionQualityItem[]
-}
-
-export interface MapObjectSolutionResponse {
-  solutionType: MapObjectSolutionType
-  title: string
-  markdown: string
-  objectSummary?: Record<string, any>
-  qualityCheck?: MapObjectSolutionQualityCheck
-  templateMeta?: Record<string, any>
-  sourceSummaries?: Record<string, any>[]
-  trace?: Record<string, any>
-}
-
-export function chat(data: AgentChatRequest): Promise<any> {
-  return aiRequest.post('/api/agent/chat', data)
-}
-
-export function generateMapObjectSolution(data: MapObjectSolutionRequest): Promise<MapObjectSolutionResponse> {
-  return aiRequest.post('/api/agent/map-object/solution', data)
-}
-
 export interface MapAiContext {
   tenantId?: string
   mode?: 'OBJECT' | 'REGION' | 'VIEWPORT' | 'ROUTE' | 'FREE' | string
@@ -68,29 +8,73 @@ export interface MapAiContext {
   mapObject?: Record<string, any> | null
   regionSummary?: Record<string, any> | null
   viewport?: Record<string, any> | null
+  geometry?: Record<string, any> | null
   selectedLayers?: string[]
   nearbyObjects?: Record<string, any>[]
   userQuestion?: string
   extra?: Record<string, any>
 }
 
-export interface MapAiAgentRequest {
-  message: string
+export type MapAgentAction =
+  | 'CHAT'
+  | 'ANALYZE_OBJECT'
+  | 'ANALYZE_ROUTE'
+  | 'ANALYZE_REGION'
+  | 'GENERATE_OBJECT_SOLUTION'
+  | 'GENERATE_REGION_SOLUTION'
+  | 'GENERATE_ROUTE_REPORT'
+  | 'SAVE_SOLUTION_DRAFT'
+  | 'PLAN_ONLY'
+
+export interface MapAgentRunRequest {
+  message?: string
+  action: MapAgentAction
   mapContext?: MapAiContext
-  context?: Record<string, any>
-  mapObject?: Record<string, any> | null
+  actionInput?: Record<string, any>
   options?: Record<string, any>
 }
 
-export interface MapAiAgentResponse {
+export interface MapAgentActionResult {
+  type: string
+  status: string
+  title?: string
+  markdown?: string
+  objectSummary?: Record<string, any>
+  regionSummary?: Record<string, any>
+  routeSummary?: Record<string, any>
+  templateMeta?: Record<string, any>
+  qualityCheck?: Record<string, any>
+  draftTask?: Record<string, any> | null
+  errorMessage?: string
+}
+
+export interface MapAgentSuggestedAction {
+  action: MapAgentAction
+  label: string
+  requiresConfirmation?: boolean
+  disabled?: boolean
+  reason?: string
+  payload?: Record<string, any>
+}
+
+export interface MapAgentRunResponse {
   answer: string
   mode?: string
+  action: MapAgentAction | string
   intent?: string
   mapContext?: MapAiContext
+  actionResult?: MapAgentActionResult
+  suggestedActions?: MapAgentSuggestedAction[]
   toolResults?: Record<string, any>[]
   knowledgeSources?: Record<string, any>[]
+  sources?: Record<string, any>[]
+  answerMeta?: Record<string, any>
   trace?: Record<string, any>
   data?: Record<string, any>
+}
+
+export function mapAgentRun(data: MapAgentRunRequest): Promise<MapAgentRunResponse> {
+  return aiRequest.post('/api/agent/map-agent/run', data)
 }
 
 export interface AiKnowledgeIngestMarkdownRequest {
@@ -109,10 +93,6 @@ export interface AiKnowledgeSearchRequest {
   topK?: number
   sourceTypes?: string[]
   filters?: Record<string, any>
-}
-
-export function mapAgentChat(data: MapAiAgentRequest): Promise<MapAiAgentResponse> {
-  return aiRequest.post('/api/agent/map-agent/chat', data)
 }
 
 export function ingestKnowledgeMarkdown(data: AiKnowledgeIngestMarkdownRequest): Promise<Record<string, any>> {

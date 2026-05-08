@@ -59,7 +59,7 @@ Options:
   --no-start         Start dependencies and initialize database; do not start app services.
   --check-only       Run readiness checks only.
   --local-dev        Use local Java/Maven/Node processes instead of backend/frontend Docker containers.
-  --no-orchestrator  Do not start srmp-ai-orchestrator; force native Java orchestration checks.
+  --no-orchestrator  Do not start bundled srmp-ai-orchestrator; use an external LangGraph runtime.
   --help             Show this help.
 USAGE
       exit 0
@@ -92,11 +92,11 @@ compose_stack() {
 
 configure_docker_orchestrator() {
   if [ "$NO_ORCHESTRATOR" = "1" ]; then
-    export SRMP_AI_ORCHESTRATOR_PROVIDER="native"
-    return 0
+    export SRMP_LANGGRAPH_URL="${SRMP_LANGGRAPH_URL:-http://host.docker.internal:18080}"
+  else
+    export SRMP_LANGGRAPH_URL="${SRMP_LANGGRAPH_URL:-http://srmp-ai-orchestrator:18080}"
   fi
-  export SRMP_AI_ORCHESTRATOR_PROVIDER="${SRMP_AI_ORCHESTRATOR_PROVIDER:-langgraph}"
-  export SRMP_LANGGRAPH_URL="${SRMP_LANGGRAPH_URL:-http://srmp-ai-orchestrator:18080}"
+  export SRMP_LANGGRAPH_ENDPOINT="${SRMP_LANGGRAPH_ENDPOINT:-/api/srmp/langgraph/map-agent/run}"
   export SRMP_JAVA_BASE_URL="${SRMP_JAVA_BASE_URL:-http://backend:8080}"
   export SRMP_LANGGRAPH_AUDIT_PERSIST_ENABLED="${SRMP_LANGGRAPH_AUDIT_PERSIST_ENABLED:-true}"
   export SRMP_LANGGRAPH_AUDIT_PERSIST_PATH="${SRMP_LANGGRAPH_AUDIT_PERSIST_PATH:-/var/lib/srmp/langgraph/runtime-audit.jsonl}"
@@ -210,7 +210,8 @@ if [ "$LOCAL_DEV" = "1" ] && [ "$NO_ORCHESTRATOR" = "0" ]; then
   echo "[INFO] --local-dev keeps srmp-ai-orchestrator external; pass --no-orchestrator automatically for readiness checks."
   echo "[INFO] To run LangGraph locally, start ./scripts/run-langgraph-orchestrator-dev.sh in another shell."
   NO_ORCHESTRATOR=1
-  export SRMP_AI_ORCHESTRATOR_PROVIDER="native"
+  export SRMP_LANGGRAPH_URL="${SRMP_LANGGRAPH_URL:-http://127.0.0.1:18080}"
+  export SRMP_LANGGRAPH_ENDPOINT="${SRMP_LANGGRAPH_ENDPOINT:-/api/srmp/langgraph/map-agent/run}"
 fi
 
 if [ "$FRONTEND_ONLY" = "0" ]; then
@@ -268,7 +269,7 @@ if [ "$NO_ORCHESTRATOR" = "0" ]; then
   echo "Frontend logs:     docker compose -f docker-compose.yml -f docker-compose.app.yml -f docker-compose.langgraph.yml logs -f frontend"
   echo "Orchestrator logs: docker compose -f docker-compose.yml -f docker-compose.app.yml -f docker-compose.langgraph.yml logs -f srmp-ai-orchestrator"
 else
-  echo "LangGraph: disabled (--no-orchestrator)"
+  echo "LangGraph: external ${SRMP_LANGGRAPH_URL:-http://127.0.0.1:18080} (--no-orchestrator)"
   echo "Backend logs:  docker compose -f docker-compose.yml -f docker-compose.app.yml logs -f backend"
   echo "Frontend logs: docker compose -f docker-compose.yml -f docker-compose.app.yml logs -f frontend"
 fi

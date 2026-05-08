@@ -50,7 +50,13 @@
           <div v-for="(item, index) in messages" :key="index" :class="['message', item.role]">
             <div class="role">{{ item.role === 'user' ? '我' : 'AI' }}</div>
             <div class="content">{{ item.content }}</div>
-            <AiTraceButton v-if="item.role === 'assistant'" :trace="item.trace" class="trace-button" @open="openTrace" />
+            <AiTraceButton
+              v-if="item.role === 'assistant'"
+              :trace="item.trace"
+              :execution="{ trace: item.trace, answerMeta: item.answerMeta, toolResults: item.toolResults, sources: item.sources }"
+              class="trace-button"
+              @open="openTrace"
+            />
           </div>
         </div>
 
@@ -90,7 +96,13 @@
         </div>
       </el-card>
     </div>
-    <AiTraceDrawer v-model:visible="traceDrawerVisible" :trace="activeTrace" />
+    <AiTraceDrawer
+      v-model:visible="traceDrawerVisible"
+      :trace="activeExecution?.trace || null"
+      :answer-meta="activeExecution?.answerMeta || null"
+      :tool-results="activeExecution?.toolResults || []"
+      :sources="activeExecution?.sources || []"
+    />
   </AgentPageShell>
 </template>
 
@@ -99,12 +111,15 @@ import { ref } from 'vue'
 import AgentPageShell from './components/AgentPageShell.vue'
 import AiTraceButton from './components/AiTraceButton.vue'
 import AiTraceDrawer from './components/AiTraceDrawer.vue'
-import { chat } from '../../api/agent'
+import { mapAgentRun } from '../../api/agent'
 
 interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   trace?: Record<string, any> | null
+  answerMeta?: Record<string, any> | null
+  toolResults?: any[]
+  sources?: any[]
 }
 
 const context = ref<Record<string, any>>({
@@ -126,7 +141,7 @@ const messages = ref<ChatMessage[]>([])
 const knowledgeSources = ref<any[]>([])
 const outlineSources = ref<any[]>([])
 const traceDrawerVisible = ref(false)
-const activeTrace = ref<Record<string, any> | null>(null)
+const activeExecution = ref<Record<string, any> | null>(null)
 
 function quickAsk(text: string) {
   message.value = text
@@ -142,20 +157,34 @@ async function send() {
   loading.value = true
 
   try {
-    const result = await chat({
+    const result = await mapAgentRun({
+      action: 'CHAT',
       message: text,
-      context: context.value,
+      mapContext: {
+        mode: 'ROUTE',
+        routeCode: context.value.routeCode,
+        year: Number(context.value.year),
+        extra: {
+          indexCode: context.value.indexCode
+        }
+      },
       options: options.value
     })
 
+    const data = result?.data || {}
+    const actionResult = (result?.actionResult || {}) as Record<string, any>
+    const sources = result?.sources || result?.knowledgeSources || data.sources || data.knowledgeSources || []
     messages.value.push({
       role: 'assistant',
-      content: result?.answer || JSON.stringify(result),
-      trace: result?.data?.trace || result?.trace || null
+      content: result?.answer || actionResult.markdown || JSON.stringify(result),
+      trace: result?.trace || data.trace || null,
+      answerMeta: result?.answerMeta || data.answerMeta || null,
+      toolResults: result?.toolResults || data.toolResults || [],
+      sources
     })
 
-    knowledgeSources.value = result?.data?.knowledgeSources || []
-    outlineSources.value = result?.data?.outlineSources || []
+    knowledgeSources.value = result?.knowledgeSources || result?.sources || data.knowledgeSources || data.sources || []
+    outlineSources.value = data.outlineSources || []
   } catch (error: any) {
     messages.value.push({
       role: 'assistant',
@@ -166,8 +195,8 @@ async function send() {
   }
 }
 
-function openTrace(trace: Record<string, any>) {
-  activeTrace.value = trace
+function openTrace(execution: Record<string, any>) {
+  activeExecution.value = execution
   traceDrawerVisible.value = true
 }
 </script>

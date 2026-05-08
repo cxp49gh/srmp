@@ -5,11 +5,10 @@ import com.smartroad.srmp.agent.eval.dto.RagEvalRequest;
 import com.smartroad.srmp.agent.eval.service.RagEvalService;
 import com.smartroad.srmp.agent.eval.vo.RagEvalCaseResult;
 import com.smartroad.srmp.agent.eval.vo.RagEvalResponse;
-import com.smartroad.srmp.agent.mapagent.dto.MapAiAgentRequest;
-import com.smartroad.srmp.agent.mapagent.dto.MapAiAgentResponse;
+import com.smartroad.srmp.agent.mapagent.dto.MapAgentRunRequest;
+import com.smartroad.srmp.agent.mapagent.dto.MapAgentRunResponse;
 import com.smartroad.srmp.agent.mapagent.dto.MapAiContext;
 import com.smartroad.srmp.agent.mapagent.service.MapAiAgentService;
-import com.smartroad.srmp.agent.tool.AiToolResult;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
@@ -52,12 +51,13 @@ public class RagEvalServiceImpl implements RagEvalService {
         result.setQuestion(c.getQuestion());
 
         try {
-            MapAiAgentRequest agentRequest = new MapAiAgentRequest();
+            MapAgentRunRequest agentRequest = new MapAgentRunRequest();
+            agentRequest.setAction("CHAT");
             agentRequest.setMessage(c.getQuestion());
             agentRequest.setOptions(mergeOptions(req, c));
             agentRequest.setMapContext(toMapAiContext(req, c));
 
-            MapAiAgentResponse agentResponse = mapAiAgentService.chat(agentRequest);
+            MapAgentRunResponse agentResponse = mapAiAgentService.run(agentRequest);
             result.setAnswer(agentResponse.getAnswer());
             result.setAnswerPreview(preview(agentResponse.getAnswer(), 600));
 
@@ -115,7 +115,7 @@ public class RagEvalServiceImpl implements RagEvalService {
         return ctx;
     }
 
-    private void collectSources(MapAiAgentResponse resp, RagEvalCaseResult result) {
+    private void collectSources(MapAgentRunResponse resp, RagEvalCaseResult result) {
         if (resp.getSources() != null) {
             for (Object s : resp.getSources()) {
                 Map<String, Object> m = beanToMap(s);
@@ -133,14 +133,14 @@ public class RagEvalServiceImpl implements RagEvalService {
         result.setSourceCount(result.getSources().size());
     }
 
-    private void collectTools(MapAiAgentResponse resp, RagEvalCaseResult result) {
+    private void collectTools(MapAgentRunResponse resp, RagEvalCaseResult result) {
         if (resp.getToolResults() == null) return;
 
-        for (AiToolResult tool : resp.getToolResults()) {
-            if ("knowledge.retrieve".equals(tool.getToolName())) {
+        for (Map<String, Object> tool : resp.getToolResults()) {
+            if ("knowledge.retrieve".equals(tool.get("toolName"))) {
                 result.setKnowledgeToolCalled(true);
 
-                Map<String, Object> data = beanToMap(tool.getData());
+                Map<String, Object> data = beanToMap(tool.get("data"));
                 Object vectorUsed = data.get("vectorUsed");
                 if (vectorUsed instanceof Boolean) result.setVectorUsed((Boolean) vectorUsed);
 

@@ -35,7 +35,7 @@ Only Docker and Docker Compose are required for the default startup path.
 ./scripts/srmp-one-click-start.sh --no-orchestrator
 ```
 
-`--no-orchestrator` starts the native Java AI path only and skips `srmp-ai-orchestrator` checks.
+`--no-orchestrator` only skips the bundled `srmp-ai-orchestrator` container. Java still uses LangGraph, so set `SRMP_LANGGRAPH_URL` to an external runtime before starting.
 
 ## Logs
 

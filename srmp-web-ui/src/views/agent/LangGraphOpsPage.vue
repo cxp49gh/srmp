@@ -21,8 +21,8 @@
             <span>当前 Provider</span>
             <el-tag :type="provider === 'langgraph' ? 'success' : 'info'">{{ provider || '-' }}</el-tag>
           </div>
-          <div class="metric-value">{{ provider === 'langgraph' ? '远程编排' : '原生链路' }}</div>
-          <div class="metric-desc">fallback：{{ fallbackToNative ? '开启' : '关闭' }}；写工具：{{ allowWriteTools ? '允许' : '禁止' }}</div>
+          <div class="metric-value">{{ provider === 'langgraph' ? '远程编排' : '未连接' }}</div>
+          <div class="metric-desc">写工具：{{ allowWriteTools ? '允许' : '禁止' }}；失败不回退 native</div>
         </el-card>
 
         <el-card shadow="never" class="metric-card">
@@ -62,15 +62,17 @@
           <div class="metric-value">{{ contractToolCount }}</div>
           <div class="metric-desc">Java 工具 / Runtime 白名单；缺失 {{ missingToolCount }} 个</div>
         </el-card>
+
+        <el-card shadow="never" class="metric-card">
+          <div class="metric-head">
+            <span>Action 执行</span>
+            <el-tag type="info">{{ value(runtimeSummary, ['needsConfirmationCount']) || 0 }} 待确认</el-tag>
+          </div>
+          <div class="metric-value">{{ Object.keys(value(runtimeSummary, ['actionBuckets']) || {}).length }}</div>
+          <div class="metric-desc">写阻断 {{ value(runtimeSummary, ['writeBlockedCount']) || 0 }}；Graph {{ Object.keys(value(runtimeSummary, ['graphBuckets']) || {}).length }}</div>
+        </el-card>
       </section>
 
-      <el-alert
-        v-if="provider !== 'langgraph'"
-        class="mb"
-        type="info"
-        show-icon
-        title="当前 Java 后端 provider 不是 langgraph。页面仍可查看 Runtime 状态，但 /api/agent/map-agent/chat 默认不会走 LangGraph。"
-      />
       <el-alert
         v-if="!readyOk"
         class="mb"
@@ -376,6 +378,8 @@
             </template>
           </el-table-column>
           <el-table-column prop="traceId" label="Trace" min-width="190" show-overflow-tooltip />
+          <el-table-column prop="action" label="Action" width="160" show-overflow-tooltip />
+          <el-table-column prop="graphName" label="Graph" width="170" show-overflow-tooltip />
           <el-table-column prop="intent" label="意图" width="150" show-overflow-tooltip />
           <el-table-column prop="routeCode" label="路线" width="90" />
           <el-table-column prop="costMs" label="耗时" width="90">
@@ -387,17 +391,35 @@
           <el-table-column prop="messagePreview" label="问题" min-width="220" show-overflow-tooltip />
           <el-table-column label="操作" width="190" fixed="right">
             <template #default="scope">
-              <el-button size="small" text @click="openRecord(scope.row)">查看</el-button>
+              <el-button size="small" text @click="openRecord(scope.row)">执行过程</el-button>
               <el-button size="small" text :loading="replaying" @click="replayRecord(scope.row, false)">Plan回放</el-button>
-              <el-button size="small" text type="warning" :loading="replaying" @click="replayRecord(scope.row, true)">执行</el-button>
+              <el-button size="small" text type="warning" :loading="replaying" @click="replayRecord(scope.row, true)">执行回放</el-button>
             </template>
           </el-table-column>
         </el-table>
       </el-card>
 
+      <el-card v-if="replayCompare" shadow="never" class="result-card">
+        <template #header>回放对比</template>
+        <el-descriptions :column="3" border size="small">
+          <el-descriptions-item label="原始状态">{{ replayCompare.originalStatus || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="回放状态">{{ replayCompare.replayStatus || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="执行模式">{{ replayCompare.execute ? '执行回放' : 'Plan 回放' }}</el-descriptions-item>
+          <el-descriptions-item label="原始意图">{{ replayCompare.originalIntent || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="回放意图">{{ replayCompare.replayIntent || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="工具">{{ replayCompare.toolText || '-' }}</el-descriptions-item>
+        </el-descriptions>
+      </el-card>
+
       <el-dialog v-model="recordDialogVisible" title="Runtime 调用详情" width="760px">
         <pre>{{ selectedRecordText }}</pre>
       </el-dialog>
+
+      <AiTraceDrawer
+        v-model:visible="executionDrawerVisible"
+        :record="selectedExecutionRecord"
+        :replay-result="selectedReplayResult"
+      />
     </div>
   </AgentPageShell>
 </template>
@@ -406,6 +428,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import AgentPageShell from './components/AgentPageShell.vue'
+import AiTraceDrawer from './components/AiTraceDrawer.vue'
 import {
   exportOrchestratorDiagnostics,
   getOrchestratorConfig,
@@ -447,6 +470,10 @@ const planResultText = ref('')
 const contractResultText = ref('')
 const recordDialogVisible = ref(false)
 const selectedRecordText = ref('')
+const executionDrawerVisible = ref(false)
+const selectedExecutionRecord = ref<Record<string, any> | null>(null)
+const selectedReplayResult = ref<Record<string, any> | null>(null)
+const replayCompare = ref<Record<string, any> | null>(null)
 
 const smokeForm = reactive({
   tenantId: 'default',
@@ -473,7 +500,6 @@ const pruneForm = reactive({
 })
 
 const provider = computed(() => String(summary.provider || ''))
-const fallbackToNative = computed(() => Boolean(summary.fallbackToNative))
 const allowWriteTools = computed(() => Boolean(summary.allowWriteTools))
 const availableProviders = computed(() => Array.isArray(summary.availableProviders) ? summary.availableProviders : [])
 const langgraphUrl = computed(() => String(summary.langgraphUrl || ''))
@@ -683,12 +709,15 @@ async function runPlan() {
 
 async function openRecord(row: Record<string, any>) {
   selectedRecordText.value = JSON.stringify(row, null, 2)
-  recordDialogVisible.value = true
+  selectedExecutionRecord.value = row
+  selectedReplayResult.value = null
+  executionDrawerVisible.value = true
   const id = row?.id || row?.traceId
   if (!id) return
   try {
     const res = await getOrchestratorRecord(String(id))
     selectedRecordText.value = JSON.stringify(res, null, 2)
+    selectedExecutionRecord.value = value(res, ['body']) || value(res, ['data']) || res
   } catch (error: any) {
     selectedRecordText.value = JSON.stringify({ row, detailError: error?.response?.data || error?.message || error }, null, 2)
   }
@@ -703,9 +732,13 @@ async function replayRecord(row: Record<string, any>, execute: boolean) {
   replaying.value = true
   try {
     const res = await replayOrchestratorRecord(String(id), execute)
+    const body = value(res, ['body']) || value(res, ['data']) || res
     planResultText.value = JSON.stringify(res, null, 2)
     selectedRecordText.value = JSON.stringify(res, null, 2)
-    recordDialogVisible.value = true
+    selectedReplayResult.value = body
+    selectedExecutionRecord.value = row
+    executionDrawerVisible.value = true
+    replayCompare.value = buildReplayCompare(row, body, execute)
     ElMessage.success(execute ? '执行回放已完成' : 'Plan 回放已完成')
     if (execute) {
       await loadSummary()
@@ -717,6 +750,19 @@ async function replayRecord(row: Record<string, any>, execute: boolean) {
     ElMessage.error('回放失败，请查看详情')
   } finally {
     replaying.value = false
+  }
+}
+
+function buildReplayCompare(original: Record<string, any>, replay: Record<string, any>, execute: boolean) {
+  const response = value(replay, ['response']) || replay
+  const data = value(response, ['data']) || {}
+  return {
+    execute,
+    originalStatus: original.status,
+    replayStatus: value(replay, ['status']) || value(response, ['status']) || 'SUCCESS',
+    originalIntent: original.intent,
+    replayIntent: data.intent || value(response, ['intent']) || value(replay, ['intent']),
+    toolText: `${data.toolSuccessCount ?? original.toolSuccessCount ?? 0}/${data.toolTotalCount ?? original.toolTotalCount ?? 0}`
   }
 }
 
@@ -949,6 +995,10 @@ pre {
 
 .lower-card {
   min-height: 280px;
+}
+
+.result-card {
+  border-radius: 14px;
 }
 
 .status-select {

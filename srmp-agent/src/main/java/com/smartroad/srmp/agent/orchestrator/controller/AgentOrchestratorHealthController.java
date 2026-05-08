@@ -1,6 +1,5 @@
 package com.smartroad.srmp.agent.orchestrator.controller;
 
-import com.smartroad.srmp.agent.orchestrator.AgentOrchestrator;
 import com.smartroad.srmp.agent.orchestrator.AgentOrchestratorProperties;
 import com.smartroad.srmp.agent.tool.AiToolRegistry;
 import com.smartroad.srmp.common.core.R;
@@ -12,16 +11,14 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.Resource;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
  * Phase50.4：AI 编排链路健康检查。
  *
  * 用于定位三段链路是否闭合：
- * Java /api/agent/map-agent/chat -> LangGraph Runtime -> Java /api/agent/tools/execute。
+ * Java /api/agent/map-agent/run -> LangGraph Runtime -> Java /api/agent/tools/execute。
  */
 @RestController
 @RequestMapping("/api/agent/orchestrator")
@@ -31,37 +28,21 @@ public class AgentOrchestratorHealthController {
     private AgentOrchestratorProperties properties;
 
     @Resource
-    private List<AgentOrchestrator> orchestrators;
-
-    @Resource
     private AiToolRegistry aiToolRegistry;
 
     @GetMapping("/health")
     public R<Map<String, Object>> health() {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("status", "UP");
-        data.put("provider", properties.getProvider());
-        data.put("fallbackToNative", properties.getFallbackToNative());
+        data.put("provider", "langgraph");
         data.put("allowWriteTools", properties.getAllowWriteTools());
-        data.put("availableProviders", providerNames());
+        data.put("availableProviders", java.util.Collections.singletonList("langgraph"));
         data.put("localToolCount", aiToolRegistry.list().size());
         data.put("langgraphUrl", properties.getLanggraphUrl());
         data.put("langgraphEndpointPath", properties.getLanggraphEndpointPath());
         data.put("langgraphHealth", remoteProbe(properties.getLanggraphHealthPath()));
         data.put("langgraphReady", remoteProbe(properties.getLanggraphReadyPath()));
         return R.ok(data);
-    }
-
-    private List<String> providerNames() {
-        List<String> list = new ArrayList<>();
-        if (orchestrators != null) {
-            for (AgentOrchestrator orchestrator : orchestrators) {
-                if (orchestrator != null && orchestrator.provider() != null) {
-                    list.add(orchestrator.provider());
-                }
-            }
-        }
-        return list;
     }
 
     private Map<String, Object> remoteProbe(String path) {

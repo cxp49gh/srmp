@@ -25,8 +25,8 @@ test -f docs/phase50_13_one_click_bootstrap.md || fail "phase doc missing"
 bash -n scripts/srmp-one-click-start.sh
 bash -n scripts/srmp-check-ready.sh
 
-contains docker-compose.app.yml "SRMP_AI_ORCHESTRATOR_PROVIDER"
 contains docker-compose.app.yml "SRMP_LANGGRAPH_URL"
+contains docker-compose.app.yml "/api/srmp/langgraph/map-agent/run"
 contains docker-compose.app.yml "http://srmp-ai-orchestrator:18080"
 contains docker-compose.langgraph.yml "SRMP_JAVA_BASE_URL"
 contains docker-compose.langgraph.yml "http://backend:8080"
@@ -36,8 +36,8 @@ contains docker-compose.langgraph.yml "srmp_langgraph_audit"
 contains scripts/srmp-one-click-start.sh "docker-compose.langgraph.yml"
 contains scripts/srmp-one-click-start.sh "--no-orchestrator"
 contains scripts/srmp-one-click-start.sh "srmp-ai-orchestrator"
-contains scripts/srmp-one-click-start.sh "SRMP_AI_ORCHESTRATOR_PROVIDER"
 contains scripts/srmp-one-click-start.sh "SRMP_LANGGRAPH_URL"
+contains scripts/srmp-one-click-start.sh "/api/srmp/langgraph/map-agent/run"
 
 contains scripts/srmp-check-ready.sh "ORCHESTRATOR_URL"
 contains scripts/srmp-check-ready.sh "--no-orchestrator"

@@ -23,7 +23,8 @@ grep -R "TemplateRenderPreviewDialog" -n srmp-web-ui/src >/dev/null
 grep -R "templateMeta" -n srmp-web-ui/src srmp-agent/src/main/java srmp-gis/src/main/java >/dev/null
 grep -R "map_region_maintenance_advice_default" -n srmp-admin/src/main/resources/db >/dev/null
 grep -R "map_object_disease_treatment_default" -n srmp-admin/src/main/resources/db >/dev/null
-grep -R "aiRequest.post('/api/gis/map-region/solution'" -n srmp-web-ui/src/api/gis.ts >/dev/null
+! grep -R "aiRequest.post('/api/gis/map-region/solution'" -n srmp-web-ui/src/api/gis.ts >/dev/null
+grep -R "mapAgentRun" -n srmp-web-ui/src/views/gis srmp-web-ui/src/api/agent.ts >/dev/null
 grep -R "REGION_MAINTENANCE_SUGGESTION" -n srmp-admin/src/main/resources/db srmp-web-ui/src >/dev/null
 
 echo "[OK] phase35 template effectiveness hooks exist"

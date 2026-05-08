@@ -196,8 +196,8 @@ if [ "${SRMP_PHASE50_16_LIVE:-0}" = "1" ]; then
   fi
 
   curl -fsS --max-time 180 "${SRMP_JAVA_URL:-http://localhost:8080}/api/agent/orchestrator/ops/llm-probe?probe=true" >/tmp/srmp-phase50-16-llm-probe.json
-  BODY='{"message":"分析当前选中病害并给出处置建议","mapContext":{"tenantId":"default","mode":"OBJECT","routeCode":"G210","year":2026,"mapObject":{"objectType":"DISEASE","objectId":"demo-disease-1","routeCode":"G210","year":2026,"diseaseName":"坑槽","severity":"HEAVY","startStake":100.0,"endStake":100.2},"selectedLayers":["DISEASE","ASSESSMENT_RESULT"],"userQuestion":"分析当前选中病害并给出处置建议"},"options":{"useKnowledge":true,"useTools":true,"topK":3,"traceId":"phase50-16-live"}}'
-  curl -fsS --max-time 240 -X POST "${SRMP_JAVA_URL:-http://localhost:8080}/api/agent/map-agent/chat" \
+  BODY='{"message":"分析当前选中病害并给出处置建议","action":"CHAT","mapContext":{"tenantId":"default","mode":"OBJECT","routeCode":"G210","year":2026,"mapObject":{"objectType":"DISEASE","objectId":"demo-disease-1","routeCode":"G210","year":2026,"diseaseName":"坑槽","severity":"HEAVY","startStake":100.0,"endStake":100.2},"selectedLayers":["DISEASE","ASSESSMENT_RESULT"],"userQuestion":"分析当前选中病害并给出处置建议"},"options":{"useKnowledge":true,"useTools":true,"topK":3,"traceId":"phase50-16-live"}}'
+  curl -fsS --max-time 240 -X POST "${SRMP_JAVA_URL:-http://localhost:8080}/api/agent/map-agent/run" \
     -H 'Content-Type: application/json' -H 'X-Tenant-Id: default' --data "$BODY" >/tmp/srmp-phase50-16-java.json
 
   PYTHONPATH="$ROOT/srmp-ai-orchestrator" "$PYTHON_BIN" - <<'PY'
@@ -214,9 +214,9 @@ payload = json.load(open("/tmp/srmp-phase50-16-java.json", encoding="utf-8"))
 data = payload.get("data") or {}
 inner = data.get("data") or {}
 if inner.get("orchestratorProvider") != "langgraph":
-    raise SystemExit("[FAIL] Java chat did not use LangGraph")
+    raise SystemExit("[FAIL] Java run did not use LangGraph")
 if inner.get("orchestratorFallback") is not False:
-    raise SystemExit("[FAIL] Java chat fell back to native")
+    raise SystemExit("[FAIL] Java run reported fallback")
 steps = (data.get("trace") or {}).get("steps") or []
 llm_steps = [item for item in steps if item.get("name") == "llm_answer"]
 if not llm_steps:

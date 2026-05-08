@@ -64,14 +64,14 @@ LG_READY=$(curl_json -H "X-Tenant-Id: ${TENANT_ID}" "${LANGGRAPH_URL}/ready") ||
 require_contains "$LG_READY" '"status":"UP"\|"status": "UP"' "LangGraph /ready 未返回 UP，说明 Runtime 到 Java Tool Gateway 仍不通"
 pass "LangGraph Runtime 能访问 Java Tool Gateway"
 
-echo "== 4. Direct LangGraph chat =="
-LG_CHAT=$(curl_json -X POST "${LANGGRAPH_URL}/api/srmp/langgraph/map-agent/chat" \
+echo "== 4. Direct LangGraph run =="
+LG_CHAT=$(curl_json -X POST "${LANGGRAPH_URL}/api/srmp/langgraph/map-agent/run" \
   -H 'Content-Type: application/json' \
   -H "X-Tenant-Id: ${TENANT_ID}" \
   -H 'X-AI-Trace-Id: phase50-4-direct' \
-  -d "$PAYLOAD") || fail "直接调用 LangGraph chat 失败"
-require_contains "$LG_CHAT" 'LANGGRAPH_AGENT' "LangGraph chat 未返回 LANGGRAPH_AGENT"
-require_contains "$LG_CHAT" 'toolResults' "LangGraph chat 未返回 toolResults"
+  -d "$PAYLOAD") || fail "直接调用 LangGraph run 失败"
+require_contains "$LG_CHAT" 'LANGGRAPH_MAP_AGENT' "LangGraph run 未返回 LANGGRAPH_MAP_AGENT"
+require_contains "$LG_CHAT" 'toolResults' "LangGraph run 未返回 toolResults"
 pass "直接 LangGraph 编排可返回兼容响应"
 
 echo "== 5. Java orchestrator health =="
@@ -79,21 +79,21 @@ ORCH_HEALTH=$(curl_json "${JAVA_BASE_URL}/api/agent/orchestrator/health") || fai
 require_contains "$ORCH_HEALTH" 'availableProviders' "Java 编排健康接口字段缺失"
 pass "Java 编排健康接口可访问"
 
-echo "== 6. Java map-agent chat入口 =="
-JAVA_CHAT=$(curl_json -X POST "${JAVA_BASE_URL}/api/agent/map-agent/chat" \
+echo "== 6. Java map-agent run入口 =="
+JAVA_CHAT=$(curl_json -X POST "${JAVA_BASE_URL}/api/agent/map-agent/run" \
   -H 'Content-Type: application/json' \
   -H "X-Tenant-Id: ${TENANT_ID}" \
-  -d "$PAYLOAD") || fail "Java /api/agent/map-agent/chat 调用失败"
-require_contains "$JAVA_CHAT" 'answer' "Java map-agent chat 未返回 answer"
+  -d "$PAYLOAD") || fail "Java /api/agent/map-agent/run 调用失败"
+require_contains "$JAVA_CHAT" 'answer' "Java map-agent run 未返回 answer"
 
-if printf '%s' "$JAVA_CHAT" | grep -q 'LANGGRAPH_AGENT\|"orchestratorProvider":"langgraph"\|"orchestratorProvider": "langgraph"'; then
-  pass "Java chat 已走 LangGraph 编排"
+if printf '%s' "$JAVA_CHAT" | grep -q 'LANGGRAPH_MAP_AGENT\|"orchestratorProvider":"langgraph"\|"orchestratorProvider": "langgraph"'; then
+  pass "Java run 已走 LangGraph 编排"
 else
   if [ "$REQUIRE_LANGGRAPH" = "true" ]; then
     echo "$JAVA_CHAT" >&2
-    fail "Java chat 未走 LangGraph。请确认 Java 启动环境 SRMP_AI_ORCHESTRATOR_PROVIDER=langgraph，且已重启 srmp-admin。"
+    fail "Java run 未走 LangGraph。请确认 SRMP_LANGGRAPH_URL 可达，且已重启 srmp-admin。"
   fi
-  echo "WARN: Java chat 当前未显示 LangGraph 标记，可能仍是 provider=native。需要切换时设置：SRMP_AI_ORCHESTRATOR_PROVIDER=langgraph 后重启 Java。"
+  echo "WARN: Java run 当前未显示 LangGraph 标记，请确认 SRMP_LANGGRAPH_URL 后重启 Java。"
 fi
 
 pass "Phase50.4 E2E 检查完成"

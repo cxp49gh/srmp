@@ -185,7 +185,7 @@ import AgentPageShell from './components/AgentPageShell.vue'
 import {
   getAiKnowledgeStats,
   ingestKnowledgeMarkdown,
-  mapAgentChat,
+  mapAgentRun,
   searchAiKnowledge,
   reindexAiKnowledge
 } from '../../api/agent'
@@ -279,7 +279,8 @@ async function search() {
 async function askAgent() {
   askingAgent.value = true
   try {
-    const data: any = await mapAgentChat({
+    const data: any = await mapAgentRun({
+      action: 'CHAT',
       message: agentQuestion.value,
       mapContext: {
         mode: 'OBJECT',

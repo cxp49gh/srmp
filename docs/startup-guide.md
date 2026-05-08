@@ -119,23 +119,16 @@ npx vite preview --port 5173
 
 ---
 
-## 5. 切换编排 Provider
+## 5. LangGraph 编排配置
 
-Java 默认 `provider=native`（走原生 Java 链路）。
+Java 一张图 AI 统一通过 LangGraph `/run` 动作入口编排。
 
-**切换到 LangGraph 远程编排**：
+**本地 Java 连接 LangGraph Runtime**：
 ```bash
 cd /Users/cxp/.codex/worktrees/d1e1/srmp
 
-SRMP_AI_ORCHESTRATOR_PROVIDER=langgraph \
 SRMP_LANGGRAPH_URL=http://127.0.0.1:18080 \
-java -DsocksProxyHost= -jar srmp-admin/target/srmp-admin-1.0.0.jar \
-     --spring.profiles.active=dev
-```
-
-**切换回 Native**：
-```bash
-SRMP_AI_ORCHESTRATOR_PROVIDER=native \
+SRMP_LANGGRAPH_ENDPOINT=/api/srmp/langgraph/map-agent/run \
 java -DsocksProxyHost= -jar srmp-admin/target/srmp-admin-1.0.0.jar \
      --spring.profiles.active=dev
 ```

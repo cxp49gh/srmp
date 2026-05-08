@@ -47,8 +47,8 @@ if not hits:
 print("[OK] searchMode=", data.get("searchMode"), "vectorUsed=", data.get("vectorUsed"), "hitCount=", len(hits))
 PY
 
-echo "==> POST /api/agent/map-agent/chat"
-AGENT="$(curl -fsS -X POST "$BASE_URL/api/agent/map-agent/chat" \
+echo "==> POST /api/agent/map-agent/run"
+AGENT="$(curl -fsS -X POST "$BASE_URL/api/agent/map-agent/run" \
   -H "Content-Type: application/json" \
   -d '{
     "message": "这个修补损坏病害怎么处理？",

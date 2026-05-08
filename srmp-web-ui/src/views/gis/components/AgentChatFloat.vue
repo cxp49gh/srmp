@@ -9,6 +9,8 @@
         <button type="button" class="close-btn" @click="emit('update:visible', false)">×</button>
       </div>
 
+      <MapAiContextPanel :scope="contextMode" :context="props.context" :map-object="activeMapObject" />
+
       <section class="analysis-workbench" :class="contextMode.toLowerCase()">
         <div class="analysis-title-row">
           <div>
@@ -129,7 +131,11 @@
           <div v-if="item.meta" class="message-meta">
             <el-tag v-if="item.meta.mapObjectUsed" size="small" type="success">对象上下文</el-tag>
             <el-tag v-if="item.meta.regionUsed || item.meta.mapRegionUsed" size="small" type="success">区域上下文</el-tag>
+            <el-tag v-if="item.meta.intent" size="small" type="info">{{ item.meta.intent }}</el-tag>
             <el-tag v-if="item.meta.answerSourceLabel" size="small">{{ item.meta.answerSourceLabel }}</el-tag>
+            <el-tag v-if="item.toolResults?.length" size="small" type="info">工具 {{ successfulTools(item.toolResults) }}/{{ item.toolResults.length }}</el-tag>
+            <el-tag v-if="item.sources?.length" size="small" type="info">来源 {{ item.sources.length }}</el-tag>
+            <el-tag v-if="item.meta.retriedWithCompactPrompt" size="small" type="warning">压缩重试</el-tag>
             <el-tag v-if="item.meta.fallback" size="small" type="warning">降级</el-tag>
           </div>
           <AiEvidencePanel
@@ -151,9 +157,18 @@
               生成结构化建议
             </el-button>
           </div>
-          <AiTraceButton v-if="item.role === 'assistant'" :trace="item.trace" class="trace-button" @open="openTrace" />
+          <AiTraceButton
+            v-if="item.role === 'assistant'"
+            :trace="item.trace"
+            :execution="{ trace: item.trace, answerMeta: item.meta, toolResults: item.toolResults, sources: item.sources }"
+            class="trace-button"
+            @open="openTrace"
+          />
         </div>
       </div>
+
+      <MapAiActionResultPanel :result="latestActionResult" />
+      <MapAiSuggestedActions :actions="latestSuggestedActions" @run-action="runSuggestedAction" />
 
 
       <div class="input-row">
@@ -176,24 +191,27 @@
     :saved-task="savedSolutionTask"
     @save="saveSolutionDraft"
   />
-  <AiTraceDrawer v-model:visible="traceDrawerVisible" :trace="activeTrace" />
+  <AiTraceDrawer
+    v-model:visible="traceDrawerVisible"
+    :trace="activeExecution?.trace || null"
+    :answer-meta="activeExecution?.answerMeta || null"
+    :tool-results="activeExecution?.toolResults || []"
+    :sources="activeExecution?.sources || []"
+  />
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import {
-  chat,
-  mapAgentChat,
-  generateMapObjectSolution,
-  type MapObjectSolutionResponse,
-  type MapObjectSolutionType
-} from '../../../api/agent'
+import { mapAgentRun, type MapAgentActionResult, type MapAgentRunResponse, type MapAgentSuggestedAction } from '../../../api/agent'
 import { saveMapObjectSolutionDraft, updateSolutionTaskAiContext } from '../../../api/solution'
 import SolutionPreviewDialog from './SolutionPreviewDialog.vue'
 import AiTraceButton from '../../agent/components/AiTraceButton.vue'
 import AiTraceDrawer from '../../agent/components/AiTraceDrawer.vue'
 import AiEvidencePanel from './AiEvidencePanel.vue'
+import MapAiActionResultPanel from './map-ai/MapAiActionResultPanel.vue'
+import MapAiContextPanel from './map-ai/MapAiContextPanel.vue'
+import MapAiSuggestedActions from './map-ai/MapAiSuggestedActions.vue'
 import { copyText } from '../../../utils/clipboard'
 import { gisContextTypeLabel, sourceToMapTarget, type GisSourceMapTarget } from '../../../utils/gisUnifiedContext'
 import { formatMetricValue, getMetricGrade, getMetricMeta, getMetricValue, gradeLabel } from '../../../utils/roadConditionMetrics'
@@ -205,6 +223,28 @@ interface MessageItem {
   trace?: Record<string, any> | null
   sources?: any[]
   toolResults?: any[]
+  actionResult?: MapAgentActionResult | null
+  suggestedActions?: MapAgentSuggestedAction[]
+}
+
+type MapObjectSolutionType =
+  | 'DISEASE_REVIEW'
+  | 'DISEASE_TREATMENT'
+  | 'LOW_SCORE_TREATMENT'
+  | 'EVALUATION_UNIT_ADVICE'
+  | 'SECTION_PLAN'
+  | 'ROUTE_REPORT'
+  | 'GENERAL_ADVICE'
+
+type PreviewSolution = MapAgentRunResponse & {
+  solutionType?: string
+  title?: string
+  markdown?: string
+  objectSummary?: Record<string, any>
+  regionSummary?: Record<string, any>
+  qualityCheck?: Record<string, any>
+  templateMeta?: Record<string, any>
+  sourceSummaries?: Record<string, any>[]
 }
 
 const props = defineProps<{
@@ -237,11 +277,12 @@ const sourceSummary = ref('')
 const solutionLoading = ref(false)
 const activeSolutionType = ref<MapObjectSolutionType | ''>('')
 const solutionDialogVisible = ref(false)
-const solutionResult = ref<MapObjectSolutionResponse | null>(null)
+const solutionResult = ref<PreviewSolution | null>(null)
 const solutionSaveLoading = ref(false)
 const savedSolutionTask = ref<Record<string, any> | null>(null)
 const traceDrawerVisible = ref(false)
-const activeTrace = ref<Record<string, any> | null>(null)
+const activeExecution = ref<Record<string, any> | null>(null)
+const autoQuestionInFlight = ref(false)
 const useAgentTools = ref(true)
 const showToolsPanel = ref(false)
 const showQuickPanel = ref(false)
@@ -261,6 +302,14 @@ const optionSummary = computed(() => {
   if (useAgentTools.value) parts.push('Agent工具')
   return parts.length ? parts.join('、') : '未启用'
 })
+
+const latestAssistant = computed(() => {
+  const list = messages.value.filter((it) => it.role === 'assistant')
+  return list.length ? list[list.length - 1] : null
+})
+
+const latestActionResult = computed(() => latestAssistant.value?.actionResult || null)
+const latestSuggestedActions = computed(() => latestAssistant.value?.suggestedActions || [])
 
 const activeMetricMeta = computed(() => getMetricMeta(props.context?.query?.indexCode || props.context?.indexCode || 'MQI'))
 
@@ -596,17 +645,26 @@ const contextText = computed(() => {
 })
 
 watch(
-  () => props.autoQuestion,
-  async (question) => {
-    const text = String(question || '').trim()
-    if (!props.visible || !text || loading.value) return
+  [() => props.autoQuestion, () => props.visible, loading],
+  () => {
+    void consumeAutoQuestionWhenReady()
+  },
+  { immediate: true }
+)
+
+async function consumeAutoQuestionWhenReady() {
+  const text = String(props.autoQuestion || '').trim()
+  if (autoQuestionInFlight.value || !props.visible || !text || loading.value) return
+  autoQuestionInFlight.value = true
+  try {
     input.value = text
     await nextTick()
     await send()
     emit('auto-question-consumed')
-  },
-  { immediate: true }
-)
+  } finally {
+    autoQuestionInFlight.value = false
+  }
+}
 
 function quickAsk(text: string) {
   input.value = text
@@ -727,14 +785,19 @@ async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
 
   try {
     savedSolutionTask.value = null
-    const res = await generateMapObjectSolution({
-      objectType: normalizeObjectType(obj),
-      objectId: String(obj.objectId || obj.object_id || obj.id || obj.featureId || ''),
-      routeCode: String(obj.routeCode || obj.route_code || query.routeCode || ''),
-      year: normalizeYear(obj.year || query.year),
-      solutionType,
-      mapObject: obj,
-      options: { ...options }
+    const res = await mapAgentRun({
+      action: solutionType === 'ROUTE_REPORT' ? 'GENERATE_ROUTE_REPORT' : 'GENERATE_OBJECT_SOLUTION',
+      message: '生成当前对象的结构化养护建议',
+      mapContext: buildMapAiContext('生成当前对象的结构化养护建议'),
+      actionInput: {
+        objectType: normalizeObjectType(obj),
+        objectId: String(obj.objectId || obj.object_id || obj.id || obj.featureId || ''),
+        routeCode: String(obj.routeCode || obj.route_code || query.routeCode || ''),
+        year: normalizeYear(obj.year || query.year),
+        solutionType,
+        mapObject: obj
+      },
+      options: { ...options, requireAi: true }
     })
     solutionResult.value = normalizeSolutionResponse(res)
     solutionDialogVisible.value = true
@@ -788,8 +851,8 @@ async function saveSolutionDraft() {
     }
     const assistantMessage = latestAssistantMessage()
     savedSolutionTask.value = await saveMapObjectSolutionDraft({
-      solutionType: solution.solutionType,
-      title: solution.title,
+      solutionType: solution.solutionType || activeSolutionType.value || 'GENERAL_ADVICE',
+      title: solution.title || '方案草稿',
       markdown: solution.markdown,
       routeCode: String(obj.routeCode || obj.route_code || query.routeCode || ''),
       year: normalizeYear(obj.year || query.year),
@@ -838,19 +901,15 @@ async function send() {
   loading.value = true
 
   try {
-    const requestPayload = {
+    const res: any = await mapAgentRun({
+      action: contextMode.value === 'REGION' ? 'ANALYZE_REGION' : contextMode.value === 'OBJECT' ? 'ANALYZE_OBJECT' : 'CHAT',
       message: text,
-      context: props.context,
-      mapObject: activeMapObject.value,
+      mapContext: buildMapAiContext(text),
+      actionInput: {
+        mapObject: activeMapObject.value
+      },
       options: { ...options, useTools: useAgentTools.value }
-    }
-
-    const res: any = useAgentTools.value
-      ? await mapAgentChat({
-          ...requestPayload,
-          mapContext: buildMapAiContext(text)
-        })
-      : await chat(requestPayload)
+    })
 
     const payload = normalizeResponse(res)
     const answer = String(payload.answer || payload.data?.answer || '未返回内容')
@@ -866,8 +925,14 @@ async function send() {
       trace: payload.data?.trace || payload.trace || null,
       sources: payload.data?.sources || payload.sources || payload.data?.knowledgeHits || [],
       toolResults: payload.data?.toolResults || payload.toolResults || payload.data?.tools || [],
+      actionResult: payload.actionResult || null,
+      suggestedActions: payload.suggestedActions || [],
       meta: {
         ...meta,
+        intent: payload.data?.intent || payload.intent,
+        llmStatus: meta?.llmStatus || payload.data?.llmStatus,
+        llmModel: meta?.llmModel || payload.data?.llmModel,
+        retriedWithCompactPrompt: meta?.retriedWithCompactPrompt || payload.data?.retriedWithCompactPrompt,
         mapObjectUsed: payload.data?.mapObjectUsed || payload.mapObjectUsed || meta?.mapObjectUsed,
         regionUsed: payload.data?.regionUsed || payload.data?.mapRegionUsed || payload.mapRegionUsed || meta?.regionUsed
       }
@@ -886,15 +951,51 @@ async function send() {
   }
 }
 
+function runSuggestedAction(action: MapAgentSuggestedAction) {
+  if (action.action === 'GENERATE_REGION_SOLUTION') {
+    emit('generate-region')
+    return
+  }
+  if (action.action === 'GENERATE_ROUTE_REPORT') {
+    generateSolutionDraft('ROUTE_REPORT')
+    return
+  }
+  if (action.action === 'GENERATE_OBJECT_SOLUTION') {
+    generateDefaultSolutionDraft()
+    return
+  }
+  if (action.action === 'SAVE_SOLUTION_DRAFT') {
+    saveSolutionDraft()
+    return
+  }
+  input.value = action.label || action.action
+}
+
 function normalizeResponse(res: any) {
-  if (res?.answer || res?.data?.answerMeta || res?.data?.mapObjectUsed) return res
+  if (res?.answer || res?.answerMeta || res?.actionResult) {
+    return { ...res, data: { ...(res.data || {}), answerMeta: res.answerMeta, toolResults: res.toolResults, sources: res.sources, trace: res.trace, intent: res.intent } }
+  }
   if (res?.data?.answer || res?.data?.data) return res.data
   return res || {}
 }
 
-function normalizeSolutionResponse(res: any): MapObjectSolutionResponse {
-  if (res?.data?.markdown) return res.data
-  return res
+function normalizeSolutionResponse(res: MapAgentRunResponse): PreviewSolution {
+  const actionResult = (res.actionResult || {}) as Record<string, any>
+  return {
+    ...res,
+    solutionType: String((res.action === 'GENERATE_ROUTE_REPORT' ? 'ROUTE_REPORT' : (res as any).solutionType) || activeSolutionType.value || res.action || ''),
+    title: actionResult.title || '方案草稿',
+    markdown: actionResult.markdown || res.answer || '',
+    objectSummary: actionResult.objectSummary || {},
+    regionSummary: actionResult.regionSummary || {},
+    qualityCheck: actionResult.qualityCheck || {},
+    templateMeta: actionResult.templateMeta || {},
+    sourceSummaries: res.sources || res.knowledgeSources || [],
+    trace: res.trace,
+    answerMeta: res.answerMeta,
+    toolResults: res.toolResults || [],
+    sources: res.sources || res.knowledgeSources || []
+  } as PreviewSolution
 }
 
 function normalizeYear(value: any) {
@@ -943,8 +1044,12 @@ function askWithSource(source: any) {
   emit('ask-with-source', source)
 }
 
-function openTrace(trace: Record<string, any>) {
-  activeTrace.value = trace
+function successfulTools(tools: any[] = []) {
+  return tools.filter((item) => item?.success !== false && String(item?.status || '').toUpperCase() !== 'FAILED').length
+}
+
+function openTrace(execution: Record<string, any>) {
+  activeExecution.value = execution
   traceDrawerVisible.value = true
 }
 </script>
