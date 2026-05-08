@@ -7,6 +7,7 @@ from fastapi import FastAPI, Header, HTTPException, Query
 
 from .config import settings
 from .java_tools import JavaToolGateway
+from .live_trace import LiveTraceStore
 from .llm_client import LlmClient
 from .map_agent_run import MapAgentRunWorkflow
 from .observability import runtime_audit_store
@@ -18,8 +19,9 @@ APP_VERSION = "50.11.0"
 app = FastAPI(title="SRMP LangGraph Orchestrator", version=APP_VERSION)
 
 gateway = JavaToolGateway()
-workflow = LangGraphWorkflow(gateway=gateway, llm_client=LlmClient())
-map_agent_run_workflow = MapAgentRunWorkflow(base_workflow=workflow, gateway=gateway)
+live_trace_store = LiveTraceStore(max_records=settings.audit_max_records)
+workflow = LangGraphWorkflow(gateway=gateway, llm_client=LlmClient(), live_trace_store=live_trace_store)
+map_agent_run_workflow = MapAgentRunWorkflow(base_workflow=workflow, gateway=gateway, live_trace_store=live_trace_store)
 
 
 def _safe_runtime_config() -> dict:
@@ -310,6 +312,14 @@ async def observability_prune(
     )
 
 
+@app.get("/api/srmp/langgraph/trace/live/{trace_id}")
+async def live_trace(trace_id: str) -> dict:
+    snapshot = live_trace_store.get(trace_id)
+    if snapshot:
+        return snapshot
+    return live_trace_store.not_found(trace_id)
+
+
 @app.get("/api/srmp/langgraph/debug/tool-gateway")
 async def debug_tool_gateway(
     x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id"),
@@ -444,4 +454,3 @@ async def map_agent_run(
             error=exc,
         )
         raise
-

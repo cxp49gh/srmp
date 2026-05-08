@@ -2,6 +2,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from .java_tools import JavaToolGateway
+from .live_trace import LiveTraceStore
 from .schemas import (
     ActionResult,
     MapAgentRunRequest,
@@ -18,9 +19,10 @@ SOLUTION_ACTIONS = {"GENERATE_OBJECT_SOLUTION", "GENERATE_REGION_SOLUTION", "GEN
 
 
 class MapAgentRunWorkflow:
-    def __init__(self, base_workflow: LangGraphWorkflow, gateway: JavaToolGateway):
+    def __init__(self, base_workflow: LangGraphWorkflow, gateway: JavaToolGateway, live_trace_store: Optional[LiveTraceStore] = None):
         self.base_workflow = base_workflow
         self.gateway = gateway
+        self.live_trace_store = live_trace_store
 
     async def run(
         self,
@@ -73,12 +75,19 @@ class MapAgentRunWorkflow:
         tenant_id: Optional[str],
         trace_id: Optional[str],
     ) -> MapAgentRunResponse:
-        tool_result = await self.gateway.execute_tool(
-            call=ToolCall(toolName="solution.generateDraft", args=self._solution_args(request), reason="LangGraph-first solution preview"),
-            request=self._to_agent_request(request, request.action),
-            tenant_id=tenant_id or "default",
-            trace_id=trace_id,
-        )
+        resolved_trace_id = self._trace_id(request, trace_id)
+        self._start_live_trace(resolved_trace_id, normalize_action(request.action), "solution_generation_graph")
+        self._start_live_step(resolved_trace_id, "solution_generate", "生成方案预览")
+        try:
+            tool_result = await self.gateway.execute_tool(
+                call=ToolCall(toolName="solution.generateDraft", args=self._solution_args(request), reason="LangGraph-first solution preview"),
+                request=self._to_agent_request(request, request.action),
+                tenant_id=tenant_id or "default",
+                trace_id=resolved_trace_id,
+            )
+        except Exception as exc:
+            self._fail_live_step(resolved_trace_id, "solution_generate", str(exc))
+            raise
         data = tool_result.data if isinstance(tool_result.data, dict) else {}
         action_result = ActionResult(
             type="SOLUTION_PREVIEW",
@@ -99,7 +108,7 @@ class MapAgentRunWorkflow:
             "llmStatus": "SKIPPED",
         }
         source_summaries = data.get("sourceSummaries") if isinstance(data.get("sourceSummaries"), list) else []
-        return MapAgentRunResponse(
+        response = MapAgentRunResponse(
             answer=answer,
             action=normalize_action(request.action),
             intent="SOLUTION_GENERATE",
@@ -114,6 +123,17 @@ class MapAgentRunWorkflow:
             },
             data={"orchestratorProvider": "langgraph", "graphName": "solution_generation_graph"},
         )
+        self._complete_live_step(resolved_trace_id, {
+            "name": "solution_generate",
+            "label": "生成方案预览",
+            "status": action_result.status,
+            "count": 1 if tool_result.success else 0,
+            "elapsedMs": 0,
+            "data": {"toolName": "solution.generateDraft"},
+            "error": action_result.errorMessage,
+        })
+        self._complete_live_trace(resolved_trace_id, response, status=action_result.status)
+        return response
 
     async def _run_draft_save(
         self,
@@ -121,8 +141,11 @@ class MapAgentRunWorkflow:
         tenant_id: Optional[str],
         trace_id: Optional[str],
     ) -> MapAgentRunResponse:
+        resolved_trace_id = self._trace_id(request, trace_id)
+        self._start_live_trace(resolved_trace_id, "SAVE_SOLUTION_DRAFT", "draft_save_graph")
         if not bool((request.options or {}).get("confirmed")):
-            return MapAgentRunResponse(
+            self._start_live_step(resolved_trace_id, "write_confirmation_check", "写入确认检查")
+            response = MapAgentRunResponse(
                 answer="保存方案任务需要确认。",
                 action="SAVE_SOLUTION_DRAFT",
                 intent="SOLUTION_SAVE",
@@ -133,18 +156,31 @@ class MapAgentRunWorkflow:
                 trace={"steps": [{"name": "write_confirmation_check", "label": "写入确认检查", "status": "SKIPPED", "data": {"confirmed": False}}]},
                 data={"orchestratorProvider": "langgraph", "graphName": "draft_save_graph", "writeConfirmation": False},
             )
+            self._complete_live_step(resolved_trace_id, {
+                "name": "write_confirmation_check",
+                "label": "写入确认检查",
+                "status": "SKIPPED",
+                "data": {"confirmed": False},
+            })
+            self._complete_live_trace(resolved_trace_id, response, status="NEEDS_CONFIRMATION")
+            return response
         save_args = dict(request.actionInput or {})
         save_args["confirmed"] = True
         if request.mapContext:
             save_args["mapContext"] = request.mapContext.model_dump(exclude_none=True)
-        tool_result = await self.gateway.execute_tool(
-            call=ToolCall(toolName="solution.saveTask", args=save_args, reason="Save confirmed solution draft"),
-            request=self._to_agent_request(request, request.action),
-            tenant_id=tenant_id or "default",
-            trace_id=trace_id,
-        )
+        self._start_live_step(resolved_trace_id, "solution_save_task", "保存方案任务")
+        try:
+            tool_result = await self.gateway.execute_tool(
+                call=ToolCall(toolName="solution.saveTask", args=save_args, reason="Save confirmed solution draft"),
+                request=self._to_agent_request(request, request.action),
+                tenant_id=tenant_id or "default",
+                trace_id=resolved_trace_id,
+            )
+        except Exception as exc:
+            self._fail_live_step(resolved_trace_id, "solution_save_task", str(exc))
+            raise
         data = tool_result.data if isinstance(tool_result.data, dict) else {}
-        return MapAgentRunResponse(
+        response = MapAgentRunResponse(
             answer=tool_result.summary or ("方案任务已保存" if tool_result.success else "方案任务保存失败"),
             action="SAVE_SOLUTION_DRAFT",
             intent="SOLUTION_SAVE",
@@ -155,6 +191,17 @@ class MapAgentRunWorkflow:
             trace={"steps": [{"name": "solution_save_task", "label": "保存方案任务", "status": "SUCCESS" if tool_result.success else "FAILED", "count": 1 if tool_result.success else 0}]},
             data={"orchestratorProvider": "langgraph", "graphName": "draft_save_graph", "writeConfirmation": True},
         )
+        status = "SUCCESS" if tool_result.success else "FAILED"
+        self._complete_live_step(resolved_trace_id, {
+            "name": "solution_save_task",
+            "label": "保存方案任务",
+            "status": status,
+            "count": 1 if tool_result.success else 0,
+            "data": {"toolName": "solution.saveTask"},
+            "error": tool_result.errorMessage or tool_result.error,
+        })
+        self._complete_live_trace(resolved_trace_id, response, status=status)
+        return response
 
     def _from_agent_response(
         self,
@@ -192,6 +239,30 @@ class MapAgentRunWorkflow:
         if request.mapContext:
             args["mapContext"] = request.mapContext.model_dump(exclude_none=True)
         return args
+
+    def _trace_id(self, request: MapAgentRunRequest, trace_id: Optional[str]) -> str:
+        option_trace_id = (request.options or {}).get("traceId")
+        return str(trace_id or option_trace_id or "").strip()
+
+    def _start_live_trace(self, trace_id: str, action: str, graph_name: str) -> None:
+        if self.live_trace_store and trace_id:
+            self.live_trace_store.start_trace(trace_id, action=action, graph_name=graph_name)
+
+    def _start_live_step(self, trace_id: str, name: str, label: str) -> None:
+        if self.live_trace_store and trace_id:
+            self.live_trace_store.start_step(trace_id, name, label)
+
+    def _complete_live_step(self, trace_id: str, step: Dict[str, Any]) -> None:
+        if self.live_trace_store and trace_id:
+            self.live_trace_store.complete_step(trace_id, step)
+
+    def _fail_live_step(self, trace_id: str, name: str, error: str) -> None:
+        if self.live_trace_store and trace_id:
+            self.live_trace_store.fail_step(trace_id, name, error)
+
+    def _complete_live_trace(self, trace_id: str, response: MapAgentRunResponse, status: str = "SUCCESS") -> None:
+        if self.live_trace_store and trace_id:
+            self.live_trace_store.complete_trace(trace_id, status=status, answer_meta=response.answerMeta, trace=response.trace)
 
 
 def normalize_action(action: Optional[str]) -> str:

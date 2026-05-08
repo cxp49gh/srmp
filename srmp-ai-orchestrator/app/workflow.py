@@ -8,6 +8,7 @@ from .config import settings
 from .answer_enhancers import enhance_answer
 from .intent import recognize_intent
 from .java_tools import JavaToolGateway, extract_knowledge_sources
+from .live_trace import LiveTraceStore
 from .llm_client import LlmClient, LlmResult
 from .planner import plan_tools
 from .prompt import build_answer_prompt, build_compact_answer_prompt, fallback_answer
@@ -42,6 +43,20 @@ PLAN_NODE_FLOW = [
     "context_enrich",
     "tool_planning",
 ]
+
+NODE_LABELS = {
+    "request_normalize": "归一化请求",
+    "context_build": "构建地图上下文",
+    "intent_recognize": "识别用户意图",
+    "context_enrich": "补全上下文",
+    "tool_planning": "规划工具",
+    "tool_plan": "规划工具",
+    "tool_execute": "执行只读工具",
+    "evidence_fuse": "融合证据",
+    "answer_generate": "生成回答",
+    "quality_guard": "质量保护",
+    "llm_answer": "大模型回答",
+}
 
 
 class AgentState(TypedDict, total=False):
@@ -81,13 +96,15 @@ def strategy_metadata() -> Dict[str, Any]:
 
 
 class LangGraphWorkflow:
-    def __init__(self, gateway: JavaToolGateway, llm_client: LlmClient):
+    def __init__(self, gateway: JavaToolGateway, llm_client: LlmClient, live_trace_store: Optional[LiveTraceStore] = None):
         self.gateway = gateway
         self.llm_client = llm_client
+        self.live_trace_store = live_trace_store
         self.graph = self._build_graph() if LANGGRAPH_AVAILABLE else None
 
     async def run(self, request: MapAiAgentRequest, tenant_id: Optional[str], trace_id: Optional[str]) -> MapAiAgentResponse:
         state: AgentState = self._new_state(request=request, tenant_id=tenant_id, trace_id=trace_id)
+        self._live_start_trace(state)
         if self.graph is not None:
             final_state = await self.graph.ainvoke(state)
         else:
@@ -97,6 +114,7 @@ class LangGraphWorkflow:
     async def plan(self, request: MapAiAgentRequest, tenant_id: Optional[str], trace_id: Optional[str]) -> Dict[str, Any]:
         """只跑归一化、意图识别、工具规划；用于前端/联调解释为什么会调这些工具。"""
         state: AgentState = self._new_state(request=request, tenant_id=tenant_id, trace_id=trace_id)
+        self._live_start_trace(state)
         final_state = await self._run_sequential(state, PLAN_NODE_FLOW)
         return {
             "traceId": final_state.get("trace_id"),
@@ -121,15 +139,15 @@ class LangGraphWorkflow:
 
     def _build_graph(self):
         builder = StateGraph(AgentState)
-        builder.add_node("request_normalize", self._request_normalize)
-        builder.add_node("context_build", self._context_build)
-        builder.add_node("intent_recognize", self._intent_recognize)
-        builder.add_node("context_enrich", self._context_enrich)
-        builder.add_node("tool_planning", self._tool_plan)
-        builder.add_node("tool_execute", self._tool_execute)
-        builder.add_node("evidence_fuse", self._evidence_fuse)
-        builder.add_node("answer_generate", self._answer_generate)
-        builder.add_node("quality_guard", self._quality_guard)
+        builder.add_node("request_normalize", self._wrap_node("request_normalize", self._request_normalize))
+        builder.add_node("context_build", self._wrap_node("context_build", self._context_build))
+        builder.add_node("intent_recognize", self._wrap_node("intent_recognize", self._intent_recognize))
+        builder.add_node("context_enrich", self._wrap_node("context_enrich", self._context_enrich))
+        builder.add_node("tool_planning", self._wrap_node("tool_planning", self._tool_plan))
+        builder.add_node("tool_execute", self._wrap_node("tool_execute", self._tool_execute))
+        builder.add_node("evidence_fuse", self._wrap_node("evidence_fuse", self._evidence_fuse))
+        builder.add_node("answer_generate", self._wrap_node("answer_generate", self._answer_generate))
+        builder.add_node("quality_guard", self._wrap_node("quality_guard", self._quality_guard))
         builder.set_entry_point("request_normalize")
         for left, right in zip(NODE_FLOW, NODE_FLOW[1:]):
             builder.add_edge(left, right)
@@ -138,7 +156,7 @@ class LangGraphWorkflow:
 
     async def _run_sequential(self, state: AgentState, nodes: List[str]) -> AgentState:
         for node in nodes:
-            updates = await self._node_handler(node)(state)
+            updates = await self._wrap_node(node, self._node_handler(node))(state)
             state.update(updates or {})
         return state
 
@@ -149,6 +167,48 @@ class LangGraphWorkflow:
         if handler is None:
             raise AttributeError("LangGraphWorkflow has no handler for node: " + str(node))
         return handler
+
+    def _action_from_state(self, state: AgentState) -> str:
+        request = state.get("request")
+        options = request.options if request and request.options else {}
+        return str(options.get("action") or "CHAT").upper()
+
+    def _graph_name_from_action(self, action: str) -> str:
+        if action == "ANALYZE_OBJECT":
+            return "object_analysis_graph"
+        if action == "ANALYZE_REGION":
+            return "region_analysis_graph"
+        if action == "ANALYZE_ROUTE":
+            return "route_report_graph"
+        if action == "PLAN_ONLY":
+            return "plan_graph"
+        return "chat_graph"
+
+    def _live_start_trace(self, state: AgentState) -> None:
+        if not self.live_trace_store:
+            return
+        action = self._action_from_state(state)
+        self.live_trace_store.start_trace(
+            state.get("trace_id") or "",
+            action=action,
+            graph_name=self._graph_name_from_action(action),
+        )
+
+    def _wrap_node(self, node: str, handler):
+        async def wrapped(state: AgentState) -> Dict[str, Any]:
+            if self.live_trace_store:
+                self.live_trace_store.start_step(
+                    state.get("trace_id") or "",
+                    node,
+                    NODE_LABELS.get(node, node),
+                )
+            try:
+                return await handler(state)
+            except Exception as exc:
+                if self.live_trace_store:
+                    self.live_trace_store.fail_step(state.get("trace_id") or "", node, str(exc))
+                raise
+        return wrapped
 
     def _step(
         self,
@@ -175,6 +235,8 @@ class LangGraphWorkflow:
             item["error"] = error
             item["errorMessage"] = error
         steps.append(item)
+        if self.live_trace_store:
+            self.live_trace_store.complete_step(state.get("trace_id") or "", item)
 
     async def _request_normalize(self, state: AgentState) -> Dict[str, Any]:
         request = state["request"]
@@ -471,6 +533,21 @@ class LangGraphWorkflow:
         has_map_object = bool(request.mapContext and request.mapContext.mapObject)
         has_region = bool(request.mapContext and (request.mapContext.regionSummary or request.mapContext.geometry or str(request.mapContext.mode or "").upper() in {"BOX", "POLYGON", "REGION", "SELECTION"}))
         answer_meta = state.get("answer_meta", {})
+        trace_payload = {
+            "traceId": state.get("trace_id"),
+            "orchestratorProvider": "langgraph",
+            "strategyVersion": settings.strategy_version,
+            "nodeFlow": NODE_FLOW,
+            "steps": state.get("steps", []),
+            "costMs": int((time.perf_counter() - state.get("started_at", time.perf_counter())) * 1000),
+        }
+        if self.live_trace_store:
+            self.live_trace_store.complete_trace(
+                state.get("trace_id") or "",
+                status="SUCCESS",
+                answer_meta=answer_meta,
+                trace=trace_payload,
+            )
         return MapAiAgentResponse(
             answer=state.get("answer", ""),
             mode="LANGGRAPH_AGENT",
@@ -479,14 +556,7 @@ class LangGraphWorkflow:
             toolResults=[item.model_dump(exclude_none=True) for item in tool_results],
             knowledgeSources=sources,
             sources=sources,
-            trace={
-                "traceId": state.get("trace_id"),
-                "orchestratorProvider": "langgraph",
-                "strategyVersion": settings.strategy_version,
-                "nodeFlow": NODE_FLOW,
-                "steps": state.get("steps", []),
-                "costMs": int((time.perf_counter() - state.get("started_at", time.perf_counter())) * 1000),
-            },
+            trace=trace_payload,
             data={
                 "orchestratorProvider": "langgraph",
                 "orchestratorFallback": False,
