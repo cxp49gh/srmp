@@ -201,6 +201,25 @@
           <span>已耗时 {{ waitFeedback.elapsedLabel }}</span>
         </div>
         <p>{{ waitFeedback.message }}</p>
+        <div v-if="liveTraceSummary" class="live-trace-panel">
+          <div class="live-current">
+            <span>当前步骤</span>
+            <strong>{{ liveTraceSummary.currentLabel || liveTrace?.status || '等待 Runtime 上报' }}</strong>
+          </div>
+          <div class="live-meta">
+            <span v-if="liveTraceSummary.toolLabel">{{ liveTraceSummary.toolLabel }}</span>
+            <span v-if="liveTraceSummary.sourceLabel">{{ liveTraceSummary.sourceLabel }}</span>
+          </div>
+          <div v-if="liveTraceSummary.recentSteps.length" class="live-steps">
+            <span v-for="step in liveTraceSummary.recentSteps" :key="step.name || step.label">
+              {{ step.label || step.name }} · {{ step.status }}
+            </span>
+          </div>
+          <el-button size="small" text @click="openLiveTrace">查看 Trace</el-button>
+        </div>
+        <div v-else-if="liveTraceError" class="live-trace-error">
+          {{ liveTraceError }}，最终结果仍在等待。
+        </div>
       </section>
 
       <div class="input-row">
@@ -237,7 +256,7 @@ import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { mapAgentRun, type MapAgentActionResult, type MapAgentRunResponse, type MapAgentSuggestedAction } from '../../../api/agent'
 import { saveMapObjectSolutionDraft, updateSolutionTaskAiContext } from '../../../api/solution'
-import { getOrchestratorQuickDiagnostics } from '../../../api/orchestrator'
+import { getOrchestratorLiveTrace, getOrchestratorQuickDiagnostics } from '../../../api/orchestrator'
 import SolutionPreviewDialog from './SolutionPreviewDialog.vue'
 import AiTraceButton from '../../agent/components/AiTraceButton.vue'
 import AiTraceDrawer from '../../agent/components/AiTraceDrawer.vue'
@@ -249,6 +268,13 @@ import { copyText } from '../../../utils/clipboard'
 import { gisContextTypeLabel, sourceToMapTarget, type GisSourceMapTarget } from '../../../utils/gisUnifiedContext'
 import { formatMetricValue, getMetricGrade, getMetricMeta, getMetricValue, gradeLabel } from '../../../utils/roadConditionMetrics'
 import { buildWaitFeedback, formatElapsedMs, normalizeLangGraphDiagnostics, summarizeRunTiming, type LangGraphDiagnostics } from '../../../utils/aiRunFeedback'
+import {
+  buildLiveTraceSummary,
+  createWebTraceId,
+  normalizeLiveTraceSnapshot,
+  shouldPauseLiveTracePolling,
+  type LiveTraceSnapshot
+} from '../../../utils/liveTrace'
 
 interface MessageItem {
   role: 'user' | 'assistant'
@@ -326,6 +352,11 @@ const quickDiagnostics = ref<LangGraphDiagnostics | null>(null)
 const aiRunStartedAt = ref<number | null>(null)
 const aiElapsedMs = ref(0)
 let aiElapsedTimer: ReturnType<typeof window.setInterval> | null = null
+const activeTraceId = ref('')
+const liveTrace = ref<LiveTraceSnapshot | null>(null)
+const liveTraceError = ref('')
+const liveTraceFailureCount = ref(0)
+let liveTraceTimer: ReturnType<typeof window.setInterval> | null = null
 
 const options = reactive({
   useBusinessData: true,
@@ -352,6 +383,7 @@ const latestActionResult = computed(() => latestAssistant.value?.actionResult ||
 const latestSuggestedActions = computed(() => latestAssistant.value?.suggestedActions || [])
 const aiBusy = computed(() => Boolean(loading.value || solutionLoading.value || props.regionLoading))
 const waitFeedback = computed(() => buildWaitFeedback(aiElapsedMs.value))
+const liveTraceSummary = computed(() => liveTrace.value ? buildLiveTraceSummary(liveTrace.value) : null)
 
 const activeMetricMeta = computed(() => getMetricMeta(props.context?.query?.indexCode || props.context?.indexCode || 'MQI'))
 
@@ -705,7 +737,56 @@ watch(
 
 onUnmounted(() => {
   stopAiElapsedTimer()
+  stopLiveTracePolling()
 })
+
+function beginLiveTrace(traceId: string) {
+  activeTraceId.value = traceId
+  liveTrace.value = null
+  liveTraceError.value = ''
+  liveTraceFailureCount.value = 0
+  stopLiveTracePolling()
+  window.setTimeout(() => {
+    if (activeTraceId.value === traceId) {
+      void pollLiveTraceOnce(traceId)
+      liveTraceTimer = window.setInterval(() => {
+        void pollLiveTraceOnce(traceId)
+      }, 1500)
+    }
+  }, 500)
+}
+
+async function pollLiveTraceOnce(traceId = activeTraceId.value) {
+  if (!traceId) return
+  try {
+    const res = await getOrchestratorLiveTrace(traceId)
+    const snapshot = normalizeLiveTraceSnapshot(res)
+    if (activeTraceId.value !== traceId) return
+    liveTrace.value = snapshot
+    liveTraceError.value = ''
+    liveTraceFailureCount.value = 0
+    if (['SUCCESS', 'FAILED', 'TIMEOUT'].includes(snapshot.status)) {
+      stopLiveTracePolling()
+    }
+  } catch (error: any) {
+    liveTraceFailureCount.value += 1
+    liveTraceError.value = error?.message || '实时过程暂不可用'
+    if (shouldPauseLiveTracePolling(liveTraceFailureCount.value)) {
+      stopLiveTracePolling()
+    }
+  }
+}
+
+function stopLiveTracePolling() {
+  if (!liveTraceTimer) return
+  window.clearInterval(liveTraceTimer)
+  liveTraceTimer = null
+}
+
+function openLiveTrace() {
+  if (!liveTrace.value) return
+  openTrace({ trace: liveTrace.value, answerMeta: liveTrace.value.answerMeta || {} })
+}
 
 function beginAiRun(startedAt = Date.now()) {
   if (!aiRunStartedAt.value) {
@@ -876,6 +957,8 @@ async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
   const query = props.context?.query || {}
   solutionLoading.value = true
   activeSolutionType.value = solutionType
+  const traceId = createWebTraceId()
+  beginLiveTrace(traceId)
 
   try {
     savedSolutionTask.value = null
@@ -891,13 +974,15 @@ async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
         solutionType,
         mapObject: obj
       },
-      options: { ...options, requireAi: true }
+      options: { ...options, requireAi: true, traceId }
     })
     solutionResult.value = normalizeSolutionResponse(res)
     solutionDialogVisible.value = true
   } catch (error: any) {
     ElMessage.error(error?.message || '生成结构化建议失败')
   } finally {
+    await pollLiveTraceOnce(traceId)
+    stopLiveTracePolling()
     solutionLoading.value = false
     activeSolutionType.value = ''
   }
@@ -991,7 +1076,9 @@ async function send() {
   if (!text || loading.value) return
 
   const requestStartedAt = Date.now()
+  const traceId = createWebTraceId()
   beginAiRun(requestStartedAt)
+  beginLiveTrace(traceId)
   messages.value.push({ role: 'user', content: text })
   input.value = ''
   loading.value = true
@@ -1004,7 +1091,7 @@ async function send() {
       actionInput: {
         mapObject: activeMapObject.value
       },
-      options: { ...options, useTools: useAgentTools.value }
+      options: { ...options, useTools: useAgentTools.value, traceId }
     })
 
     const payload = normalizeResponse(res)
@@ -1021,7 +1108,7 @@ async function send() {
     messages.value.push({
       role: 'assistant',
       content: answer,
-      trace: payload.data?.trace || payload.trace || null,
+      trace: payload.data?.trace || payload.trace || liveTrace.value || null,
       sources: payload.data?.sources || payload.sources || payload.data?.knowledgeHits || [],
       toolResults: payload.data?.toolResults || payload.toolResults || payload.data?.tools || [],
       actionResult: payload.actionResult || null,
@@ -1045,9 +1132,12 @@ async function send() {
     messages.value.push({
       role: 'assistant',
       content: `AI 问答失败：${error?.message || '未知错误'}`,
+      trace: liveTrace.value || null,
       meta: { fallback: true, answerSourceLabel: '请求失败' }
     })
   } finally {
+    await pollLiveTraceOnce(traceId)
+    stopLiveTracePolling()
     loading.value = false
   }
 }
@@ -1440,6 +1530,40 @@ function openTrace(execution: Record<string, any>) {
 .ai-wait-panel.slow {
   border-color: #fde68a;
   background: #fffbeb;
+}
+
+.live-trace-panel {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(148, 163, 184, 0.32);
+}
+
+.live-current {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #334155;
+  font-size: 12px;
+}
+
+.live-current strong {
+  color: #0f172a;
+}
+
+.live-meta,
+.live-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.live-trace-error {
+  margin-top: 8px;
+  color: #b45309;
+  font-size: 12px;
 }
 
 .diagnostics-grid {
