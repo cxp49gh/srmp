@@ -6,6 +6,7 @@ import {
   normalizeLiveTraceSnapshot,
   shouldPauseLiveTracePolling
 } from '../src/utils/liveTrace.ts'
+import { toAiExecutionSnapshot } from '../src/views/agent/components/aiExecution.ts'
 
 test('creates stable web trace ids with prefix', () => {
   const id = createWebTraceId(() => 1710000000000, () => 0.123456)
@@ -50,4 +51,25 @@ test('builds compact wait summary', () => {
 test('pauses polling after three failures', () => {
   assert.equal(shouldPauseLiveTracePolling(2), false)
   assert.equal(shouldPauseLiveTracePolling(3), true)
+})
+
+test('AiTrace snapshot accepts live running trace', () => {
+  const snapshot = toAiExecutionSnapshot({
+    trace: {
+      traceId: 'trace-live',
+      status: 'RUNNING',
+      currentStep: { name: 'answer_generate', label: '生成回答', status: 'RUNNING', elapsedMs: 8000 },
+      steps: [{ name: 'tool_execute', label: '执行只读工具', status: 'SUCCESS', elapsedMs: 200, count: 2 }],
+      toolSummary: { planned: 2, completed: 2, success: 2, failed: 0 },
+      sourceSummary: { business: 4, knowledge: 1, outline: 0 },
+      costMs: 8200
+    },
+    answerMeta: { llmStatus: 'RUNNING' }
+  })
+
+  assert.equal(snapshot.summary.traceId, 'trace-live')
+  assert.equal(snapshot.summary.status, 'RUNNING')
+  assert.equal(snapshot.currentStep.name, 'answer_generate')
+  assert.equal(snapshot.summary.toolTotalCount, 2)
+  assert.equal(snapshot.evidence.businessCount, 4)
 })
