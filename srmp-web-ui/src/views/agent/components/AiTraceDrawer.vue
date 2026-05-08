@@ -20,6 +20,16 @@
 
       <AnswerSourceAlert :meta="snapshot.answerMeta" allow-empty />
 
+      <section v-if="snapshot.currentStep" class="trace-section current-step">
+        <h3>当前步骤</h3>
+        <div class="step-title">
+          <strong>{{ snapshot.currentStep.label }}</strong>
+          <el-tag size="small" :type="tagType(snapshot.currentStep.status)">{{ snapshot.currentStep.status }}</el-tag>
+        </div>
+        <div class="step-meta">{{ snapshot.currentStep.costMs || 0 }}ms</div>
+        <div v-if="snapshot.currentStep.error" class="error">{{ snapshot.currentStep.error }}</div>
+      </section>
+
       <el-alert
         v-for="warning in snapshot.warnings"
         :key="warning"
@@ -150,6 +160,13 @@ function formatJson(value: any) {
 .trace-section h3 {
   margin: 0 0 10px;
   font-size: 14px;
+}
+
+.current-step {
+  padding: 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
 }
 
 .step-title {

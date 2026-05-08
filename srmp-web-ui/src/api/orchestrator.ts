@@ -73,6 +73,18 @@ export function getOrchestratorHealthDetail(includeGateway = true, includeContra
   })
 }
 
+export async function getOrchestratorQuickDiagnostics(): Promise<Record<string, any>> {
+  const [healthDetail, summary] = await Promise.all([
+    getOrchestratorHealthDetail(false, false),
+    getOrchestratorOpsSummary(3)
+  ])
+  return { healthDetail, summary }
+}
+
+export function getOrchestratorLiveTrace(traceId: string): Promise<Record<string, any>> {
+  return aiRequest.get(`/api/agent/orchestrator/ops/live-trace/${encodeURIComponent(traceId)}`)
+}
+
 export function getOrchestratorPersistence(): Promise<Record<string, any>> {
   return aiRequest.get('/api/agent/orchestrator/ops/persistence')
 }

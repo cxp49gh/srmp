@@ -1,5 +1,6 @@
 export interface AiExecutionStep {
   key: string
+  name?: string
   label: string
   status: string
   costMs?: number
@@ -34,6 +35,7 @@ export interface AiExecutionSnapshot {
     sourceCount?: number
   }
   answerMeta: Record<string, any>
+  currentStep?: AiExecutionStep | null
   steps: AiExecutionStep[]
   tools: AiExecutionTool[]
   evidence: {
@@ -103,6 +105,9 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     replayResponse?.trace?.steps,
     responsePreview.trace?.steps
   ))
+  const currentStep = normalizeStep(trace?.currentStep || trace?.current_step, -1)
+  const liveToolSummary = firstRecord(trace?.toolSummary, trace?.tool_summary)
+  const liveSourceSummary = firstRecord(trace?.sourceSummary, trace?.source_summary)
   const tools = normalizeTools(toolResults)
   const quality = firstRecord(
     solution.quality,
@@ -125,22 +130,23 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     status: stringValue(record?.status || trace?.status || replayResult?.status || responsePreview.status || (replayResult ? 'SUCCESS' : undefined)),
     costMs: numberValue(trace?.costMs ?? trace?.totalCostMs ?? trace?.total_cost_ms ?? replayResult?.costMs ?? record?.costMs),
     fallback: booleanValue(answerMeta.fallback ?? trace?.fallback ?? record?.fallbackLike),
-    toolTotalCount: numberValue(responseData.toolTotalCount ?? record?.toolTotalCount ?? tools.length),
-    toolSuccessCount: numberValue(responseData.toolSuccessCount ?? record?.toolSuccessCount ?? tools.filter((item) => item.success).length),
-    toolFailedCount: numberValue(responseData.toolFailedCount ?? record?.toolFailedCount ?? tools.filter((item) => !item.success).length),
+    toolTotalCount: numberValue(responseData.toolTotalCount ?? record?.toolTotalCount ?? liveToolSummary.planned ?? tools.length),
+    toolSuccessCount: numberValue(responseData.toolSuccessCount ?? record?.toolSuccessCount ?? liveToolSummary.success ?? tools.filter((item) => item.success).length),
+    toolFailedCount: numberValue(responseData.toolFailedCount ?? record?.toolFailedCount ?? liveToolSummary.failed ?? tools.filter((item) => !item.success).length),
     sourceCount: numberValue(responseData.sourceCount ?? responsePreview.sourceCount ?? record?.sourceCount ?? sources.length)
   }
 
   return {
     summary,
     answerMeta,
+    currentStep,
     steps,
     tools,
     evidence: {
       sourceCount: summary.sourceCount,
-      knowledgeCount: countSources(sources, 'KNOWLEDGE'),
-      businessCount: countSources(sources, 'BUSINESS'),
-      outlineCount: countSources(sources, 'OUTLINE'),
+      knowledgeCount: numberValue(liveSourceSummary.knowledge) ?? countSources(sources, 'KNOWLEDGE'),
+      businessCount: numberValue(liveSourceSummary.business) ?? countSources(sources, 'BUSINESS'),
+      outlineCount: numberValue(liveSourceSummary.outline) ?? countSources(sources, 'OUTLINE'),
       sources
     },
     quality,
@@ -160,20 +166,26 @@ function extractTrace(input: AiExecutionInput): Record<string, any> | null {
 }
 
 function normalizeSteps(steps: any[]): AiExecutionStep[] {
-  return steps.map((step, index) => {
-    const item = asRecord(step)
-    const key = stringValue(item.key || item.id || item.step_name || item.name || `step-${index}`) || `step-${index}`
-    return {
-      key,
-      label: stringValue(item.step_label || item.label || item.step_name || item.name || key) || key,
-      status: stringValue(item.status || 'UNKNOWN') || 'UNKNOWN',
-      costMs: numberValue(item.cost_ms ?? item.costMs ?? item.elapsedMs),
-      count: item.hit_count ?? item.count ?? item.resultCount,
-      phase: stringValue(item.phase || item.node || item.group),
-      error: stringValue(item.error_message || item.error || item.errorMessage),
-      data: firstRecord(item.data, item.detail, item.details)
-    }
-  })
+  return steps
+    .map((step, index) => normalizeStep(step, index))
+    .filter((step): step is AiExecutionStep => Boolean(step))
+}
+
+function normalizeStep(step: any, index: number): AiExecutionStep | null {
+  const item = asRecord(step)
+  if (!Object.keys(item).length) return null
+  const key = stringValue(item.key || item.id || item.step_name || item.name || `step-${index}`) || `step-${index}`
+  return {
+    key,
+    name: stringValue(item.name || item.node || item.step_name || key),
+    label: stringValue(item.step_label || item.label || item.message || item.step_name || item.name || key) || key,
+    status: stringValue(item.status || 'UNKNOWN') || 'UNKNOWN',
+    costMs: numberValue(item.cost_ms ?? item.costMs ?? item.elapsedMs),
+    count: item.hit_count ?? item.count ?? item.resultCount,
+    phase: stringValue(item.phase || item.node || item.group),
+    error: stringValue(item.error_message || item.error || item.errorMessage),
+    data: firstRecord(item.data, item.detail, item.details)
+  }
 }
 
 function normalizeTools(tools: any[]): AiExecutionTool[] {

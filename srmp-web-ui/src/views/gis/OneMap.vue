@@ -116,6 +116,7 @@ import {
   type GisLayerQuery
 } from '../../api/gis'
 import { mapAgentRun } from '../../api/agent'
+import { getOrchestratorLiveTrace } from '../../api/orchestrator'
 import { layerStyle } from '../../utils/leafletStyle'
 import { getMetricGrade, getMetricMeta, getMetricValue } from '../../utils/roadConditionMetrics'
 import type { GeoJsonFeatureCollection } from '../../types/geojson'
@@ -127,6 +128,7 @@ import SolutionPreviewDialog from './components/SolutionPreviewDialog.vue'
 import AiTraceDrawer from '../agent/components/AiTraceDrawer.vue'
 import { buildRegionUnifiedContext, buildUnifiedAnalysisTargets, sourceToMapTarget, type GisSourceMapTarget } from '../../utils/gisUnifiedContext'
 import { createLatestRequestGuard } from '../../utils/latestRequestGuard'
+import { createWebTraceId, normalizeLiveTraceSnapshot, shouldPauseLiveTracePolling, type LiveTraceSnapshot } from '../../utils/liveTrace'
 
 type MapRegionSolutionResponse = {
   solutionType: string
@@ -170,6 +172,9 @@ const regionGeometryType = ref<'RECTANGLE' | 'POLYGON'>('RECTANGLE')
 const regionGeometry = ref<Record<string, any> | null>(null)
 const regionSummary = ref<Record<string, any> | null>(null)
 const regionSolution = ref<MapRegionSolutionResponse | null>(null)
+const regionLiveTraceId = ref('')
+const regionLiveTrace = ref<LiveTraceSnapshot | null>(null)
+const regionLiveTraceFailureCount = ref(0)
 const regionSolutionToolResults = computed(() => (regionSolution.value as any)?.toolResults || [])
 const regionSolutionSources = computed(() => (regionSolution.value as any)?.sources || (regionSolution.value as any)?.knowledgeSources || [])
 const regionLoading = ref(false)
@@ -200,6 +205,7 @@ let aiSourceHighlightLayer: L.Layer | null = null
 let rectangleStart: L.LatLng | null = null
 let regionSummaryRequestSeq = 0
 let layerChangeTimer: ReturnType<typeof window.setTimeout> | null = null
+let regionLiveTraceTimer: ReturnType<typeof window.setInterval> | null = null
 let mapDisposed = false
 const objectDetailRequestGuard = createLatestRequestGuard()
 const regionSolutionRequestGuard = createLatestRequestGuard()
@@ -304,6 +310,7 @@ const agentContext = computed(() => ({
   metric: getMetricMeta(query.indexCode),
   statistics: statistics.value,
   regionTrace: regionSolution.value?.trace || null,
+  regionLiveTrace: regionLiveTrace.value,
   regionSolution: regionSolution.value,
   regionLoading: regionLoading.value,
   regionSummaryLoading: regionSummaryLoading.value,
@@ -361,6 +368,7 @@ onUnmounted(() => {
     window.clearTimeout(layerChangeTimer)
     layerChangeTimer = null
   }
+  stopRegionLiveTracePolling()
   if (map) {
     map.off()
     map.remove()
@@ -1001,6 +1009,10 @@ function clearRegion() {
   regionGeometry.value = null
   regionSummary.value = null
   regionSolution.value = null
+  regionLiveTraceId.value = ''
+  regionLiveTrace.value = null
+  regionLiveTraceFailureCount.value = 0
+  stopRegionLiveTracePolling()
   regionLoading.value = false
   regionSummaryLoading.value = false
   regionSavedTask.value = null
@@ -1024,6 +1036,10 @@ function setRegionLayer(layer: L.Layer, geometry: Record<string, any>, geometryT
   regionGeometry.value = geometry
   regionSummary.value = buildClientRegionSummary(geometry)
   regionSolution.value = null
+  regionLiveTraceId.value = ''
+  regionLiveTrace.value = null
+  regionLiveTraceFailureCount.value = 0
+  stopRegionLiveTracePolling()
   regionSavedTask.value = null
   regionMode.value = 'NONE'
   map.dragging.enable()
@@ -1223,6 +1239,45 @@ async function loadRegionSummary(geometry: Record<string, any>) {
   }
 }
 
+function beginRegionLiveTrace(traceId: string) {
+  regionLiveTraceId.value = traceId
+  regionLiveTrace.value = null
+  regionLiveTraceFailureCount.value = 0
+  stopRegionLiveTracePolling()
+  window.setTimeout(() => {
+    if (regionLiveTraceId.value !== traceId) return
+    void pollRegionLiveTraceOnce(traceId)
+    regionLiveTraceTimer = window.setInterval(() => {
+      void pollRegionLiveTraceOnce(traceId)
+    }, 1500)
+  }, 500)
+}
+
+async function pollRegionLiveTraceOnce(traceId = regionLiveTraceId.value) {
+  if (!traceId) return
+  try {
+    const result = await getOrchestratorLiveTrace(traceId)
+    const snapshot = normalizeLiveTraceSnapshot(result)
+    if (regionLiveTraceId.value !== traceId) return
+    regionLiveTrace.value = snapshot
+    regionLiveTraceFailureCount.value = 0
+    if (['SUCCESS', 'FAILED', 'TIMEOUT'].includes(snapshot.status)) {
+      stopRegionLiveTracePolling()
+    }
+  } catch (_error) {
+    regionLiveTraceFailureCount.value += 1
+    if (shouldPauseLiveTracePolling(regionLiveTraceFailureCount.value)) {
+      stopRegionLiveTracePolling()
+    }
+  }
+}
+
+function stopRegionLiveTracePolling() {
+  if (!regionLiveTraceTimer) return
+  window.clearInterval(regionLiveTraceTimer)
+  regionLiveTraceTimer = null
+}
+
 async function generateRegionSolution() {
   if (!regionGeometry.value) {
     ElMessage.warning('请先绘制区域')
@@ -1234,8 +1289,10 @@ async function generateRegionSolution() {
   const querySnapshot = { ...query }
   const layerSnapshot = activeLayerNames()
   const summarySnapshot = regionSummary.value || undefined
+  const traceId = createWebTraceId()
   contextScope.value = 'REGION'
   regionLoading.value = true
+  beginRegionLiveTrace(traceId)
   try {
     const result = unwrapApiPayload(await mapAgentRun({
       action: 'GENERATE_REGION_SOLUTION',
@@ -1257,7 +1314,7 @@ async function generateRegionSolution() {
       actionInput: {
         solutionType: 'REGION_MAINTENANCE_SUGGESTION'
       },
-      options: { useBusinessData: true, useKnowledge: true, useOutline: false, topK: 5, requireAi: true, indexCode: querySnapshot.indexCode, grade: querySnapshot.grade }
+      options: { useBusinessData: true, useKnowledge: true, useOutline: false, topK: 5, requireAi: true, indexCode: querySnapshot.indexCode, grade: querySnapshot.grade, traceId }
     })) as any
     if (!regionSolutionRequestGuard.isCurrent(requestToken) || !isSameRegionSolutionContext(geometrySnapshot, querySnapshot, layerSnapshot)) return
     const actionResult = result.actionResult || {}
@@ -1279,7 +1336,7 @@ async function generateRegionSolution() {
       toolResults: result.toolResults || [],
       sources: result.sources || result.knowledgeSources || [],
       sourceSummaries,
-      trace: result.trace || {}
+      trace: result.trace || regionLiveTrace.value || {}
     } as MapRegionSolutionResponse
     if (actionResult.regionSummary) {
       regionSummary.value = normalizeRegionSummary(actionResult.regionSummary, geometrySnapshot)
@@ -1292,6 +1349,10 @@ async function generateRegionSolution() {
       ElMessage.error(error?.message || '生成区域养护建议失败')
     }
   } finally {
+    if (regionLiveTraceId.value === traceId) {
+      await pollRegionLiveTraceOnce(traceId)
+      stopRegionLiveTracePolling()
+    }
     if (regionSolutionRequestGuard.isCurrent(requestToken)) {
       regionLoading.value = false
     }

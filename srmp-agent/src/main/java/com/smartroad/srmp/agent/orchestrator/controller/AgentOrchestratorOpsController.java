@@ -23,8 +23,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriUtils;
 
 import javax.annotation.Resource;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -183,6 +185,16 @@ public class AgentOrchestratorOpsController {
         String path = "/api/srmp/langgraph/diagnostics/health?includeGateway=" + Boolean.TRUE.equals(includeGateway)
                 + "&includeContract=" + Boolean.TRUE.equals(includeContract);
         return R.ok(remoteGet(path));
+    }
+
+    @GetMapping("/live-trace/{traceId}")
+    public R<Object> liveTrace(@PathVariable("traceId") String traceId) {
+        return R.ok(remoteGet(liveTraceRuntimePath(traceId), 3000));
+    }
+
+    String liveTraceRuntimePath(String traceId) {
+        String safeTraceId = traceId == null ? "" : traceId;
+        return "/api/srmp/langgraph/trace/live/" + UriUtils.encodePathSegment(safeTraceId, StandardCharsets.UTF_8);
     }
 
     @GetMapping("/persistence")
