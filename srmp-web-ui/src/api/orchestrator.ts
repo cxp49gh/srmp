@@ -81,6 +81,10 @@ export async function getOrchestratorQuickDiagnostics(): Promise<Record<string, 
   return { healthDetail, summary }
 }
 
+export function getOrchestratorLiveTrace(traceId: string): Promise<Record<string, any>> {
+  return aiRequest.get(`/api/agent/orchestrator/ops/live-trace/${encodeURIComponent(traceId)}`)
+}
+
 export function getOrchestratorPersistence(): Promise<Record<string, any>> {
   return aiRequest.get('/api/agent/orchestrator/ops/persistence')
 }
