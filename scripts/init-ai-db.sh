@@ -1,19 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# AI / Outline 数据库一键初始化脚本
-#
-# 默认参数：
-#   DB_HOST=127.0.0.1
-#   DB_PORT=5432
-#   DB_USER=srmp
-#   DB_NAME=srmp
-#
-# 可通过环境变量覆盖：
-#   DB_HOST=127.0.0.1 DB_PORT=5432 DB_USER=srmp DB_NAME=srmp ./scripts/init-ai-db.sh
-#
-# 如果需要密码：
-#   export PGPASSWORD=你的密码
+# AI / Outline 数据库初始化：与一键启动相同，执行全量 srmp_full_init.sql（幂等）。
+# 环境变量与 scripts/srmp-init-demo.sh 一致时可设置 FULL_SQL 覆盖路径。
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -24,6 +13,7 @@ DB_USER="${DB_USER:-srmp}"
 DB_NAME="${DB_NAME:-srmp}"
 
 PSQL_BIN="${PSQL_BIN:-psql}"
+FULL_SQL="${FULL_SQL:-$ROOT_DIR/srmp-admin/src/main/resources/db/srmp_full_init.sql}"
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -38,8 +28,8 @@ run_sql_file() {
   local name="$2"
 
   if [ ! -f "$file" ]; then
-    echo "[WARN] SQL 文件不存在，跳过：$file"
-    return 0
+    echo "[FAIL] SQL 文件不存在：$file"
+    exit 1
   fi
 
   echo "==> 执行 $name"
@@ -56,20 +46,15 @@ run_sql_file() {
 
 require_cmd "$PSQL_BIN"
 
-echo "==> 初始化 AI / Outline 数据库"
+echo "==> 初始化 AI / Outline 数据库（全量 SQL）"
 echo "    host=$DB_HOST"
 echo "    port=$DB_PORT"
 echo "    user=$DB_USER"
 echo "    db=$DB_NAME"
+echo "    file=$FULL_SQL"
 echo ""
 
-run_sql_file "srmp-admin/src/main/resources/db/phase17_outline_sync.sql" "阶段十七：Outline 同步任务表"
-run_sql_file "srmp-admin/src/main/resources/db/phase36_map_ai_agent_vector_knowledge.sql" "阶段三十六：AI 向量知识库"
-run_sql_file "srmp-admin/src/main/resources/db/phase37_1_knowledge_reindex.sql" "阶段三十七：知识库 Reindex 元数据"
-run_sql_file "srmp-admin/src/main/resources/db/phase39_2_2_outline_sync_contract_vector_closure.sql" "阶段三十九：Outline 同步契约与向量闭环"
-run_sql_file "srmp-admin/src/main/resources/db/phase39_3_outline_auto_sync_webhook.sql" "阶段三十九：Outline 自动同步与 Webhook"
-run_sql_file "srmp-admin/src/main/resources/db/phase41_outline_vectorize_ops.sql" "阶段四十一：Outline 向量补齐运维索引"
-run_sql_file "srmp-admin/src/main/resources/db/phase42_llm_timeout_outline_auto_sync_closure.sql" "阶段四十二：AI 超时与 Outline 自动同步收口"
+run_sql_file "$FULL_SQL" "SRMP 全量初始化（含 AI/Outline）"
 
 echo ""
 echo "==> 初始化完成"

@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-test -f srmp-admin/src/main/resources/db/phase33_ai_solution_draft_version.sql
-grep -R "draft_status" -n srmp-admin/src/main/resources/db/phase33_ai_solution_draft_version.sql srmp-agent/src/main/java >/dev/null
+test -f srmp-admin/src/main/resources/db/srmp_full_init.sql
+grep -R "draft_status" -n srmp-admin/src/main/resources/db/srmp_full_init.sql srmp-agent/src/main/java >/dev/null
 grep -R "ai_solution_task_version" -n srmp-admin/src/main/resources/db srmp-agent/src/main/java >/dev/null
 grep -R "AiSolutionDraftService" -n srmp-agent/src/main/java >/dev/null
 grep -R "AiSolutionDraftSaveRequest" -n srmp-agent/src/main/java >/dev/null

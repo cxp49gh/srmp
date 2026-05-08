@@ -9,8 +9,9 @@ DB_PORT="${DB_PORT:-5432}"
 DB_USER="${DB_USER:-srmp}"
 DB_NAME="${DB_NAME:-srmp}"
 PSQL_BIN="${PSQL_BIN:-psql}"
+FULL_SQL="${FULL_SQL:-$ROOT_DIR/srmp-admin/src/main/resources/db/srmp_full_init.sql}"
 
 "$PSQL_BIN" -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
-  -f srmp-admin/src/main/resources/db/phase21_ai_solution_generate.sql
+  -f "$FULL_SQL"
 
-echo "[OK] 阶段二十一 AI 方案生成表初始化完成"
+echo "[OK] AI 方案生成相关表已随全量 SQL 初始化完成"

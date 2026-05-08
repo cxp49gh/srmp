@@ -4,11 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
-echo "==> 检查 Phase36 后端文件"
-test -f srmp-admin/src/main/resources/db/phase36_map_ai_agent_vector_knowledge.sql
-grep -q "CREATE EXTENSION IF NOT EXISTS vector" srmp-admin/src/main/resources/db/phase36_map_ai_agent_vector_knowledge.sql
-grep -q "CREATE TABLE IF NOT EXISTS ai_knowledge_document" srmp-admin/src/main/resources/db/phase36_map_ai_agent_vector_knowledge.sql
-grep -q "CREATE TABLE IF NOT EXISTS ai_knowledge_chunk" srmp-admin/src/main/resources/db/phase36_map_ai_agent_vector_knowledge.sql
+echo "==> 检查 Phase36 后端文件（全量 SQL）"
+test -f srmp-admin/src/main/resources/db/srmp_full_init.sql
+grep -q "CREATE EXTENSION IF NOT EXISTS vector" srmp-admin/src/main/resources/db/srmp_full_init.sql
+grep -q "CREATE TABLE IF NOT EXISTS ai_knowledge_document" srmp-admin/src/main/resources/db/srmp_full_init.sql
+grep -q "CREATE TABLE IF NOT EXISTS ai_knowledge_chunk" srmp-admin/src/main/resources/db/srmp_full_init.sql
 
 test -f srmp-agent/src/main/java/com/smartroad/srmp/agent/embedding/EmbeddingClient.java
 test -f srmp-agent/src/main/java/com/smartroad/srmp/agent/knowledge/service/AiKnowledgeRetrieverService.java

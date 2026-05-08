@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
+# 数据库初始化：单一 SQL 入口 srmp-admin/src/main/resources/db/srmp_full_init.sql
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
+
+FULL_SQL="${FULL_SQL:-$ROOT_DIR/srmp-admin/src/main/resources/db/srmp_full_init.sql}"
 
 DB_HOST="${DB_HOST:-127.0.0.1}"
 DB_PORT="${DB_PORT:-5432}"
@@ -25,6 +28,9 @@ while [ "$#" -gt 0 ]; do
       ;;
     --help)
       echo "Usage: $0 [--reset-demo] [--local-dev]"
+      echo "执行单一文件: srmp-admin/src/main/resources/db/srmp_full_init.sql"
+      echo "可用环境变量 FULL_SQL 覆盖该文件路径。"
+      echo "全量 SQL 仅 srmp_full_init.sql；说明脚本: powershell -File scripts/rebuild-srmp-full-init.ps1"
       exit 0
       ;;
     *)
@@ -81,8 +87,6 @@ run_sql_text() {
 
 ensure_psql_available
 
-run_sql_file "srmp-admin/src/main/resources/db/schema.sql" "base schema"
-
 if [ "$RESET_DEMO" = "1" ]; then
   run_sql_text "reset G210 demo data" "
 DELETE FROM index_result WHERE tenant_id = 'default' AND route_code = 'G210';
@@ -94,21 +98,6 @@ DELETE FROM road_route WHERE tenant_id = 'default' AND route_code = 'G210';
 "
 fi
 
-run_sql_file "srmp-admin/src/main/resources/db/init_dict.sql" "dictionary data"
-run_sql_file "srmp-admin/src/main/resources/db/init_admin.sql" "admin data"
-run_sql_file "srmp-admin/src/main/resources/db/phase17_outline_sync.sql" "outline sync schema"
-run_sql_file "srmp-admin/src/main/resources/db/phase36_map_ai_agent_vector_knowledge.sql" "AI vector knowledge schema"
-run_sql_file "srmp-admin/src/main/resources/db/phase37_1_knowledge_reindex.sql" "AI knowledge reindex metadata"
-run_sql_file "srmp-admin/src/main/resources/db/phase39_2_2_outline_sync_contract_vector_closure.sql" "Outline sync contract vector closure"
-run_sql_file "srmp-admin/src/main/resources/db/phase39_3_outline_auto_sync_webhook.sql" "Outline auto sync webhook schema"
-run_sql_file "srmp-admin/src/main/resources/db/phase41_outline_vectorize_ops.sql" "Outline vectorize ops indexes"
-run_sql_file "srmp-admin/src/main/resources/db/phase42_llm_timeout_outline_auto_sync_closure.sql" "AI timeout and Outline auto sync closure"
-run_sql_file "srmp-admin/src/main/resources/db/phase20_ai_solution_template.sql" "AI solution template schema"
-run_sql_file "srmp-admin/src/main/resources/db/phase21_ai_solution_generate.sql" "AI solution generation schema"
-run_sql_file "srmp-admin/src/main/resources/db/phase22_ai_trace_monitor.sql" "AI trace schema"
-run_sql_file "srmp-admin/src/main/resources/db/phase33_ai_solution_draft_version.sql" "AI solution draft version schema"
-run_sql_file "srmp-admin/src/main/resources/db/phase35_template_effectiveness.sql" "template effectiveness schema"
-run_sql_file "srmp-admin/src/main/resources/db/phase35_sample_solution_templates.sql" "sample solution templates"
-run_sql_file "srmp-admin/src/main/resources/db/phase36_one_click_demo_seed.sql" "G210 2026 demo business data"
+run_sql_file "$FULL_SQL" "srmp full init (single SQL)"
 
 echo "[OK] SRMP database and demo data initialized"

@@ -8,4 +8,4 @@ python3 scripts/patch-phase38-agent-chat-ai-context.py
 python3 scripts/patch-phase38-solution-tasks-page.py
 
 echo "[OK] Phase38 前端 patch 已应用"
-echo "请执行数据库迁移：srmp-admin/src/main/resources/db/phase38_ai_solution_task_closure.sql"
+echo "请执行数据库迁移：srmp-admin/src/main/resources/db/srmp_full_init.sql（或 ./scripts/srmp-init-demo.sh）"

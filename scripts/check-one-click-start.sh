@@ -12,8 +12,8 @@ test -f deploy/docker/frontend/Dockerfile
 test -f deploy/docker/frontend/nginx.conf
 test -f scripts/srmp-one-click-start.sh
 test -f scripts/srmp-init-demo.sh
+test -f srmp-admin/src/main/resources/db/srmp_full_init.sql
 test -f scripts/srmp-check-ready.sh
-test -f srmp-admin/src/main/resources/db/phase36_one_click_demo_seed.sql
 test -f docs/one-click-start-guide.md
 
 bash -n scripts/srmp-one-click-start.sh
@@ -25,11 +25,12 @@ grep -R "frontend:" -n docker-compose.app.yml >/dev/null
 grep -R "srmp-backend" -n docker-compose.app.yml deploy/docker/backend/Dockerfile >/dev/null
 grep -R "srmp-frontend" -n docker-compose.app.yml deploy/docker/frontend >/dev/null
 grep -R "proxy_pass http://backend:8080/api/" -n deploy/docker/frontend/nginx.conf >/dev/null
-grep -R "phase36_one_click_demo_seed.sql" -n scripts/srmp-init-demo.sh >/dev/null
+grep -R "phase36_one_click_demo_seed" -n srmp-admin/src/main/resources/db/srmp_full_init.sql >/dev/null
 grep -R "docker exec -i srmp-postgres psql" -n scripts/srmp-init-demo.sh >/dev/null
 grep -R "docker compose -f docker-compose.yml -f docker-compose.app.yml" -n scripts/srmp-one-click-start.sh docs/one-click-start-guide.md README.md >/dev/null
-grep -R "1000" -n srmp-admin/src/main/resources/db/phase36_one_click_demo_seed.sql scripts/srmp-check-ready.sh >/dev/null
-grep -R "3000" -n srmp-admin/src/main/resources/db/phase36_one_click_demo_seed.sql scripts/srmp-check-ready.sh >/dev/null
+grep -R "1000" -n srmp-admin/src/main/resources/db/srmp_full_init.sql scripts/srmp-check-ready.sh >/dev/null
+grep -R "3000" -n scripts/srmp-check-ready.sh >/dev/null
+grep -R "generate_series(1, 3)" -n srmp-admin/src/main/resources/db/srmp_full_init.sql >/dev/null
 
 if command -v docker >/dev/null 2>&1; then
   docker compose -f docker-compose.yml -f docker-compose.app.yml config >/tmp/srmp-compose-config.yml

@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
+#
+# SRMP 一键启动：Docker 依赖 → 数据库初始化（单一 SQL：srmp-admin/.../srmp_full_init.sql）→ 后端/前端
+# 全量 SQL 维护说明：powershell -File scripts/rebuild-srmp-full-init.ps1
+#
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
+
+# 数据库初始化：全量 SQL（与 scripts/srmp-init-demo.sh 一致；可用环境变量 FULL_SQL 覆盖）
+export FULL_SQL="${FULL_SQL:-$ROOT_DIR/srmp-admin/src/main/resources/db/srmp_full_init.sql}"
+
+COMPOSE_BASE=(docker compose -f docker-compose.yml -f docker-compose.app.yml)
 
 RESET_DEMO=0
 SKIP_BUILD=0
@@ -55,6 +64,8 @@ Options:
   --check-only       Run readiness checks only.
   --local-dev        Use local Java/Maven/Node processes instead of backend/frontend Docker containers.
   --help             Show this help.
+
+Database: single file srmp-admin/src/main/resources/db/srmp_full_init.sql (via scripts/srmp-init-demo.sh); see scripts/rebuild-srmp-full-init.ps1 for notes.
 USAGE
       exit 0
       ;;
@@ -73,7 +84,7 @@ require_cmd() {
 }
 
 compose() {
-  docker compose "$@"
+  "${COMPOSE_BASE[@]}" "$@"
 }
 
 wait_postgres() {
@@ -150,11 +161,8 @@ if [ "$FRONTEND_ONLY" = "0" ]; then
   if [ "$LOCAL_DEV" = "1" ]; then
     INIT_ARGS+=(--local-dev)
   fi
-  if [ "${#INIT_ARGS[@]}" -gt 0 ]; then
-    ./scripts/srmp-init-demo.sh "${INIT_ARGS[@]}"
-  else
-    ./scripts/srmp-init-demo.sh
-  fi
+  echo "==> initializing database: $FULL_SQL"
+  ./scripts/srmp-init-demo.sh "${INIT_ARGS[@]}"
 fi
 
 if [ "$NO_START" = "1" ]; then
@@ -170,24 +178,16 @@ if [ "$LOCAL_DEV" = "1" ]; then
     start_local_frontend
   fi
 else
+  build_flag=()
+  if [ "$SKIP_BUILD" != "1" ]; then
+    build_flag=(--build)
+  fi
   if [ "$BACKEND_ONLY" = "1" ]; then
-    if [ "$SKIP_BUILD" = "1" ]; then
-      compose -f docker-compose.yml -f docker-compose.app.yml up -d backend
-    else
-      compose -f docker-compose.yml -f docker-compose.app.yml up -d --build backend
-    fi
+    compose up -d "${build_flag[@]}" backend
   elif [ "$FRONTEND_ONLY" = "1" ]; then
-    if [ "$SKIP_BUILD" = "1" ]; then
-      compose -f docker-compose.yml -f docker-compose.app.yml up -d frontend
-    else
-      compose -f docker-compose.yml -f docker-compose.app.yml up -d --build frontend
-    fi
+    compose up -d "${build_flag[@]}" frontend
   else
-    if [ "$SKIP_BUILD" = "1" ]; then
-      compose -f docker-compose.yml -f docker-compose.app.yml up -d backend frontend
-    else
-      compose -f docker-compose.yml -f docker-compose.app.yml up -d --build backend frontend
-    fi
+    compose up -d "${build_flag[@]}" backend frontend
   fi
 fi
 
@@ -204,11 +204,12 @@ else
   ./scripts/srmp-check-ready.sh
 fi
 
+COMPOSE_FILES_STR="docker compose -f docker-compose.yml -f docker-compose.app.yml"
 cat <<INFO
 
 [OK] SRMP started
 Frontend: http://localhost:${FRONTEND_PORT:-5173}
 Backend:  http://localhost:${BACKEND_PORT:-8080}
-Backend logs:  docker compose -f docker-compose.yml -f docker-compose.app.yml logs -f backend
-Frontend logs: docker compose -f docker-compose.yml -f docker-compose.app.yml logs -f frontend
+Backend logs:  $COMPOSE_FILES_STR logs -f backend
+Frontend logs: $COMPOSE_FILES_STR logs -f frontend
 INFO

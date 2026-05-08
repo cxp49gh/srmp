@@ -1,6 +1,6 @@
 -- G210 2026 演示数据核查脚本
 -- 用法：
--- psql -h 127.0.0.1 -U srmp -d srmp -f srmp-admin/src/main/resources/db/check_g210_2026_data.sql
+-- psql -h 127.0.0.1 -U srmp -d srmp -f src/main/resources/db/check_g210_2026_data.sql
 
 \echo '1. assessment_result 汇总'
 SELECT

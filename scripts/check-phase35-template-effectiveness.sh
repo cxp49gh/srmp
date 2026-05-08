@@ -4,8 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-test -f srmp-admin/src/main/resources/db/phase35_template_effectiveness.sql
-test -f srmp-admin/src/main/resources/db/phase35_sample_solution_templates.sql
+test -f srmp-admin/src/main/resources/db/srmp_full_init.sql
 grep -R "template_meta" -n srmp-admin/src/main/resources/db srmp-agent/src/main/java >/dev/null
 grep -R "step_data" -n srmp-admin/src/main/resources/db srmp-agent/src/main/java >/dev/null
 grep -R "AiSolutionTemplatePipelineService" -n srmp-agent/src/main/java >/dev/null
