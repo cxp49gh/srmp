@@ -204,7 +204,7 @@
         <div v-if="liveTraceSummary" class="live-trace-panel">
           <div class="live-current">
             <span>当前步骤</span>
-            <strong>{{ liveTraceSummary.currentLabel || liveTrace?.status || '等待 Runtime 上报' }}</strong>
+            <strong>{{ liveTraceSummary.currentLabel || activeLiveTrace?.status || '等待 Runtime 上报' }}</strong>
           </div>
           <div class="live-meta">
             <span v-if="liveTraceSummary.toolLabel">{{ liveTraceSummary.toolLabel }}</span>
@@ -383,7 +383,8 @@ const latestActionResult = computed(() => latestAssistant.value?.actionResult ||
 const latestSuggestedActions = computed(() => latestAssistant.value?.suggestedActions || [])
 const aiBusy = computed(() => Boolean(loading.value || solutionLoading.value || props.regionLoading))
 const waitFeedback = computed(() => buildWaitFeedback(aiElapsedMs.value))
-const liveTraceSummary = computed(() => liveTrace.value ? buildLiveTraceSummary(liveTrace.value) : null)
+const activeLiveTrace = computed(() => liveTrace.value || props.context?.regionLiveTrace || null)
+const liveTraceSummary = computed(() => activeLiveTrace.value ? buildLiveTraceSummary(activeLiveTrace.value) : null)
 
 const activeMetricMeta = computed(() => getMetricMeta(props.context?.query?.indexCode || props.context?.indexCode || 'MQI'))
 
@@ -784,8 +785,8 @@ function stopLiveTracePolling() {
 }
 
 function openLiveTrace() {
-  if (!liveTrace.value) return
-  openTrace({ trace: liveTrace.value, answerMeta: liveTrace.value.answerMeta || {} })
+  if (!activeLiveTrace.value) return
+  openTrace({ trace: activeLiveTrace.value, answerMeta: activeLiveTrace.value.answerMeta || {} })
 }
 
 function beginAiRun(startedAt = Date.now()) {
