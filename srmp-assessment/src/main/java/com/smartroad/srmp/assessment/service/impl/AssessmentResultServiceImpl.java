@@ -1,5 +1,6 @@
 package com.smartroad.srmp.assessment.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.smartroad.srmp.assessment.dto.AssessmentResultQueryDTO;
@@ -51,4 +52,27 @@ public class AssessmentResultServiceImpl implements AssessmentResultService {
     }
     public List<AssessmentResultVO> listForMap(AssessmentResultQueryDTO query) { return mapper.selectForMap(TenantContextHolder.getTenantId(), query); }
     public AssessmentSummaryVO summary(AssessmentResultQueryDTO query) { return mapper.selectSummary(TenantContextHolder.getTenantId(), query); }
+
+    @Override
+    public void upsertForImport(AssessmentResultSaveDTO dto) {
+        String tenantId = TenantContextHolder.getTenantId();
+        String std = dto.getStandardCode() != null && !dto.getStandardCode().trim().isEmpty()
+                ? dto.getStandardCode().trim() : "JTG_5210_2018";
+        LambdaQueryWrapper<AssessmentResult> w = new LambdaQueryWrapper<>();
+        w.eq(AssessmentResult::getTenantId, tenantId)
+                .eq(AssessmentResult::getDeleted, false)
+                .eq(AssessmentResult::getObjectType, dto.getObjectType())
+                .eq(AssessmentResult::getObjectId, dto.getObjectId())
+                .eq(AssessmentResult::getYear, dto.getYear())
+                .eq(AssessmentResult::getStandardCode, std)
+                .last("LIMIT 1");
+        AssessmentResult existing = mapper.selectOne(w);
+        if (existing == null) {
+            dto.setStandardCode(std);
+            create(dto);
+        } else {
+            dto.setStandardCode(std);
+            update(existing.getId(), dto);
+        }
+    }
 }

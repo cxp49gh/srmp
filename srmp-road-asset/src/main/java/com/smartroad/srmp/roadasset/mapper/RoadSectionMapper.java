@@ -8,6 +8,7 @@ import com.smartroad.srmp.roadasset.vo.RoadSectionVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Mapper
@@ -17,4 +18,10 @@ public interface RoadSectionMapper extends BaseMapper<RoadSection> {
     int insertWithGeom(RoadSection section);
     int updateWithGeom(RoadSection section);
     List<RoadSectionVO> selectForMap(@Param("tenantId") String tenantId, @Param("q") RoadSectionQueryDTO query);
+
+    String selectIdByTenantAndSectionCode(@Param("tenantId") String tenantId, @Param("sectionCode") String sectionCode);
+
+    String selectIdByRouteStake(@Param("tenantId") String tenantId, @Param("routeCode") String routeCode,
+                               @Param("direction") String direction, @Param("startStake") BigDecimal startStake,
+                               @Param("endStake") BigDecimal endStake);
 }

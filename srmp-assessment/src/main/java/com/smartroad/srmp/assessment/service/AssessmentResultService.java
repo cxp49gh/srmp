@@ -16,4 +16,7 @@ public interface AssessmentResultService {
     void delete(String id);
     List<AssessmentResultVO> listForMap(AssessmentResultQueryDTO query);
     AssessmentSummaryVO summary(AssessmentResultQueryDTO query);
+
+    /** 导入路段包：按租户+objectType+objectId+year+standardCode 存在则更新，否则插入 */
+    void upsertForImport(AssessmentResultSaveDTO dto);
 }

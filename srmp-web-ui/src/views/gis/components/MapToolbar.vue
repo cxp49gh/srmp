@@ -50,11 +50,28 @@
         />
         <el-button
           :loading="networkImportLoading"
-          :disabled="networkImportLoading"
+          :disabled="networkImportLoading || sectionPackageImportLoading"
           title="上传包含一组 Shapefile 的 .tar 包"
           @click="triggerNetworkImport"
         >
           导入路网
+        </el-button>
+        <input
+          ref="sectionFileInputRef"
+          type="file"
+          class="network-file-input"
+          accept=".tar"
+          aria-hidden="true"
+          tabindex="-1"
+          @change="onSectionFileChange"
+        />
+        <el-button
+          :loading="sectionPackageImportLoading"
+          :disabled="networkImportLoading || sectionPackageImportLoading"
+          title="上传路线级/台账级 Shapefile 的 .tar 包"
+          @click="triggerSectionImport"
+        >
+          导入路段
         </el-button>
         <div class="region-icon-actions" aria-label="区域框选工具">
           <el-button
@@ -119,8 +136,9 @@ const props = withDefaults(
     regionMode?: 'NONE' | 'RECTANGLE' | 'POLYGON'
     hasRegion?: boolean
     networkImportLoading?: boolean
+    sectionPackageImportLoading?: boolean
   }>(),
-  { networkImportLoading: false }
+  { networkImportLoading: false, sectionPackageImportLoading: false }
 )
 
 const emit = defineEmits<{
@@ -130,9 +148,11 @@ const emit = defineEmits<{
   (e: 'start-region', value: 'RECTANGLE' | 'POLYGON'): void
   (e: 'clear-region'): void
   (e: 'import-network', file: File): void
+  (e: 'import-section-package', file: File): void
 }>()
 
 const networkFileInputRef = ref<HTMLInputElement | null>(null)
+const sectionFileInputRef = ref<HTMLInputElement | null>(null)
 
 const localQuery = reactive<GisLayerQuery>({ ...props.query })
 const metricOptions = ROAD_CONDITION_METRICS
@@ -162,6 +182,23 @@ function emitClearRegion() {
 
 function triggerNetworkImport() {
   networkFileInputRef.value?.click()
+}
+
+function triggerSectionImport() {
+  sectionFileInputRef.value?.click()
+}
+
+function onSectionFileChange(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  const name = file.name.toLowerCase()
+  if (!name.endsWith('.tar')) {
+    ElMessage.error('仅支持 .tar 格式')
+    return
+  }
+  emit('import-section-package', file)
 }
 
 function onNetworkFileChange(ev: Event) {

@@ -20,4 +20,6 @@ public interface RoadEvaluationUnitMapper extends BaseMapper<RoadEvaluationUnit>
     int updateWithGeom(RoadEvaluationUnit unit);
     List<RoadEvaluationUnitVO> selectForMap(@Param("tenantId") String tenantId, @Param("q") EvaluationUnitQueryDTO query);
     StakeLocationVO locateByStake(@Param("tenantId") String tenantId, @Param("q") StakeLocationQueryDTO query);
+
+    String selectIdByTenantAndUnitCode(@Param("tenantId") String tenantId, @Param("unitCode") String unitCode);
 }
