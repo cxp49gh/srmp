@@ -85,12 +85,14 @@ HTTPS_PROXY=http://127.0.0.1:7890
 ./scripts/srmp-one-click-start.sh
 ```
 
-脚本会启动 PostGIS、Redis、MinIO，初始化数据库和样例数据，构建并运行后端和前端 Docker 容器。
+脚本会启动 PostGIS、Redis、MinIO，初始化数据库和样例数据，构建并运行后端、`srmp-ai-orchestrator` 和前端 Docker 容器。
 
 访问地址：
 
 - 前端：http://localhost:5173
 - 后端：http://localhost:8080
+- LangGraph Runtime：http://localhost:18080
+- LangGraph 运维页：http://localhost:5173/agent/langgraph-ops
 - MinIO 控制台：http://localhost:9001
 
 常用命令：
@@ -99,6 +101,7 @@ HTTPS_PROXY=http://127.0.0.1:7890
 ./scripts/srmp-one-click-start.sh --check-only
 ./scripts/srmp-one-click-start.sh --reset-demo
 ./scripts/srmp-one-click-start.sh --skip-build
+SRMP_LANGGRAPH_URL=http://127.0.0.1:18080 ./scripts/srmp-one-click-start.sh --no-orchestrator
 ```
 
 本地 Java/Node 开发模式：
@@ -145,7 +148,7 @@ HTTPS_PROXY=http://127.0.0.1:7890
 | 阶段二十七 | 地图AI交互UX增强 | ✅ 已完成（AgentChatFloat重新设计：地图上下文横幅+操作按钮、消息标签展示来源/降级状态、快速操作按钮、AI分析/生成建议一键触发、前端Vue文件格式规范化修复vue-tsc解析） |
 | 阶段二十八 | 地图对象答案质量优化 | ✅ 已完成（MapObjectContextService.resolve(buildContextMap)体系升级、enrichMapObject合并原始属性、单病害对象本地规则回答、think标签清洗、MAP_OBJECT_LOCAL来源标签、LayerState assessmentResult支持） |
 | 阶段二十九 | OneMap布局与图层抽屉重设计 | ✅ 已完成（LayerDrawer图层分组：基础图层/业务图层/路况等级图例、AgentChatFloat消息markdown渲染、layerStyle单参数修复、地图上下文横幅简化标签、MapStatisticsBar/ObjectDetailDrawer整合） |
-| 阶段三十 | 一张图AI Agent与向量知识库 | ✅ 已完成（向量知识库表结构、EmbeddingClient、知识入库/检索接口、KnowledgeRetrieveTool、MapAiAgentService、/api/agent/map-agent/chat、pgvector扩展） |
+| 阶段三十 | 一张图AI Agent与向量知识库 | ✅ 已完成（向量知识库表结构、EmbeddingClient、知识入库/检索接口、KnowledgeRetrieveTool、MapAiAgentService、/api/agent/map-agent/run、pgvector扩展） |
 | 阶段三十一 | AI方案模板管理增强 | ✅ 已完成（模板类型/优先级/匹配规则、模板元数据、模板有效性评估、方案草稿版本管理） |
 | 阶段三十二 | AI方案生成管道优化 | ✅ 已完成（模板管道流程、来源追溯、模板匹配工具、方案生成状态机） |
 | 阶段三十三 | AI方案质量检查与导出增强 | ✅ 已完成（质量检查项细化、导出格式扩展、质量面板交互优化） |

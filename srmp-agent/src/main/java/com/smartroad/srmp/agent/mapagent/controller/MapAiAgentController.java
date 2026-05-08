@@ -1,10 +1,13 @@
 package com.smartroad.srmp.agent.mapagent.controller;
 
-import com.smartroad.srmp.agent.mapagent.dto.MapAiAgentRequest;
-import com.smartroad.srmp.agent.mapagent.dto.MapAiAgentResponse;
+import com.smartroad.srmp.agent.mapagent.dto.MapAgentRunRequest;
+import com.smartroad.srmp.agent.mapagent.dto.MapAgentRunResponse;
 import com.smartroad.srmp.agent.mapagent.service.MapAiAgentService;
 import com.smartroad.srmp.common.core.R;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import javax.annotation.Resource;
 
@@ -15,8 +18,8 @@ public class MapAiAgentController {
     @Resource
     private MapAiAgentService mapAiAgentService;
 
-    @PostMapping("/chat")
-    public R<MapAiAgentResponse> chat(@RequestBody MapAiAgentRequest request) {
-        return R.ok(mapAiAgentService.chat(request));
+    @PostMapping("/run")
+    public R<MapAgentRunResponse> run(@RequestBody MapAgentRunRequest request) {
+        return R.ok(mapAiAgentService.run(request));
     }
 }

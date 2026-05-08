@@ -64,7 +64,19 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
             List<Map<String, Object>> hotspots = runHotspotStep(trace, regionSummary);
             String businessMarkdown = runBusinessAnalysis(trace, request, regionSummary, hotspots);
             Map<String, Object> sources = runKnowledgeRetrieve(trace, request, businessMarkdown);
-            String llmMarkdown = runSolutionGenerate(trace, request, regionSummary, businessMarkdown, sources);
+            AiTraceContext.StepTimer solutionTimer = trace.step("region_solution_generate", "生成区域养护建议");
+            String llmMarkdown;
+            try {
+                llmMarkdown = runSolutionGenerate(trace, request, regionSummary, businessMarkdown, sources);
+                Map<String, Object> solutionTraceData = new LinkedHashMap<>();
+                solutionTraceData.put("answerSource", sources.get("answerSource"));
+                solutionTraceData.put("llmSuccess", sources.get("llmSuccess"));
+                solutionTraceData.put("fallback", !Boolean.TRUE.equals(sources.get("llmSuccess")));
+                solutionTimer.success(1, solutionTraceData);
+            } catch (RuntimeException e) {
+                solutionTimer.failed(e);
+                throw e;
+            }
             TemplatePipelineResult pipelineResult = runTemplatePipeline(trace, request, regionSummary, hotspots, businessMarkdown, llmMarkdown, sources);
             String markdown = pipelineResult.getMarkdown();
             Map<String, Object> quality = runQualityCheck(trace, regionSummary, markdown);

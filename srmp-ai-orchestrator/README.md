@@ -28,11 +28,12 @@ curl http://127.0.0.1:18080/health
 ## 调用示例
 
 ```bash
-curl -X POST http://127.0.0.1:18080/api/srmp/langgraph/map-agent/chat \
+curl -X POST http://127.0.0.1:18080/api/srmp/langgraph/map-agent/run \
   -H 'Content-Type: application/json' \
   -H 'X-Tenant-Id: default' \
   -d '{
     "message":"G210 中度裂缝怎么处置？",
+    "action":"CHAT",
     "mapContext":{"tenantId":"default","mode":"OBJECT","routeCode":"G210","year":2024,"mapObject":{"objectType":"DISEASE_RECORD","diseaseName":"横向裂缝","severity":"中度"}},
     "options":{"topK":8,"useKnowledge":true}
   }'
@@ -40,17 +41,28 @@ curl -X POST http://127.0.0.1:18080/api/srmp/langgraph/map-agent/chat \
 
 ## 可选 LLM 配置
 
-默认不直接调用外部模型，只根据 Java 工具结果生成保底答案。需要让 LangGraph 服务自己调用 OpenAI-compatible Chat Completion 时配置：
+默认 `SRMP_LANGGRAPH_USE_LLM=false`，Runtime 不调用外部模型，只根据 Java Tool Gateway 的 GIS/知识库结果生成确定性兜底答案。这样一键启动和本地回归不依赖付费模型。
+
+需要让 LangGraph Runtime 自己调用 OpenAI-compatible Chat Completion 时配置：
 
 ```bash
 export SRMP_LANGGRAPH_USE_LLM=true
 export SRMP_LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 export SRMP_LLM_API_KEY=你的key
 export SRMP_LLM_MODEL=qwen-plus
+export SRMP_LANGGRAPH_LLM_CONNECT_TIMEOUT_SECONDS=10
+export SRMP_LANGGRAPH_LLM_READ_TIMEOUT_SECONDS=180
+export SRMP_LANGGRAPH_LLM_MAX_TOKENS=2048
+export SRMP_LANGGRAPH_LLM_COMPACT_RETRY_ENABLED=true
 ```
 
-建议生产环境仍优先复用 Java 主工程已有 LLM 配置，后续再把 LLM 调用也包装成 Java Tool Gateway。
+验证 Python LangGraph LLM 链路：
 
+```bash
+curl -fsS 'http://localhost:8080/api/agent/orchestrator/ops/llm-probe?probe=true' | python3 -m json.tool
+```
+
+返回 `status=SUCCESS` 表示 Python Runtime 自己的 LLM 调用可用。返回 `SKIPPED` 表示未启用，返回 `FAILED` 时查看 `errorType`、`errorMessage`、`rawResponsePreview`、`probeCostMs`。
 
 ## Plan Debug
 

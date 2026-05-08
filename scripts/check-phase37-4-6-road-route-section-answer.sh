@@ -4,7 +4,7 @@ set -euo pipefail
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 
 echo "==> Phase37.4.6 路段对象专项回答验收"
-SECTION_RESP="$(curl -fsS -X POST "$BASE_URL/api/agent/map-agent/chat" \
+SECTION_RESP="$(curl -fsS -X POST "$BASE_URL/api/agent/map-agent/run" \
   -H "Content-Type: application/json" \
   -d '{
     "message": "分析当前地图选中对象，说明主要问题、成因判断，并给出养护处置建议",
@@ -52,7 +52,7 @@ print("[OK] 路段对象专项回答验收通过")
 PY
 
 echo "==> Phase37.4.6 路线对象专项回答验收"
-ROUTE_RESP="$(curl -fsS -X POST "$BASE_URL/api/agent/map-agent/chat" \
+ROUTE_RESP="$(curl -fsS -X POST "$BASE_URL/api/agent/map-agent/run" \
   -H "Content-Type: application/json" \
   -d '{
     "message": "分析当前地图选中对象，说明主要问题、成因判断，并给出养护处置建议",

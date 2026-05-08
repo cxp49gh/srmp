@@ -85,7 +85,14 @@
       @save="saveRegionDraft"
     />
 
-    <AiTraceDrawer v-model:visible="regionTraceDrawerVisible" :trace="regionSolution?.trace || null" />
+    <AiTraceDrawer
+      v-model:visible="regionTraceDrawerVisible"
+      :trace="regionSolution?.trace || null"
+      :answer-meta="regionSolution?.answerMeta || null"
+      :tool-results="regionSolutionToolResults"
+      :sources="regionSolutionSources"
+      :solution="regionSolution || null"
+    />
 
     <div v-if="mapLoadingMask" class="loading-mask">
       <el-icon class="is-loading"><Loading /></el-icon>
@@ -102,7 +109,6 @@ import { Loading } from '@element-plus/icons-vue'
 import MapToolbar from './components/MapToolbar.vue'
 import {
   analyzeMapRegion,
-  generateMapRegionSolution,
   getAssessmentResults,
   getDiseases,
   getEvaluationUnits,
@@ -111,10 +117,11 @@ import {
   getRoadRoutes,
   getRoadSections,
   saveMapRegionSolutionDraft,
-  type GisLayerQuery,
-  type MapRegionSolutionResponse
+  type GisLayerQuery
 } from '../../api/gis'
 import { importRoadNetwork, importSectionPackage } from '../../api/roadAsset'
+import { mapAgentRun } from '../../api/agent'
+import { getOrchestratorLiveTrace } from '../../api/orchestrator'
 import { styleForMapLayer } from '../../utils/leafletStyle'
 import { addTiandituBasemap, MAP_GEOGRAPHIC_CRS } from '../../utils/mapBasemap'
 import { getMetricGrade, getMetricMeta, getMetricValue } from '../../utils/roadConditionMetrics'
@@ -127,6 +134,23 @@ import LegendPanel from './components/LegendPanel.vue'
 import SolutionPreviewDialog from './components/SolutionPreviewDialog.vue'
 import AiTraceDrawer from '../agent/components/AiTraceDrawer.vue'
 import { buildRegionUnifiedContext, buildUnifiedAnalysisTargets, sourceToMapTarget, type GisSourceMapTarget } from '../../utils/gisUnifiedContext'
+import { createLatestRequestGuard } from '../../utils/latestRequestGuard'
+import { createWebTraceId, normalizeLiveTraceSnapshot, shouldPauseLiveTracePolling, type LiveTraceSnapshot } from '../../utils/liveTrace'
+
+type MapRegionSolutionResponse = {
+  solutionType: string
+  title: string
+  markdown: string
+  regionSummary?: Record<string, any>
+  qualityCheck?: Record<string, any>
+  templateMeta?: Record<string, any>
+  answerMeta?: Record<string, any>
+  sourceSummaries?: Record<string, any>[]
+  trace?: Record<string, any>
+  toolResults?: Record<string, any>[]
+  sources?: Record<string, any>[]
+  knowledgeSources?: Record<string, any>[]
+}
 
 const query = reactive<GisLayerQuery>({
   routeCode: 'G210',
@@ -157,6 +181,11 @@ const regionGeometryType = ref<'RECTANGLE' | 'POLYGON'>('RECTANGLE')
 const regionGeometry = ref<Record<string, any> | null>(null)
 const regionSummary = ref<Record<string, any> | null>(null)
 const regionSolution = ref<MapRegionSolutionResponse | null>(null)
+const regionLiveTraceId = ref('')
+const regionLiveTrace = ref<LiveTraceSnapshot | null>(null)
+const regionLiveTraceFailureCount = ref(0)
+const regionSolutionToolResults = computed(() => (regionSolution.value as any)?.toolResults || [])
+const regionSolutionSources = computed(() => (regionSolution.value as any)?.sources || (regionSolution.value as any)?.knowledgeSources || [])
 const regionLoading = ref(false)
 const regionSummaryLoading = ref(false)
 const regionPreviewVisible = ref(false)
@@ -185,6 +214,10 @@ let aiSourceHighlightLayer: L.Layer | null = null
 let rectangleStart: L.LatLng | null = null
 let regionSummaryRequestSeq = 0
 let layerChangeTimer: ReturnType<typeof window.setTimeout> | null = null
+let regionLiveTraceTimer: ReturnType<typeof window.setInterval> | null = null
+let mapDisposed = false
+const objectDetailRequestGuard = createLatestRequestGuard()
+const regionSolutionRequestGuard = createLatestRequestGuard()
 
 const regionFinalStyle = { color: '#0284c7', weight: 3, fillColor: '#38bdf8', fillOpacity: 0.16 }
 const regionPreviewStyle = { color: '#2563eb', weight: 2, dashArray: '6 5', fillColor: '#7dd3fc', fillOpacity: 0.1 }
@@ -286,6 +319,7 @@ const agentContext = computed(() => ({
   metric: getMetricMeta(query.indexCode),
   statistics: statistics.value,
   regionTrace: regionSolution.value?.trace || null,
+  regionLiveTrace: regionLiveTrace.value,
   regionSolution: regionSolution.value,
   regionLoading: regionLoading.value,
   regionSummaryLoading: regionSummaryLoading.value,
@@ -297,6 +331,7 @@ const agentContext = computed(() => ({
 }))
 
 onMounted(async () => {
+  mapDisposed = false
   map = L.map('map', {
     crs: L.CRS.EPSG3857,
     center: [26.65, 106.63],
@@ -329,11 +364,28 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  mapDisposed = true
+  objectDetailRequestGuard.invalidate()
+  regionSolutionRequestGuard.invalidate()
+  regionSummaryRequestSeq += 1
+  regionLoading.value = false
+  regionSummaryLoading.value = false
   window.removeEventListener('keydown', handleRegionKeydown)
   if (layerChangeTimer) {
     window.clearTimeout(layerChangeTimer)
     layerChangeTimer = null
   }
+  stopRegionLiveTracePolling()
+  if (map) {
+    map.off()
+    map.remove()
+  }
+  layerMap.clear()
+  selectedLayer = null
+  regionLayer = null
+  regionPreviewLayer = null
+  aiSourceHighlightLayer = null
+  rectangleStart = null
 })
 
 function isBlankQueryValue(value: any) {
@@ -482,7 +534,7 @@ function restoreViewSnapshot(snapshot: ViewSnapshot | null) {
 }
 
 async function reloadLayers(options: ReloadLayerOptions = {}) {
-  if (!map) return
+  if (!map || mapDisposed) return
   const snapshot = options.preserveViewport ? captureViewSnapshot() : null
   loading.value = true
   mapLoadingMask.value = Boolean(options.mask)
@@ -513,7 +565,7 @@ async function reloadLayers(options: ReloadLayerOptions = {}) {
 }
 
 async function syncVisibleLayers() {
-  if (!map) return
+  if (!map || mapDisposed) return
   loading.value = true
   mapLoadingMask.value = false
   try {
@@ -564,6 +616,7 @@ function clearLayers(options: { clearSelection?: boolean } = {}) {
   selectedLayer = null
   clearAiSourceHighlight()
   if (options.clearSelection !== false) {
+    objectDetailRequestGuard.invalidate()
     selectedDetail.value = null
     selectedFeatureProperties.value = null
     contextScope.value = regionGeometry.value ? 'REGION' : 'ROUTE'
@@ -617,6 +670,7 @@ async function settleLayerTasks(tasks: Promise<void>[], actionName: string) {
 
 async function loadLayer(layerKey: string, loader: () => Promise<GeoJsonFeatureCollection>) {
   const collection: any = await loader()
+  if (mapDisposed) return
   layerCounts[layerKey] = Array.isArray(collection?.features) ? collection.features.length : 0
   if (!collection || !collection.features || collection.features.length === 0) return
 
@@ -652,8 +706,8 @@ async function handleFeatureClick(layerKey: string, feature: any, layer: L.Layer
   highlightLayer(layer)
   openFeaturePopup(layer, properties)
 
-  await loadObjectDetail(properties)
-  if (selectedDetail.value) openFeaturePopup(layer, selectedDetail.value)
+  const detailApplied = await loadObjectDetail(properties)
+  if (detailApplied && selectedDetail.value) openFeaturePopup(layer, selectedDetail.value)
 }
 
 function normalizeFeatureProperties(layerKey: string, feature: any) {
@@ -909,18 +963,22 @@ function layerKeyToObjectType(layerKey: string) {
 }
 
 async function loadObjectDetail(properties: Record<string, any>) {
+  const requestToken = objectDetailRequestGuard.next()
+  if (mapDisposed) return false
   const objectType = normalizeObjectType(
     firstValue(properties.objectType, properties.object_type, properties.type, properties.layerType)
   )
   const id = firstValue(properties.objectId, properties.object_id, properties.id)
 
   if (!objectType || !id) {
+    if (!objectDetailRequestGuard.isCurrent(requestToken)) return false
     selectedDetail.value = { ...properties, objectType, objectId: id, id }
-    return
+    return true
   }
 
   try {
     const detail = await getObjectDetail({ objectType, id })
+    if (!objectDetailRequestGuard.isCurrent(requestToken)) return false
     selectedDetail.value = {
       ...properties,
       ...(detail || {}),
@@ -928,17 +986,21 @@ async function loadObjectDetail(properties: Record<string, any>) {
       objectId: id,
       id
     }
+    return true
   } catch {
+    if (!objectDetailRequestGuard.isCurrent(requestToken)) return false
     selectedDetail.value = {
       ...properties,
       objectType,
       objectId: id,
       id
     }
+    return true
   }
 }
 
 function clearSelection() {
+  objectDetailRequestGuard.invalidate()
   if (map) map.closePopup()
   selectedDetail.value = null
   selectedFeatureProperties.value = null
@@ -998,6 +1060,7 @@ function startRegionDraw(mode: 'RECTANGLE' | 'POLYGON') {
   clearRegion()
   regionMode.value = mode
   regionGeometryType.value = mode
+  objectDetailRequestGuard.invalidate()
   selectedDetail.value = null
   selectedFeatureProperties.value = null
   polygonPoints.value = []
@@ -1017,6 +1080,7 @@ function startRegionDraw(mode: 'RECTANGLE' | 'POLYGON') {
 
 function clearRegion() {
   regionSummaryRequestSeq += 1
+  regionSolutionRequestGuard.invalidate()
   if (regionLayer && map) {
     map.removeLayer(regionLayer)
     regionLayer = null
@@ -1030,6 +1094,11 @@ function clearRegion() {
   regionGeometry.value = null
   regionSummary.value = null
   regionSolution.value = null
+  regionLiveTraceId.value = ''
+  regionLiveTrace.value = null
+  regionLiveTraceFailureCount.value = 0
+  stopRegionLiveTracePolling()
+  regionLoading.value = false
   regionSummaryLoading.value = false
   regionSavedTask.value = null
   regionPreviewVisible.value = false
@@ -1040,6 +1109,7 @@ function clearRegion() {
 }
 
 function setRegionLayer(layer: L.Layer, geometry: Record<string, any>, geometryType: 'RECTANGLE' | 'POLYGON') {
+  regionSolutionRequestGuard.invalidate()
   if (regionLayer && map) {
     map.removeLayer(regionLayer)
   }
@@ -1051,6 +1121,10 @@ function setRegionLayer(layer: L.Layer, geometry: Record<string, any>, geometryT
   regionGeometry.value = geometry
   regionSummary.value = buildClientRegionSummary(geometry)
   regionSolution.value = null
+  regionLiveTraceId.value = ''
+  regionLiveTrace.value = null
+  regionLiveTraceFailureCount.value = 0
+  stopRegionLiveTracePolling()
   regionSavedTask.value = null
   regionMode.value = 'NONE'
   map.dragging.enable()
@@ -1250,33 +1324,138 @@ async function loadRegionSummary(geometry: Record<string, any>) {
   }
 }
 
+function beginRegionLiveTrace(traceId: string) {
+  regionLiveTraceId.value = traceId
+  regionLiveTrace.value = null
+  regionLiveTraceFailureCount.value = 0
+  stopRegionLiveTracePolling()
+  window.setTimeout(() => {
+    if (regionLiveTraceId.value !== traceId) return
+    void pollRegionLiveTraceOnce(traceId)
+    regionLiveTraceTimer = window.setInterval(() => {
+      void pollRegionLiveTraceOnce(traceId)
+    }, 1500)
+  }, 500)
+}
+
+async function pollRegionLiveTraceOnce(traceId = regionLiveTraceId.value) {
+  if (!traceId) return
+  try {
+    const result = await getOrchestratorLiveTrace(traceId)
+    const snapshot = normalizeLiveTraceSnapshot(result)
+    if (regionLiveTraceId.value !== traceId) return
+    regionLiveTrace.value = snapshot
+    regionLiveTraceFailureCount.value = 0
+    if (['SUCCESS', 'FAILED', 'TIMEOUT'].includes(snapshot.status)) {
+      stopRegionLiveTracePolling()
+    }
+  } catch (_error) {
+    regionLiveTraceFailureCount.value += 1
+    if (shouldPauseLiveTracePolling(regionLiveTraceFailureCount.value)) {
+      stopRegionLiveTracePolling()
+    }
+  }
+}
+
+function stopRegionLiveTracePolling() {
+  if (!regionLiveTraceTimer) return
+  window.clearInterval(regionLiveTraceTimer)
+  regionLiveTraceTimer = null
+}
+
 async function generateRegionSolution() {
   if (!regionGeometry.value) {
     ElMessage.warning('请先绘制区域')
     return
   }
+  const requestToken = regionSolutionRequestGuard.next()
+  const geometrySnapshot = regionGeometry.value
+  const geometryTypeSnapshot = regionGeometryType.value
+  const querySnapshot = { ...query }
+  const layerSnapshot = activeLayerNames()
+  const summarySnapshot = regionSummary.value || undefined
+  const traceId = createWebTraceId()
   contextScope.value = 'REGION'
   regionLoading.value = true
+  beginRegionLiveTrace(traceId)
   try {
-    const result = unwrapApiPayload(await generateMapRegionSolution({
-      solutionType: 'REGION_MAINTENANCE_SUGGESTION',
-      geometry: regionGeometry.value,
-      query: { ...query, indexCode: query.indexCode, grade: query.grade },
-      layers: activeLayerNames(),
-      options: { useBusinessData: true, useKnowledge: true, useOutline: false, topK: 5, requireAi: true, indexCode: query.indexCode, grade: query.grade }
-    })) as MapRegionSolutionResponse
-    regionSolution.value = result
-    if (result.regionSummary) {
-      regionSummary.value = normalizeRegionSummary(result.regionSummary, regionGeometry.value)
+    const result = unwrapApiPayload(await mapAgentRun({
+      action: 'GENERATE_REGION_SOLUTION',
+      message: '生成框选区域养护建议',
+      mapContext: {
+        tenantId: 'default',
+        mode: 'REGION',
+        routeCode: querySnapshot.routeCode,
+        year: Number(querySnapshot.year),
+        geometry: geometrySnapshot,
+        regionSummary: summarySnapshot,
+        selectedLayers: layerSnapshot,
+        extra: {
+          indexCode: querySnapshot.indexCode,
+          grade: querySnapshot.grade,
+          geometryType: geometryTypeSnapshot
+        }
+      },
+      actionInput: {
+        solutionType: 'REGION_MAINTENANCE_SUGGESTION'
+      },
+      options: { useBusinessData: true, useKnowledge: true, useOutline: false, topK: 5, requireAi: true, indexCode: querySnapshot.indexCode, grade: querySnapshot.grade, traceId }
+    })) as any
+    if (!regionSolutionRequestGuard.isCurrent(requestToken) || !isSameRegionSolutionContext(geometrySnapshot, querySnapshot, layerSnapshot)) return
+    const actionResult = result.actionResult || {}
+    const toolData = Array.isArray(result.toolResults)
+      ? (result.toolResults.find((item: any) => item?.toolName === 'solution.generateDraft')?.data || result.toolResults[0]?.data || {})
+      : {}
+    const sourceSummaries = Array.isArray(toolData.sourceSummaries)
+      ? toolData.sourceSummaries
+      : (Array.isArray(result.sources) ? result.sources : (Array.isArray(result.knowledgeSources) ? result.knowledgeSources : []))
+    const templateMeta = actionResult.templateMeta || toolData.templateMeta || {}
+    regionSolution.value = {
+      solutionType: String(actionResult.solutionType || toolData.solutionType || 'REGION_MAINTENANCE_SUGGESTION'),
+      title: actionResult.title || toolData.title || '区域养护建议',
+      markdown: actionResult.markdown || toolData.markdown || result.answer || '',
+      regionSummary: actionResult.regionSummary || toolData.regionSummary || regionSummary.value || {},
+      qualityCheck: actionResult.qualityCheck || toolData.qualityCheck || {},
+      templateMeta,
+      answerMeta: result.answerMeta || toolData.answerMeta || {},
+      toolResults: result.toolResults || [],
+      sources: result.sources || result.knowledgeSources || [],
+      sourceSummaries,
+      trace: result.trace || regionLiveTrace.value || {}
+    } as MapRegionSolutionResponse
+    if (actionResult.regionSummary) {
+      regionSummary.value = normalizeRegionSummary(actionResult.regionSummary, geometrySnapshot)
     }
     regionSavedTask.value = null
     regionPreviewVisible.value = true
     ElMessage.success(result.answerMeta?.llmSuccess ? '区域养护建议已由 AI 生成' : '区域养护建议已生成（未使用 AI）')
   } catch (error: any) {
-    ElMessage.error(error?.message || '生成区域养护建议失败')
+    if (regionSolutionRequestGuard.isCurrent(requestToken)) {
+      ElMessage.error(error?.message || '生成区域养护建议失败')
+    }
   } finally {
-    regionLoading.value = false
+    if (regionLiveTraceId.value === traceId) {
+      await pollRegionLiveTraceOnce(traceId)
+      stopRegionLiveTracePolling()
+    }
+    if (regionSolutionRequestGuard.isCurrent(requestToken)) {
+      regionLoading.value = false
+    }
   }
+}
+
+function isSameRegionSolutionContext(geometry: Record<string, any>, querySnapshot: GisLayerQuery, layerSnapshot: string[]) {
+  return regionGeometry.value === geometry &&
+    String(query.routeCode || '') === String(querySnapshot.routeCode || '') &&
+    String(query.year || '') === String(querySnapshot.year || '') &&
+    String(query.indexCode || '') === String(querySnapshot.indexCode || '') &&
+    String(query.grade || '') === String(querySnapshot.grade || '') &&
+    sameStringList(activeLayerNames(), layerSnapshot)
+}
+
+function sameStringList(left: string[], right: string[]) {
+  if (left.length !== right.length) return false
+  return left.every((item, index) => item === right[index])
 }
 
 function activeLayerNames() {
@@ -1328,7 +1507,7 @@ async function saveRegionDraft() {
 }
 
 function currentViewport() {
-  if (typeof map === 'undefined' || !map) return null
+  if (mapDisposed || typeof map === 'undefined' || !map) return null
   const bounds = map.getBounds()
   return {
     zoom: map.getZoom(),
@@ -1464,18 +1643,20 @@ function zoomOutMap() {
 }
 
 async function loadStatistics() {
+  if (mapDisposed) return
   try {
     const viewport = currentViewport()
     const selectedLayers = activeLayerNames()
-    statistics.value = await getMapStatistics({
+    const nextStatistics = await getMapStatistics({
       ...layerQuery(),
       bbox: viewport?.bbox,
       viewport,
       layers: selectedLayers,
       enabledLayers: selectedLayers
     } as any)
+    if (!mapDisposed) statistics.value = nextStatistics
   } catch {
-    statistics.value = {}
+    if (!mapDisposed) statistics.value = {}
   }
 }
 

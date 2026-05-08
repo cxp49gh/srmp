@@ -87,7 +87,7 @@ export interface AiKnowledgeSearchRequest {
  * 检查关键字：mapAgentChat
  */
 export function mapAgentChat(data: MapAgentChatRequest): Promise<any> {
-  return aiRequest.post('/api/agent/map-agent/chat', data)
+  return aiRequest.post('/api/agent/map-agent/run', data)
 }
 """
         s = s.replace(marker, insert, 1)

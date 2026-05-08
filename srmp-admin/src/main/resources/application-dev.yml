@@ -6,7 +6,7 @@ spring:
     name: srmp-admin
 
   datasource:
-    url: jdbc:postgresql://192.168.20.107:5432/srmp
+    url: jdbc:postgresql://127.0.0.1:5432/srmp
     username: srmp
     password: srmp123
     driver-class-name: org.postgresql.Driver
@@ -54,20 +54,18 @@ srmp:
   ai:
 
     orchestrator:
-      # Phase50：AI 编排器开关。native 为默认原生链路；langgraph 为远程 LangGraph 编排服务。
-      provider: ${SRMP_AI_ORCHESTRATOR_PROVIDER:native}
+      # Phase50：一张图 AI 统一走远程 LangGraph /run 动作入口。
       langgraph-url: ${SRMP_LANGGRAPH_URL:http://127.0.0.1:18080}
-      langgraph-endpoint-path: ${SRMP_LANGGRAPH_ENDPOINT:/api/srmp/langgraph/map-agent/chat}
+      langgraph-endpoint-path: ${SRMP_LANGGRAPH_ENDPOINT:/api/srmp/langgraph/map-agent/run}
       connect-timeout-ms: ${SRMP_LANGGRAPH_CONNECT_TIMEOUT_MS:10000}
       read-timeout-ms: ${SRMP_LANGGRAPH_READ_TIMEOUT_MS:300000}
-      fallback-to-native: ${SRMP_LANGGRAPH_FALLBACK_TO_NATIVE:true}
       allow-write-tools: ${SRMP_AI_TOOL_ALLOW_WRITE:false}
     embedding:
       provider: openai-compatible
-      endpoint: https://dashscope.aliyuncs.com/compatible-mode/v1
-      api-key: ${DASHSCOPE_API_KEY:sk-f39cf265c5ad4c378dc052d01db084e3}
-      model: text-embedding-v4
-      dimensions: 1024
+      endpoint: ${SRMP_EMBEDDING_ENDPOINT:https://dashscope.aliyuncs.com/compatible-mode/v1}
+      api-key: ${SRMP_LLM_API_KEY:sk-f39cf265c5ad4c378dc052d01db084e3}
+      model: ${SRMP_EMBEDDING_MODEL:text-embedding-v4}
+      dimensions: ${SRMP_EMBEDDING_DIMENSIONS:1024}
 
   outline:
     enabled: ${OUTLINE_ENABLED:false}

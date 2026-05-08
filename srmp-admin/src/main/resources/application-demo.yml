@@ -34,24 +34,49 @@ srmp:
 
   llm:
     provider: openai-compatible
-    base-url: https://api.minimaxi.com/v1
-    api-key: ${DASHSCOPE_API_KEY:}
-    model: MiniMax-M2.7
+    base-url: ${SRMP_LLM_BASE_URL:https://api.minimaxi.com/v1}
+    api-key: ${SRMP_LLM_API_KEY:}
+    model: ${SRMP_LLM_MODEL:MiniMax-M2.7}
+    # 建立连接超时，默认 15 秒
+    connect-timeout-ms: 15000
+    # 等待模型返回超时，区域养护方案建议 180~300 秒
+    read-timeout-ms: 300000
+    # curl 兜底调用超时，建议和 read-timeout-ms 保持一致
+    curl-max-time-seconds: 300
+    max-tokens: 2400
+    temperature: 0.2
 
   ai:
-
     orchestrator:
-      # Phase50：AI 编排器开关。native 为默认原生链路；langgraph 为远程 LangGraph 编排服务。
-      provider: ${SRMP_AI_ORCHESTRATOR_PROVIDER:native}
+      # Phase50：一张图 AI 统一走远程 LangGraph /run 动作入口。
       langgraph-url: ${SRMP_LANGGRAPH_URL:http://127.0.0.1:18080}
-      langgraph-endpoint-path: ${SRMP_LANGGRAPH_ENDPOINT:/api/srmp/langgraph/map-agent/chat}
+      langgraph-endpoint-path: ${SRMP_LANGGRAPH_ENDPOINT:/api/srmp/langgraph/map-agent/run}
       connect-timeout-ms: ${SRMP_LANGGRAPH_CONNECT_TIMEOUT_MS:10000}
       read-timeout-ms: ${SRMP_LANGGRAPH_READ_TIMEOUT_MS:300000}
-      fallback-to-native: ${SRMP_LANGGRAPH_FALLBACK_TO_NATIVE:true}
       allow-write-tools: ${SRMP_AI_TOOL_ALLOW_WRITE:false}
     embedding:
       provider: openai-compatible
-      endpoint: https://api.minimax.chat/v1/embeddings
-      api-key: ${DASHSCOPE_API_KEY:}
-      model: embo-01
-      dimensions: 1536
+      endpoint: ${SRMP_EMBEDDING_ENDPOINT:https://api.minimaxi.com/v1}
+      api-key: ${SRMP_LLM_API_KEY:}
+      model: ${SRMP_EMBEDDING_MODEL:embo-01}
+      dimensions: ${SRMP_EMBEDDING_DIMENSIONS:1536}
+
+  outline:
+    enabled: ${OUTLINE_ENABLED:false}
+    base-url: ${OUTLINE_BASE_URL:}
+    api-token: ${OUTLINE_API_TOKEN:}
+    sync-enabled: false
+    default-collection-id: ${OUTLINE_DEFAULT_COLLECTION_ID:}
+    search-limit: ${OUTLINE_SEARCH_LIMIT:5}
+    connect-timeout-ms: ${OUTLINE_CONNECT_TIMEOUT_MS:10000}
+    read-timeout-ms: ${OUTLINE_READ_TIMEOUT_MS:60000}
+    rag:
+      top-k: 8
+      score-threshold: 0.0
+      max-context-chars: 6000
+      hybrid:
+        enabled: true
+        vector-top-k: 10
+        keyword-top-k: 10
+        vector-weight: 0.7
+        keyword-weight: 0.3

@@ -13,11 +13,6 @@ import org.springframework.stereotype.Component;
 public class AgentOrchestratorProperties {
 
     /**
-     * native：默认原生 Java 链路；langgraph：远程 LangGraph 编排服务。
-     */
-    private String provider = "native";
-
-    /**
      * 远程 LangGraph 服务地址，例如 http://127.0.0.1:18080。
      */
     private String langgraphUrl = "http://127.0.0.1:18080";
@@ -25,7 +20,7 @@ public class AgentOrchestratorProperties {
     /**
      * 远程 LangGraph 一张图 Agent 入口路径。
      */
-    private String langgraphEndpointPath = "/api/srmp/langgraph/map-agent/chat";
+    private String langgraphEndpointPath = "/api/srmp/langgraph/map-agent/run";
 
     /**
      * 远程 LangGraph 健康检查路径。
@@ -46,11 +41,6 @@ public class AgentOrchestratorProperties {
      * 读取超时，毫秒。复杂方案生成建议 180~300 秒。
      */
     private Integer readTimeoutMs = 300000;
-
-    /**
-     * 远程编排失败时是否回退 native。
-     */
-    private Boolean fallbackToNative = true;
 
     /**
      * Tool Gateway 是否允许执行写工具。第一版建议关闭，写操作走人工确认。

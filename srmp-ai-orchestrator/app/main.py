@@ -7,9 +7,11 @@ from fastapi import FastAPI, Header, HTTPException, Query
 
 from .config import settings
 from .java_tools import JavaToolGateway
+from .live_trace import LiveTraceStore
 from .llm_client import LlmClient
+from .map_agent_run import MapAgentRunWorkflow
 from .observability import runtime_audit_store
-from .schemas import MapAiAgentRequest, MapAiAgentResponse, ToolCall
+from .schemas import MapAgentRunRequest, MapAgentRunResponse, MapAiAgentRequest, MapAiAgentResponse, ToolCall
 from .workflow import LANGGRAPH_AVAILABLE, LangGraphWorkflow, strategy_metadata
 
 APP_VERSION = "50.11.0"
@@ -17,7 +19,9 @@ APP_VERSION = "50.11.0"
 app = FastAPI(title="SRMP LangGraph Orchestrator", version=APP_VERSION)
 
 gateway = JavaToolGateway()
-workflow = LangGraphWorkflow(gateway=gateway, llm_client=LlmClient())
+live_trace_store = LiveTraceStore(max_records=settings.audit_max_records)
+workflow = LangGraphWorkflow(gateway=gateway, llm_client=LlmClient(), live_trace_store=live_trace_store)
+map_agent_run_workflow = MapAgentRunWorkflow(base_workflow=workflow, gateway=gateway, live_trace_store=live_trace_store)
 
 
 def _safe_runtime_config() -> dict:
@@ -34,6 +38,11 @@ def _safe_runtime_config() -> dict:
         "llmBaseUrlConfigured": bool(settings.llm_base_url),
         "llmModel": settings.llm_model,
         "llmApiKeyConfigured": bool(settings.llm_api_key),
+        "llmConnectTimeoutSeconds": settings.llm_connect_timeout_seconds,
+        "llmReadTimeoutSeconds": settings.llm_read_timeout_seconds,
+        "llmMaxTokens": settings.llm_max_tokens,
+        "llmCompactRetryEnabled": settings.llm_compact_retry_enabled,
+        "llmRawPreviewChars": settings.llm_raw_preview_chars,
         "allowedTools": settings.allowed_tools,
         "maxToolCalls": settings.max_tool_calls,
         "parallelToolExecution": settings.parallel_tool_execution,
@@ -303,6 +312,14 @@ async def observability_prune(
     )
 
 
+@app.get("/api/srmp/langgraph/trace/live/{trace_id}")
+async def live_trace(trace_id: str) -> dict:
+    snapshot = live_trace_store.get(trace_id)
+    if snapshot:
+        return snapshot
+    return live_trace_store.not_found(trace_id)
+
+
 @app.get("/api/srmp/langgraph/debug/tool-gateway")
 async def debug_tool_gateway(
     x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id"),
@@ -321,6 +338,35 @@ async def debug_tool_gateway(
 @app.get("/api/srmp/langgraph/debug/contract")
 async def debug_contract(x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id")) -> dict:
     return await gateway.inspect_contract(tenant_id=x_tenant_id)
+
+
+@app.get("/api/srmp/langgraph/debug/llm-probe")
+async def debug_llm_probe(probe: bool = Query(default=False)) -> dict:
+    client = workflow.llm_client
+    diagnostics = client.diagnostics() if hasattr(client, "diagnostics") else {}
+    data = {
+        "enabled": settings.use_llm,
+        "status": diagnostics.get("status") or ("READY" if settings.use_llm else "SKIPPED"),
+        "available": False,
+        "model": settings.llm_model,
+        "baseUrlConfigured": bool(settings.llm_base_url),
+        "apiKeyConfigured": bool(settings.llm_api_key),
+        "connectTimeoutSeconds": settings.llm_connect_timeout_seconds,
+        "readTimeoutSeconds": settings.llm_read_timeout_seconds,
+        "maxTokens": settings.llm_max_tokens,
+        "temperature": settings.llm_temperature,
+        "compactRetryEnabled": settings.llm_compact_retry_enabled,
+        "diagnostics": diagnostics,
+    }
+    if probe:
+        if hasattr(client, "probe"):
+            probe_data = await client.probe()
+        else:
+            answer = await client.chat("请只返回 OK") if hasattr(client, "chat") else ""
+            probe_data = {"status": "SUCCESS" if answer else "FAILED", "available": bool(answer), "probeAnswerPreview": answer or ""}
+        data.update(probe_data or {})
+        data["available"] = data.get("status") == "SUCCESS"
+    return data
 
 
 @app.post("/api/srmp/langgraph/debug/plan")
@@ -377,15 +423,15 @@ async def list_tools(x_tenant_id: Optional[str] = Header(default=None, alias="X-
     return await gateway.list_tools(tenant_id=x_tenant_id)
 
 
-@app.post("/api/srmp/langgraph/map-agent/chat")
-async def map_agent_chat(
-    request: MapAiAgentRequest,
+@app.post("/api/srmp/langgraph/map-agent/run")
+async def map_agent_run(
+    request: MapAgentRunRequest,
     x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id"),
     x_ai_trace_id: Optional[str] = Header(default=None, alias="X-AI-Trace-Id"),
-) -> MapAiAgentResponse:
+) -> MapAgentRunResponse:
     started_at = time.perf_counter()
     try:
-        response = await workflow.run(request=request, tenant_id=x_tenant_id, trace_id=x_ai_trace_id)
+        response = await map_agent_run_workflow.run(request=request, tenant_id=x_tenant_id, trace_id=x_ai_trace_id)
         cost_ms = int((time.perf_counter() - started_at) * 1000)
         audit_record = runtime_audit_store.record_success(
             request=request,

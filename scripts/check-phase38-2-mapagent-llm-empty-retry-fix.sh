@@ -7,7 +7,7 @@ echo "==> LLM health probe"
 curl -fsS "$BASE_URL/api/ai/llm/health?probe=true" | python3 -m json.tool
 
 echo "==> MapAgent LLM empty retry check"
-RESP="$(curl -fsS -X POST "$BASE_URL/api/agent/map-agent/chat" \
+RESP="$(curl -fsS -X POST "$BASE_URL/api/agent/map-agent/run" \
   -H "Content-Type: application/json" \
   -d '{
     "message":"分析当前地图选中对象，说明主要问题、成因判断，并给出养护处置建议",
