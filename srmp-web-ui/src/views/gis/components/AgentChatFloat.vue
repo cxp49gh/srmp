@@ -17,7 +17,10 @@
             <strong>一张图分析</strong>
             <span>{{ analysisScopeTitle }}</span>
           </div>
-          <el-tag size="small" effect="plain">{{ activeMetricMeta.shortName }}</el-tag>
+          <div class="analysis-title-actions">
+            <el-tag size="small" effect="plain">{{ activeMetricMeta.shortName }}</el-tag>
+            <el-button size="small" text :loading="diagnosticsLoading" @click="loadQuickDiagnostics">状态诊断</el-button>
+          </div>
         </div>
 
         <div class="analysis-context-line">
@@ -108,8 +111,27 @@
           <el-checkbox v-model="options.useKnowledge">知识库</el-checkbox>
           <el-checkbox v-model="options.useOutline">Outline</el-checkbox>
           <el-checkbox v-model="useAgentTools">Agent工具</el-checkbox>
+          <el-button size="small" plain :loading="diagnosticsLoading" @click="loadQuickDiagnostics">状态诊断</el-button>
         </div>
       </div>
+
+      <section v-if="quickDiagnostics || diagnosticsError" class="diagnostics-panel">
+        <div class="diagnostics-head">
+          <strong>LangGraph 状态</strong>
+          <el-tag v-if="quickDiagnostics" size="small" :type="quickDiagnostics.runtimeOk ? 'success' : 'danger'">
+            {{ quickDiagnostics.status }}
+          </el-tag>
+        </div>
+        <p v-if="diagnosticsError" class="diagnostics-error">{{ diagnosticsError }}</p>
+        <div v-else-if="quickDiagnostics" class="diagnostics-grid">
+          <span><em>Runtime</em><strong>{{ quickDiagnostics.runtimeOk ? 'UP' : 'DOWN' }}</strong></span>
+          <span><em>Tool</em><strong>{{ quickDiagnostics.toolGatewayOk ? 'OK' : '异常' }}</strong></span>
+          <span><em>契约</em><strong>{{ quickDiagnostics.contractOk ? 'OK' : '异常' }}</strong></span>
+          <span><em>LLM</em><strong>{{ quickDiagnostics.llmEnabled ? quickDiagnostics.llmModel : '关闭' }}</strong></span>
+          <span><em>成功率</em><strong>{{ quickDiagnostics.successRateLabel }}</strong></span>
+          <span><em>平均耗时</em><strong>{{ quickDiagnostics.avgCostLabel }}</strong></span>
+        </div>
+      </section>
 
       <div class="fold-panel">
         <button type="button" class="fold-trigger" @click="showQuickPanel = !showQuickPanel">
@@ -133,6 +155,9 @@
             <el-tag v-if="item.meta.regionUsed || item.meta.mapRegionUsed" size="small" type="success">区域上下文</el-tag>
             <el-tag v-if="item.meta.intent" size="small" type="info">{{ item.meta.intent }}</el-tag>
             <el-tag v-if="item.meta.answerSourceLabel" size="small">{{ item.meta.answerSourceLabel }}</el-tag>
+            <el-tag v-if="item.meta.runElapsed" size="small" type="info">耗时 {{ item.meta.runElapsed }}</el-tag>
+            <el-tag v-if="item.meta.llmStatus" size="small" :type="item.meta.llmStatus === 'SUCCESS' ? 'success' : 'warning'">LLM {{ item.meta.llmStatus }}</el-tag>
+            <el-tag v-if="item.meta.llmModel" size="small" type="info">{{ item.meta.llmModel }}</el-tag>
             <el-tag v-if="item.toolResults?.length" size="small" type="info">工具 {{ successfulTools(item.toolResults) }}/{{ item.toolResults.length }}</el-tag>
             <el-tag v-if="item.sources?.length" size="small" type="info">来源 {{ item.sources.length }}</el-tag>
             <el-tag v-if="item.meta.retriedWithCompactPrompt" size="small" type="warning">压缩重试</el-tag>
@@ -170,6 +195,13 @@
       <MapAiActionResultPanel :result="latestActionResult" />
       <MapAiSuggestedActions :actions="latestSuggestedActions" @run-action="runSuggestedAction" />
 
+      <section v-if="aiBusy" class="ai-wait-panel" :class="{ slow: waitFeedback.longWait }">
+        <div class="wait-head">
+          <strong>{{ waitFeedback.title }}</strong>
+          <span>已耗时 {{ waitFeedback.elapsedLabel }}</span>
+        </div>
+        <p>{{ waitFeedback.message }}</p>
+      </section>
 
       <div class="input-row">
         <el-input
@@ -201,10 +233,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { mapAgentRun, type MapAgentActionResult, type MapAgentRunResponse, type MapAgentSuggestedAction } from '../../../api/agent'
 import { saveMapObjectSolutionDraft, updateSolutionTaskAiContext } from '../../../api/solution'
+import { getOrchestratorQuickDiagnostics } from '../../../api/orchestrator'
 import SolutionPreviewDialog from './SolutionPreviewDialog.vue'
 import AiTraceButton from '../../agent/components/AiTraceButton.vue'
 import AiTraceDrawer from '../../agent/components/AiTraceDrawer.vue'
@@ -215,6 +248,7 @@ import MapAiSuggestedActions from './map-ai/MapAiSuggestedActions.vue'
 import { copyText } from '../../../utils/clipboard'
 import { gisContextTypeLabel, sourceToMapTarget, type GisSourceMapTarget } from '../../../utils/gisUnifiedContext'
 import { formatMetricValue, getMetricGrade, getMetricMeta, getMetricValue, gradeLabel } from '../../../utils/roadConditionMetrics'
+import { buildWaitFeedback, formatElapsedMs, normalizeLangGraphDiagnostics, summarizeRunTiming, type LangGraphDiagnostics } from '../../../utils/aiRunFeedback'
 
 interface MessageItem {
   role: 'user' | 'assistant'
@@ -286,6 +320,12 @@ const autoQuestionInFlight = ref(false)
 const useAgentTools = ref(true)
 const showToolsPanel = ref(false)
 const showQuickPanel = ref(false)
+const diagnosticsLoading = ref(false)
+const diagnosticsError = ref('')
+const quickDiagnostics = ref<LangGraphDiagnostics | null>(null)
+const aiRunStartedAt = ref<number | null>(null)
+const aiElapsedMs = ref(0)
+let aiElapsedTimer: ReturnType<typeof window.setInterval> | null = null
 
 const options = reactive({
   useBusinessData: true,
@@ -310,6 +350,8 @@ const latestAssistant = computed(() => {
 
 const latestActionResult = computed(() => latestAssistant.value?.actionResult || null)
 const latestSuggestedActions = computed(() => latestAssistant.value?.suggestedActions || [])
+const aiBusy = computed(() => Boolean(loading.value || solutionLoading.value || props.regionLoading))
+const waitFeedback = computed(() => buildWaitFeedback(aiElapsedMs.value))
 
 const activeMetricMeta = computed(() => getMetricMeta(props.context?.query?.indexCode || props.context?.indexCode || 'MQI'))
 
@@ -652,6 +694,44 @@ watch(
   { immediate: true }
 )
 
+watch(
+  aiBusy,
+  (busy) => {
+    if (busy) beginAiRun()
+    else endAiRun()
+  },
+  { immediate: true }
+)
+
+onUnmounted(() => {
+  stopAiElapsedTimer()
+})
+
+function beginAiRun(startedAt = Date.now()) {
+  if (!aiRunStartedAt.value) {
+    aiRunStartedAt.value = startedAt
+    aiElapsedMs.value = 0
+  }
+  if (aiElapsedTimer) return
+  aiElapsedTimer = window.setInterval(() => {
+    if (aiRunStartedAt.value) {
+      aiElapsedMs.value = Date.now() - aiRunStartedAt.value
+    }
+  }, 500)
+}
+
+function endAiRun() {
+  stopAiElapsedTimer()
+  aiRunStartedAt.value = null
+  aiElapsedMs.value = 0
+}
+
+function stopAiElapsedTimer() {
+  if (!aiElapsedTimer) return
+  window.clearInterval(aiElapsedTimer)
+  aiElapsedTimer = null
+}
+
 async function consumeAutoQuestionWhenReady() {
   const text = String(props.autoQuestion || '').trim()
   if (autoQuestionInFlight.value || !props.visible || !text || loading.value) return
@@ -723,6 +803,20 @@ async function handleContextCommand(command: string) {
   }
   if (command.startsWith('solution:')) {
     generateSolutionDraft(command.replace('solution:', '') as MapObjectSolutionType)
+  }
+}
+
+async function loadQuickDiagnostics() {
+  diagnosticsLoading.value = true
+  diagnosticsError.value = ''
+  try {
+    const result = await getOrchestratorQuickDiagnostics()
+    quickDiagnostics.value = normalizeLangGraphDiagnostics(result)
+  } catch (error: any) {
+    diagnosticsError.value = error?.message || '诊断失败'
+    ElMessage.error(diagnosticsError.value)
+  } finally {
+    diagnosticsLoading.value = false
   }
 }
 
@@ -896,6 +990,8 @@ async function send() {
   const text = input.value.trim()
   if (!text || loading.value) return
 
+  const requestStartedAt = Date.now()
+  beginAiRun(requestStartedAt)
   messages.value.push({ role: 'user', content: text })
   input.value = ''
   loading.value = true
@@ -913,6 +1009,9 @@ async function send() {
 
     const payload = normalizeResponse(res)
     const answer = String(payload.answer || payload.data?.answer || '未返回内容')
+    const timing = summarizeRunTiming(payload)
+    const localElapsedMs = Date.now() - requestStartedAt
+    const runElapsed = timing.costMs > 0 ? timing.elapsedLabel : formatElapsedMs(localElapsedMs)
     const meta = payload.data?.answerMeta || {
       answerSourceLabel: payload.data?.answerSourceLabel,
       fallback: payload.data?.fallback,
@@ -930,11 +1029,13 @@ async function send() {
       meta: {
         ...meta,
         intent: payload.data?.intent || payload.intent,
-        llmStatus: meta?.llmStatus || payload.data?.llmStatus,
-        llmModel: meta?.llmModel || payload.data?.llmModel,
         retriedWithCompactPrompt: meta?.retriedWithCompactPrompt || payload.data?.retriedWithCompactPrompt,
         mapObjectUsed: payload.data?.mapObjectUsed || payload.mapObjectUsed || meta?.mapObjectUsed,
-        regionUsed: payload.data?.regionUsed || payload.data?.mapRegionUsed || payload.mapRegionUsed || meta?.regionUsed
+        regionUsed: payload.data?.regionUsed || payload.data?.mapRegionUsed || payload.mapRegionUsed || meta?.regionUsed,
+        runElapsed,
+        traceId: timing.traceId,
+        llmStatus: timing.llmStatus || meta?.llmStatus || payload.data?.llmStatus,
+        llmModel: timing.llmModel || meta?.llmModel || payload.data?.llmModel
       }
     })
 
@@ -1135,6 +1236,13 @@ function openTrace(execution: Record<string, any>) {
   margin-bottom: 7px;
 }
 
+.analysis-title-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .analysis-title-row strong {
   display: block;
   color: #0f172a;
@@ -1289,9 +1397,83 @@ function openTrace(execution: Record<string, any>) {
 
 .option-row {
   display: flex;
+  align-items: center;
   gap: 12px;
   margin-bottom: 8px;
   flex-wrap: wrap;
+}
+
+.diagnostics-panel,
+.ai-wait-panel {
+  margin-bottom: 8px;
+  padding: 9px 10px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #f8fbff;
+  font-size: 12px;
+}
+
+.diagnostics-head,
+.wait-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.diagnostics-head strong,
+.wait-head strong {
+  color: #0f172a;
+}
+
+.wait-head span {
+  color: #2563eb;
+  font-weight: 700;
+}
+
+.ai-wait-panel p {
+  margin: 5px 0 0;
+  color: #475569;
+  line-height: 1.45;
+}
+
+.ai-wait-panel.slow {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.diagnostics-grid span {
+  min-width: 0;
+  padding: 6px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.diagnostics-grid em {
+  display: block;
+  color: #64748b;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.diagnostics-grid strong {
+  display: block;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagnostics-error {
+  margin: 6px 0 0;
+  color: #dc2626;
 }
 
 .quick-list {
