@@ -192,12 +192,16 @@ CREATE TABLE IF NOT EXISTS disease_type_dict (
     enabled             BOOLEAN DEFAULT TRUE,
     sort_no             INTEGER DEFAULT 0,
     remark              TEXT,
+    created_by          VARCHAR(64),
+    updated_by          VARCHAR(64),
     created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     deleted             BOOLEAN DEFAULT FALSE,
     CONSTRAINT uk_disease_type_code UNIQUE(tenant_id, disease_code)
 );
 CREATE INDEX IF NOT EXISTS idx_disease_type_category ON disease_type_dict(tenant_id, disease_category);
+ALTER TABLE disease_type_dict ADD COLUMN IF NOT EXISTS created_by VARCHAR(64);
+ALTER TABLE disease_type_dict ADD COLUMN IF NOT EXISTS updated_by VARCHAR(64);
 
 CREATE TABLE IF NOT EXISTS disease_record (
     id                  VARCHAR(64) PRIMARY KEY DEFAULT gen_random_uuid()::varchar,
@@ -544,38 +548,47 @@ WHERE embedding IS NOT NULL
 -- 注意：执行前请确认旧表数据已无需保留，或已完成迁移/备份。
 
 -- 清理已经保存到方案任务引用表里的 Outline 产品默认文档。
-DELETE FROM ai_solution_source
-WHERE lower(coalesce(source_title, '')) IN (
-    'our editor',
-    'what is outline',
-    'getting started',
-    'integrations & api',
-    'integrations and api'
-);
-
--- 如果之前误同步到了新向量知识库，也一并清理。
-DELETE FROM ai_knowledge_chunk c
-USING ai_knowledge_document d
-WHERE c.tenant_id = d.tenant_id
-  AND c.document_id = d.id
-  AND d.source_type = 'OUTLINE'
-  AND lower(coalesce(d.title, '')) IN (
-      'our editor',
-      'what is outline',
-      'getting started',
-      'integrations & api',
-      'integrations and api'
-  );
-
-DELETE FROM ai_knowledge_document
-WHERE source_type = 'OUTLINE'
-  AND lower(coalesce(title, '')) IN (
-      'our editor',
-      'what is outline',
-      'getting started',
-      'integrations & api',
-      'integrations and api'
-  );
+-- 全量脚本中本段位于 phase21 / phase36 建表之前：全新库尚无这些表，需按表是否存在再执行 DELETE。
+DO $phase39_outline_cleanup$
+BEGIN
+  IF to_regclass('public.ai_solution_source') IS NOT NULL THEN
+    DELETE FROM ai_solution_source
+    WHERE lower(coalesce(source_title, '')) IN (
+        'our editor',
+        'what is outline',
+        'getting started',
+        'integrations & api',
+        'integrations and api'
+    );
+  END IF;
+  IF to_regclass('public.ai_knowledge_chunk') IS NOT NULL
+     AND to_regclass('public.ai_knowledge_document') IS NOT NULL THEN
+    DELETE FROM ai_knowledge_chunk c
+    USING ai_knowledge_document d
+    WHERE c.tenant_id = d.tenant_id
+      AND c.document_id = d.id
+      AND d.source_type = 'OUTLINE'
+      AND lower(coalesce(d.title, '')) IN (
+          'our editor',
+          'what is outline',
+          'getting started',
+          'integrations & api',
+          'integrations and api'
+      );
+  END IF;
+  IF to_regclass('public.ai_knowledge_document') IS NOT NULL THEN
+    DELETE FROM ai_knowledge_document
+    WHERE source_type = 'OUTLINE'
+      AND lower(coalesce(title, '')) IN (
+          'our editor',
+          'what is outline',
+          'getting started',
+          'integrations & api',
+          'integrations and api'
+      );
+  END IF;
+END
+$phase39_outline_cleanup$;
 
 DROP TABLE IF EXISTS knowledge_chunk;
 DROP TABLE IF EXISTS knowledge_document;

@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.4
+# 不使用 # syntax=docker/dockerfile:x，避免国内网络拉取 docker/dockerfile 失败
 FROM postgis/postgis:15-3.4
 
 # Install pgvector for AI vector knowledge search

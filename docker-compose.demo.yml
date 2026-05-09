@@ -2,7 +2,8 @@ version: "3.8"
 
 services:
   postgres:
-    image: postgis/postgis:15-3.4
+    # 与 docker-compose.yml 一致：需先 `docker build -f deploy/docker/postgres/Dockerfile -t postgis-postgis-15-3.4-pgvector:latest .`
+    image: postgis-postgis-15-3.4-pgvector:latest
     container_name: srmp-demo-postgres
     environment:
       POSTGRES_DB: srmp

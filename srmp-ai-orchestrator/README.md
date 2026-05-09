@@ -15,8 +15,55 @@ uvicorn app.main:app --host 0.0.0.0 --port 18080 --reload
 
 ## Docker 启动
 
+构建阶段需要能拉取基础镜像（默认 `python:3.11-slim`）和 PyPI。若出现 `registry-1.docker.io` 超时，可在 Docker Desktop 配置 **Registry mirrors**，或在仓库根用环境变量指定已有镜像源中的 Python 基础镜像，例如：
+
+```bash
+# PowerShell 示例（镜像名以你实际可拉取的为准）
+$env:ORCHESTRATOR_BASE_IMAGE="docker.m.daocloud.io/library/python:3.11-slim"
+docker compose -f docker-compose.orchestrator.yml build --no-cache
+docker compose -f docker-compose.orchestrator.yml up -d
+```
+
+构建时 `pip` 默认走宿主机 HTTP 代理 **`http://host.docker.internal:7890`**（与常见 Clash / Mihomo 的 mixed 端口一致）。不需要代理时在仓库根 `.env` 或 shell 中设置 `ORCHESTRATOR_BUILD_PROXY=off`。仅拉取 `FROM` 基础镜像仍由 **Docker Desktop → Settings → Resources → Proxies**（可填 `http://127.0.0.1:7890`）或镜像加速控制。
+
+### 方式 A：只跑 Orchestrator（Java 在宿主机，例如本机已启动 `srmp-admin` 监听 8080）
+
+在仓库根目录执行。容器内访问宿主机 Java：在 `.env` 中设置 **`ORCHESTRATOR_HOST_IP=你的宿主机 IPv4`**（如 `192.168.x.x`），Compose 会注入 `SRMP_JAVA_BASE_URL=http://该IP:8080`；不设则使用 `http://host.docker.internal:8080`。需要完整 URL 时设 **`ORCHESTRATOR_JAVA_BASE_URL`**。根目录给本机进程用的 `SRMP_JAVA_BASE_URL=127.0.0.1` 不会用于本 Docker 编排。
+
+```bash
+docker compose -f docker-compose.orchestrator.yml up -d --build
+```
+
+Linux 若无法访问 `host.docker.internal`，可显式指定宿主机 IP：
+
+```bash
+SRMP_JAVA_BASE_URL=http://192.168.x.x:8080 docker compose -f docker-compose.orchestrator.yml up -d --build
+```
+
+停止：
+
+```bash
+docker compose -f docker-compose.orchestrator.yml down
+```
+
+### 方式 B：与 Docker 内的 `backend` 同网络（`SRMP_JAVA_BASE_URL` 默认 `http://backend:8080`）
+
+需将本 compose 与带 `backend` 服务的编排一起使用（或同一自定义网络），例如：
+
 ```bash
 docker compose -f docker-compose.langgraph.yml up -d --build srmp-ai-orchestrator
+```
+
+### 方式 C：仅构建镜像后 `docker run`
+
+```bash
+docker build -t srmp-ai-orchestrator:local -f srmp-ai-orchestrator/Dockerfile \
+  --build-arg BASE_IMAGE=python:3.11-slim \
+  srmp-ai-orchestrator
+docker run --rm -p 18080:18080 \
+  -e SRMP_JAVA_BASE_URL=http://host.docker.internal:8080 \
+  --add-host=host.docker.internal:host-gateway \
+  srmp-ai-orchestrator:local
 ```
 
 ## 健康检查
