@@ -1,5 +1,6 @@
 package com.smartroad.srmp.disease.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.smartroad.srmp.common.core.PageResult;
@@ -17,6 +18,8 @@ import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 public class DiseaseTypeServiceImpl implements DiseaseTypeService {
@@ -44,5 +47,22 @@ public class DiseaseTypeServiceImpl implements DiseaseTypeService {
     public void delete(String id) {
         LambdaUpdateWrapper<DiseaseTypeDict> w = new LambdaUpdateWrapper<>(); w.eq(DiseaseTypeDict::getTenantId, TenantContextHolder.getTenantId()).eq(DiseaseTypeDict::getId, id).set(DiseaseTypeDict::getDeleted, true);
         mapper.update(null, w);
+    }
+
+    @Override
+    public List<DiseaseTypeVO> listEnabledForImport() {
+        LambdaQueryWrapper<DiseaseTypeDict> w = new LambdaQueryWrapper<>();
+        w.eq(DiseaseTypeDict::getTenantId, TenantContextHolder.getTenantId())
+                .eq(DiseaseTypeDict::getDeleted, false)
+                .eq(DiseaseTypeDict::getEnabled, true)
+                .orderByAsc(DiseaseTypeDict::getSortNo);
+        List<DiseaseTypeDict> list = mapper.selectList(w);
+        List<DiseaseTypeVO> out = new ArrayList<>(list.size());
+        for (DiseaseTypeDict e : list) {
+            DiseaseTypeVO vo = new DiseaseTypeVO();
+            BeanUtils.copyProperties(e, vo);
+            out.add(vo);
+        }
+        return out;
     }
 }

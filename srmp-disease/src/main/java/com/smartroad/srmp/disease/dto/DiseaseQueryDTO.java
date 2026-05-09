@@ -19,4 +19,10 @@ public class DiseaseQueryDTO extends PageQuery {
     private String status;
     private BigDecimal startStake;
     private BigDecimal endStake;
+
+    /** 视窗范围（WGS84）：与 GIS 前端 bbox [west, south, east, north] 一致，用于地图图层查询、避免全表拉取 */
+    private Double minLng;
+    private Double minLat;
+    private Double maxLng;
+    private Double maxLat;
 }

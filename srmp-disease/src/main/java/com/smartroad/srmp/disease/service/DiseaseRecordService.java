@@ -13,6 +13,12 @@ public interface DiseaseRecordService {
     PageResult<DiseaseRecordVO> page(DiseaseQueryDTO query);
     DiseaseRecordVO getById(String id);
     String create(DiseaseSaveDTO dto);
+
+    /**
+     * 批量插入（单条 SQL 多 VALUES，内部再按块切分），用于 Excel 等大批量导入，避免逐条 insert 往返。
+     */
+    void createBatch(List<DiseaseSaveDTO> dtos);
+
     void update(String id, DiseaseSaveDTO dto);
     void delete(String id);
     void review(DiseaseReviewDTO dto);

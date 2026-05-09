@@ -19,10 +19,14 @@ import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
 public class DiseaseRecordServiceImpl implements DiseaseRecordService {
+    /** 单次 multi-row INSERT 行数上限（PostgreSQL 占位符约 65535，每行约 30 个参数） */
+    private static final int INSERT_SQL_BATCH_SIZE = 1000;
+
     @Resource private DiseaseRecordMapper mapper;
 
     public PageResult<DiseaseRecordVO> page(DiseaseQueryDTO query) {
@@ -40,6 +44,36 @@ public class DiseaseRecordServiceImpl implements DiseaseRecordService {
         if (e.getStatus() == null) e.setStatus("UNPROCESSED");
         if (e.getVerified() == null) e.setVerified(false);
         mapper.insertWithGeom(e); return e.getId();
+    }
+
+    @Override
+    public void createBatch(List<DiseaseSaveDTO> dtos) {
+        if (dtos == null || dtos.isEmpty()) {
+            return;
+        }
+        String tenantId = TenantContextHolder.getTenantId();
+        LocalDateTime now = LocalDateTime.now();
+        List<DiseaseRecord> records = new ArrayList<>(dtos.size());
+        for (DiseaseSaveDTO dto : dtos) {
+            DiseaseRecord e = new DiseaseRecord();
+            BeanUtils.copyProperties(dto, e);
+            e.setId(IdUtils.uuid());
+            e.setTenantId(tenantId);
+            e.setCreatedAt(now);
+            e.setUpdatedAt(now);
+            e.setDeleted(false);
+            if (e.getStatus() == null) {
+                e.setStatus("UNPROCESSED");
+            }
+            if (e.getVerified() == null) {
+                e.setVerified(false);
+            }
+            records.add(e);
+        }
+        for (int i = 0; i < records.size(); i += INSERT_SQL_BATCH_SIZE) {
+            int end = Math.min(i + INSERT_SQL_BATCH_SIZE, records.size());
+            mapper.insertBatchWithGeom(records.subList(i, end));
+        }
     }
     public void update(String id, DiseaseSaveDTO dto) {
         getById(id); DiseaseRecord e = new DiseaseRecord(); BeanUtils.copyProperties(dto, e); e.setId(id); e.setTenantId(TenantContextHolder.getTenantId()); mapper.updateWithGeom(e);

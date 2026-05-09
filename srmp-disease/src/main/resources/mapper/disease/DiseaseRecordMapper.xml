@@ -27,7 +27,11 @@
         SELECT <include refid="DiseaseColumns"/> FROM disease_record WHERE tenant_id = #{tenantId} AND id = #{id} AND deleted = false
     </select>
     <select id="selectForMap" resultType="com.smartroad.srmp.disease.vo.DiseaseRecordVO">
-        SELECT <include refid="DiseaseColumns"/> FROM disease_record WHERE <include refid="DiseaseWhere"/> AND geom IS NOT NULL ORDER BY route_code ASC, start_stake ASC NULLS LAST
+        SELECT <include refid="DiseaseColumns"/> FROM disease_record WHERE <include refid="DiseaseWhere"/> AND geom IS NOT NULL
+        <if test="q != null and q.minLng != null and q.minLat != null and q.maxLng != null and q.maxLat != null">
+            AND geom &amp;&amp; ST_MakeEnvelope(#{q.minLng}, #{q.minLat}, #{q.maxLng}, #{q.maxLat}, 4326)
+        </if>
+        ORDER BY route_code ASC, start_stake ASC NULLS LAST
     </select>
     <select id="selectStatistics" resultType="com.smartroad.srmp.disease.vo.DiseaseStatisticsVO">
         SELECT count(1) AS total_count,
@@ -47,6 +51,19 @@
         #{source}, #{confidence},
         <choose><when test="geomWkt != null and geomWkt != ''">ST_GeomFromText(#{geomWkt}, 4326)</when><otherwise>NULL</otherwise></choose>,
         #{status}, #{verified}, #{remark}, #{createdBy}, #{updatedBy}, now(), now(), false)
+    </insert>
+    <insert id="insertBatchWithGeom">
+        INSERT INTO disease_record(id, tenant_id, task_id, route_id, section_id, unit_id, route_code, direction, lane_no, start_stake, end_stake,
+        disease_category, disease_type, disease_name, severity, quantity, measure_unit, damage_area, damage_length, damage_width, damage_depth,
+        source, confidence, geom, status, verified, remark, created_by, updated_by, created_at, updated_at, deleted)
+        VALUES
+        <foreach collection="list" item="e" separator=",">
+        (#{e.id}, #{e.tenantId}, #{e.taskId}, #{e.routeId}, #{e.sectionId}, #{e.unitId}, #{e.routeCode}, #{e.direction}, #{e.laneNo}, #{e.startStake}, #{e.endStake},
+        #{e.diseaseCategory}, #{e.diseaseType}, #{e.diseaseName}, #{e.severity}, #{e.quantity}, #{e.measureUnit}, #{e.damageArea}, #{e.damageLength}, #{e.damageWidth}, #{e.damageDepth},
+        #{e.source}, #{e.confidence},
+        <choose><when test="e.geomWkt != null and e.geomWkt != ''">ST_GeomFromText(#{e.geomWkt}, 4326)</when><otherwise>NULL</otherwise></choose>,
+        #{e.status}, #{e.verified}, #{e.remark}, #{e.createdBy}, #{e.updatedBy}, now(), now(), false)
+        </foreach>
     </insert>
     <update id="updateWithGeom" parameterType="com.smartroad.srmp.disease.entity.DiseaseRecord">
         UPDATE disease_record SET task_id=#{taskId}, route_id=#{routeId}, section_id=#{sectionId}, unit_id=#{unitId}, route_code=#{routeCode}, direction=#{direction}, lane_no=#{laneNo},
