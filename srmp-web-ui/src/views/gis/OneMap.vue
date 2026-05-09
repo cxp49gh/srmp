@@ -9,6 +9,7 @@
         :has-region="!!regionGeometry"
         :network-import-loading="importNetworkLoading"
         :section-package-import-loading="importSectionPackageLoading"
+        :disease-excel-import-loading="importDiseaseExcelLoading"
         @search="handleSearch"
         @reset="handleReset"
         @fit="handleFitAll"
@@ -16,6 +17,7 @@
         @clear-region="clearRegion"
         @import-network="handleImportNetwork"
         @import-section-package="handleImportSectionPackage"
+        @import-disease-excel="handleImportDiseaseExcel"
       />
     </div>
 
@@ -119,14 +121,19 @@ import {
   saveMapRegionSolutionDraft,
   type GisLayerQuery
 } from '../../api/gis'
-import { importRoadNetwork, importSectionPackage } from '../../api/roadAsset'
+import { importDiseaseExcel, importRoadNetwork, importSectionPackage } from '../../api/roadAsset'
 import { mapAgentRun } from '../../api/agent'
 import { getOrchestratorLiveTrace } from '../../api/orchestrator'
 import { styleForMapLayer } from '../../utils/leafletStyle'
 import { addTiandituBasemap, MAP_GEOGRAPHIC_CRS } from '../../utils/mapBasemap'
 import { getMetricGrade, getMetricMeta, getMetricValue } from '../../utils/roadConditionMetrics'
 import type { GeoJsonFeatureCollection } from '../../types/geojson'
-import type { ImportNetworkResultVO, ImportSectionPackageResultVO } from '../../types/importNetwork'
+import type {
+  ImportDiseaseExcelResultVO,
+  ImportNetworkResultVO,
+  ImportSectionPackageResultVO
+} from '../../types/importNetwork'
+import { ZOOM_MIN_DISEASE_LAYER } from '../../constants/gisDiseaseLayer'
 import { type LayerState } from './components/LayerDrawer.vue'
 import GisLeftWorkbench from './components/GisLeftWorkbench.vue'
 import AgentChatFloat from './components/AgentChatFloat.vue'
@@ -174,6 +181,7 @@ const loading = ref(false)
 const mapLoadingMask = ref(false)
 const importNetworkLoading = ref(false)
 const importSectionPackageLoading = ref(false)
+const importDiseaseExcelLoading = ref(false)
 const agentVisible = ref(true)
 const pendingAiQuestion = ref('')
 const regionMode = ref<'NONE' | 'RECTANGLE' | 'POLYGON'>('NONE')
@@ -214,6 +222,7 @@ let aiSourceHighlightLayer: L.Layer | null = null
 let rectangleStart: L.LatLng | null = null
 let regionSummaryRequestSeq = 0
 let layerChangeTimer: ReturnType<typeof window.setTimeout> | null = null
+let diseaseViewportTimer: ReturnType<typeof window.setTimeout> | null = null
 let regionLiveTraceTimer: ReturnType<typeof window.setInterval> | null = null
 let mapDisposed = false
 const objectDetailRequestGuard = createLatestRequestGuard()
@@ -346,8 +355,12 @@ onMounted(async () => {
   currentZoom.value = map.getZoom()
   map.on('zoomend', () => {
     currentZoom.value = map.getZoom()
+    scheduleDiseaseViewportReload()
   })
-  map.on('moveend', loadStatistics)
+  map.on('moveend', () => {
+    void loadStatistics()
+    scheduleDiseaseViewportReload()
+  })
   map.on('mousedown', handleRegionMouseDown)
   map.on('mousemove', handleRegionMouseMove)
   map.on('mouseup', handleRegionMouseUp)
@@ -375,6 +388,10 @@ onUnmounted(() => {
     window.clearTimeout(layerChangeTimer)
     layerChangeTimer = null
   }
+  if (diseaseViewportTimer) {
+    window.clearTimeout(diseaseViewportTimer)
+    diseaseViewportTimer = null
+  }
   stopRegionLiveTracePolling()
   if (map) {
     map.off()
@@ -399,6 +416,45 @@ function layerQuery(): GisLayerQuery {
     next[key] = typeof value === 'string' ? value.trim() : value
   })
   return next as GisLayerQuery
+}
+
+function diseaseZoomEligible(): boolean {
+  return Boolean(map && !mapDisposed && map.getZoom() >= ZOOM_MIN_DISEASE_LAYER)
+}
+
+/** 病害图层：叠加当前视窗 bbox（调用方需已保证缩放不低于 ZOOM_MIN_DISEASE_LAYER） */
+function diseaseLayerQuery(): GisLayerQuery {
+  const base = layerQuery()
+  if (mapDisposed || typeof map === 'undefined' || !map) return base
+  const b = map.getBounds()
+  const w = b.getWest()
+  const s = b.getSouth()
+  const e = b.getEast()
+  const n = b.getNorth()
+  if (![w, s, e, n].every((v) => Number.isFinite(v))) return base
+  return { ...base, minLng: w, minLat: s, maxLng: e, maxLat: n }
+}
+
+function scheduleDiseaseViewportReload() {
+  if (!layers.disease || mapDisposed || typeof map === 'undefined' || !map) return
+  if (!diseaseZoomEligible()) {
+    if (diseaseViewportTimer) {
+      window.clearTimeout(diseaseViewportTimer)
+      diseaseViewportTimer = null
+    }
+    removeLayerByKey('disease')
+    return
+  }
+  if (diseaseViewportTimer) window.clearTimeout(diseaseViewportTimer)
+  diseaseViewportTimer = window.setTimeout(() => {
+    diseaseViewportTimer = null
+    if (!map || mapDisposed || !layers.disease) return
+    if (!diseaseZoomEligible()) {
+      removeLayerByKey('disease')
+      return
+    }
+    void loadLayerSafely('disease', () => getDiseases(diseaseLayerQuery()))
+  }, 600)
 }
 
 async function handleSearch(nextQuery?: GisLayerQuery) {
@@ -470,6 +526,43 @@ async function handleImportSectionPackage(file: File) {
     }
   } finally {
     importSectionPackageLoading.value = false
+  }
+}
+
+async function handleImportDiseaseExcel(file: File) {
+  const name = file.name.toLowerCase()
+  if (!name.endsWith('.xlsx')) {
+    ElMessage.error('仅支持 .xlsx 格式')
+    return
+  }
+  if (!map) return
+  importDiseaseExcelLoading.value = true
+  try {
+    const r = (await importDiseaseExcel(file)) as ImportDiseaseExcelResultVO
+    const skip = r.skippedMissingRouteCount ?? 0
+    const msg =
+      skip > 0
+        ? `上传成功，共导入 ${r.insertedCount} 条病害；${skip} 行因路线编码不在路网中已跳过`
+        : `上传成功，共导入 ${r.insertedCount} 条病害`
+    ElMessage.success(msg)
+    layers.disease = true
+    removeLayerByKey('disease')
+    if (diseaseZoomEligible()) {
+      await loadLayerSafely('disease', () => getDiseases(diseaseLayerQuery()))
+    } else {
+      ElMessage.info(`病害已导入；请将地图放大至 ${ZOOM_MIN_DISEASE_LAYER} 级及以上，将按当前视窗范围自动加载病害`)
+    }
+    await loadStatistics()
+  } catch (error: any) {
+    const ax = error?.biz ?? error?.response?.data
+    const details = ax?.data?.details
+    if (Array.isArray(details) && details.length) {
+      ElMessage.error(`${ax?.message || error?.message || '导入失败'}：${details.slice(0, 12).join('；')}`)
+    } else {
+      ElMessage.error(ax?.message || error?.message || '病害数据导入失败')
+    }
+  } finally {
+    importDiseaseExcelLoading.value = false
   }
 }
 
@@ -549,7 +642,11 @@ async function reloadLayers(options: ReloadLayerOptions = {}) {
     if (layers.roadRoute) tasks.push(loadLayerSafely('roadRoute', () => getRoadRoutes(params)))
     if (layers.roadSection) tasks.push(loadLayerSafely('roadSection', () => getRoadSections(params)))
     if (layers.evaluationUnit) tasks.push(loadLayerSafely('evaluationUnit', () => getEvaluationUnits(params)))
-    if (layers.disease) tasks.push(loadLayerSafely('disease', () => getDiseases(params)))
+    if (layers.disease && diseaseZoomEligible()) {
+      tasks.push(loadLayerSafely('disease', () => getDiseases(diseaseLayerQuery())))
+    } else if (layers.disease) {
+      removeLayerByKey('disease')
+    }
     if (layers.assessment || layers.assessmentResult) {
       tasks.push(loadLayerSafely('assessment', () => getAssessmentResults(params)))
     }
@@ -582,7 +679,11 @@ async function syncVisibleLayers() {
     else if (!layerMap.has('evaluationUnit')) tasks.push(loadLayerSafely('evaluationUnit', () => getEvaluationUnits(params)))
 
     if (!layers.disease) removeLayerByKey('disease')
-    else if (!layerMap.has('disease')) tasks.push(loadLayerSafely('disease', () => getDiseases(params)))
+    else if (!layerMap.has('disease') && diseaseZoomEligible()) {
+      tasks.push(loadLayerSafely('disease', () => getDiseases(diseaseLayerQuery())))
+    } else if (layers.disease && !diseaseZoomEligible()) {
+      removeLayerByKey('disease')
+    }
 
     if (!(layers.assessment || layers.assessmentResult)) removeLayerByKey('assessment')
     else if (!layerMap.has('assessment')) tasks.push(loadLayerSafely('assessment', () => getAssessmentResults(params)))

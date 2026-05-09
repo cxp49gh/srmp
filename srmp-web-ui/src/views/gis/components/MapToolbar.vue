@@ -50,7 +50,7 @@
         />
         <el-button
           :loading="networkImportLoading"
-          :disabled="networkImportLoading || sectionPackageImportLoading"
+          :disabled="networkImportLoading || sectionPackageImportLoading || diseaseExcelImportLoading"
           title="上传包含一组 Shapefile 的 .tar 包"
           @click="triggerNetworkImport"
         >
@@ -67,11 +67,28 @@
         />
         <el-button
           :loading="sectionPackageImportLoading"
-          :disabled="networkImportLoading || sectionPackageImportLoading"
+          :disabled="networkImportLoading || sectionPackageImportLoading || diseaseExcelImportLoading"
           title="上传路线级/台账级 Shapefile 的 .tar 包"
           @click="triggerSectionImport"
         >
           导入路段
+        </el-button>
+        <input
+          ref="diseaseFileInputRef"
+          type="file"
+          class="network-file-input"
+          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          aria-hidden="true"
+          tabindex="-1"
+          @change="onDiseaseFileChange"
+        />
+        <el-button
+          :loading="diseaseExcelImportLoading"
+          :disabled="networkImportLoading || sectionPackageImportLoading || diseaseExcelImportLoading"
+          title="上传标准模板的 .xlsx 病害数据"
+          @click="triggerDiseaseImport"
+        >
+          导入病害数据
         </el-button>
         <div class="region-icon-actions" aria-label="区域框选工具">
           <el-button
@@ -137,8 +154,9 @@ const props = withDefaults(
     hasRegion?: boolean
     networkImportLoading?: boolean
     sectionPackageImportLoading?: boolean
+    diseaseExcelImportLoading?: boolean
   }>(),
-  { networkImportLoading: false, sectionPackageImportLoading: false }
+  { networkImportLoading: false, sectionPackageImportLoading: false, diseaseExcelImportLoading: false }
 )
 
 const emit = defineEmits<{
@@ -149,10 +167,12 @@ const emit = defineEmits<{
   (e: 'clear-region'): void
   (e: 'import-network', file: File): void
   (e: 'import-section-package', file: File): void
+  (e: 'import-disease-excel', file: File): void
 }>()
 
 const networkFileInputRef = ref<HTMLInputElement | null>(null)
 const sectionFileInputRef = ref<HTMLInputElement | null>(null)
+const diseaseFileInputRef = ref<HTMLInputElement | null>(null)
 
 const localQuery = reactive<GisLayerQuery>({ ...props.query })
 const metricOptions = ROAD_CONDITION_METRICS
@@ -186,6 +206,23 @@ function triggerNetworkImport() {
 
 function triggerSectionImport() {
   sectionFileInputRef.value?.click()
+}
+
+function triggerDiseaseImport() {
+  diseaseFileInputRef.value?.click()
+}
+
+function onDiseaseFileChange(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  const name = file.name.toLowerCase()
+  if (!name.endsWith('.xlsx')) {
+    ElMessage.error('仅支持 .xlsx 格式')
+    return
+  }
+  emit('import-disease-excel', file)
 }
 
 function onSectionFileChange(ev: Event) {

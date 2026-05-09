@@ -39,10 +39,13 @@
 
       <section class="layer-group">
         <div class="group-title">业务图层</div>
-        <label v-for="item in businessLayerItems" :key="item.key" class="layer-item">
-          <el-checkbox v-model="localLayers[item.key]" @change="emitLayerChange">{{ item.label }}</el-checkbox>
-          <span class="layer-count">{{ layerCount(item.key) }}</span>
-        </label>
+        <div v-for="item in businessLayerItems" :key="item.key" class="layer-item-wrap">
+          <label class="layer-item">
+            <el-checkbox v-model="localLayers[item.key]" @change="emitLayerChange">{{ item.label }}</el-checkbox>
+            <span class="layer-count">{{ layerCount(item.key) }}</span>
+          </label>
+          <p v-if="item.hint" class="layer-hint">{{ item.hint }}</p>
+        </div>
       </section>
 
       <section class="stats-section">
@@ -70,6 +73,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import type { GisLayerQuery } from '../../../api/gis'
+import { ZOOM_MIN_DISEASE_LAYER } from '../../../constants/gisDiseaseLayer'
 import type { LayerState } from './LayerDrawer.vue'
 import { formatMetricValue, getGradeMeta, getMetricGrade, getMetricMeta, getMetricValue, gradeFromScore, gradeLabel } from '../../../utils/roadConditionMetrics'
 
@@ -104,15 +108,20 @@ const assetLayerItems = [
   { key: 'evaluationUnit' as keyof LayerState, label: '评定单元' }
 ]
 
-const businessLayerItems = [
-  { key: 'disease' as keyof LayerState, label: '病害' },
+const businessLayerItems = computed(() => [
+  {
+    key: 'disease' as keyof LayerState,
+    label: '病害',
+    hint: `地图需放大至 ${ZOOM_MIN_DISEASE_LAYER} 级及以上，才按当前视野查询并展示病害`
+  },
   { key: 'assessment' as keyof LayerState, label: '评定专题' }
-]
-const allLayerItems = [...assetLayerItems, ...businessLayerItems]
+])
+
+const allLayerItems = computed(() => [...assetLayerItems, ...businessLayerItems.value])
 
 const layerErrorItems = computed(() => {
   const errors = props.layerErrors || {}
-  return allLayerItems
+  return allLayerItems.value
     .map((item) => ({ key: String(item.key), label: item.label, message: errors[String(item.key)] }))
     .filter((item) => item.message)
 })
@@ -127,7 +136,7 @@ const selectedMetricGradeLabel = computed(() => {
 })
 
 const enabledLayerCount = computed(() => {
-  return allLayerItems.filter((item) => localLayers[item.key]).length
+  return allLayerItems.value.filter((item) => localLayers[item.key]).length
 })
 
 const statItems = computed(() => {
@@ -308,11 +317,27 @@ function formatPercent(value: any) {
   font-weight: 700;
 }
 
+.layer-item-wrap {
+  margin-bottom: 2px;
+}
+
+.layer-item-wrap:last-child {
+  margin-bottom: 0;
+}
+
 .layer-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 26px;
+  min-height: 26px;
+}
+
+.layer-hint {
+  margin: 0 0 6px;
+  padding-left: 22px;
+  font-size: 11px;
+  line-height: 1.38;
+  color: #64748b;
 }
 
 .layer-count {

@@ -10,6 +10,11 @@ export interface GisLayerQuery {
   diseaseType?: string
   severity?: string
   taskId?: string
+  /** 与地图视窗一致：west / south / east / north（WGS84），病害等大数据图层可按框查询 */
+  minLng?: number
+  minLat?: number
+  maxLng?: number
+  maxLat?: number
 }
 
 export interface MapViewport {

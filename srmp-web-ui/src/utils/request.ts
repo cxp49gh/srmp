@@ -23,8 +23,11 @@ function createRequest(timeout: number): AxiosInstance {
       const data = response.data
       if (data && typeof data.code !== 'undefined') {
         if (data.code === 0) return data.data
-        ElMessage.error(data.message || '请求失败')
-        return Promise.reject(new Error(data.message || '请求失败'))
+        const msg = data.message || '请求失败'
+        ElMessage.error(msg)
+        const err = new Error(msg) as Error & { biz?: typeof data }
+        err.biz = data
+        return Promise.reject(err)
       }
       return data
     },

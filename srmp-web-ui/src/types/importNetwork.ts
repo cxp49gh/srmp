@@ -15,3 +15,10 @@ export interface ImportSectionPackageResultVO {
   durationMs?: number
   warnings?: string[]
 }
+
+/** 与后端 ImportDiseaseExcelResultVO 对齐 */
+export interface ImportDiseaseExcelResultVO {
+  insertedCount: number
+  /** 因路线编码在路网中不存在而跳过的行数 */
+  skippedMissingRouteCount?: number
+}
