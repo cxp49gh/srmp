@@ -6,12 +6,24 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.util.HashMap;
+import java.util.Map;
+
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(BizException.class)
-    public R<Void> handleBizException(BizException e) {
-        return R.fail(e.getCode(), e.getMessage());
+    public R<?> handleBizException(BizException e) {
+        if (e.getDetails() == null || e.getDetails().isEmpty()) {
+            return R.fail(e.getCode(), e.getMessage());
+        }
+        Map<String, Object> data = new HashMap<>(2);
+        data.put("details", e.getDetails());
+        R<Map<String, Object>> r = new R<>();
+        r.setCode(e.getCode());
+        r.setMessage(e.getMessage());
+        r.setData(data);
+        return r;
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
