@@ -1,10 +1,16 @@
 server:
   port: 8080
+  tomcat:
+    max-http-form-post-size: ${SRMP_MAX_HTTP_FORM_POST_SIZE:500MB}
 
 spring:
   application:
     name: srmp-admin
 
+  servlet:
+    multipart:
+      max-file-size: ${SRMP_MULTIPART_MAX_FILE_SIZE:500MB}
+      max-request-size: ${SRMP_MULTIPART_MAX_REQUEST_SIZE:500MB}
 
 srmp:
   ai:

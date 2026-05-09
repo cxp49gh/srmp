@@ -1,9 +1,17 @@
 server:
   port: 8080
+  tomcat:
+    # 大文件导入（路网/路段包/病害 Excel 等）：表单与非 multipart 请求体上限
+    max-http-form-post-size: 500MB
 
 spring:
   application:
     name: srmp-admin
+
+  servlet:
+    multipart:
+      max-file-size: 500MB
+      max-request-size: 500MB
 
   datasource:
     url: jdbc:postgresql://127.0.0.1:5432/srmp
@@ -41,7 +49,7 @@ srmp:
     provider: openai-compatible
     base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
     api-key: ${DASHSCOPE_API_KEY:sk-f39cf265c5ad4c378dc052d01db084e3}
-    model: qwen3.6-plus
+    model: qwen3.6-plus-2026-04-02
     # 建立连接超时，默认 15 秒
     connect-timeout-ms: 15000
     # 等待模型返回超时，区域养护方案建议 180~300 秒

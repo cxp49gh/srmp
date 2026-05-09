@@ -1,9 +1,16 @@
 server:
   port: 8080
+  tomcat:
+    max-http-form-post-size: 500MB
 
 spring:
   application:
     name: srmp-admin
+
+  servlet:
+    multipart:
+      max-file-size: 500MB
+      max-request-size: 500MB
 
   datasource:
     url: jdbc:postgresql://${DB_HOST:127.0.0.1}:${DB_PORT:5432}/${DB_NAME:srmp}
