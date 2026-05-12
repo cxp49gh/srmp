@@ -4,44 +4,90 @@
     <sql id="SectionWhere">
         tenant_id = #{tenantId} AND deleted = false
         <if test="q != null and q.routeCode != null and q.routeCode != ''">AND route_code = #{q.routeCode}</if>
-        <if test="q != null and q.sectionCode != null and q.sectionCode != ''">AND section_code ILIKE concat('%', #{q.sectionCode}, '%')</if>
-        <if test="q != null and q.sectionName != null and q.sectionName != ''">AND section_name ILIKE concat('%', #{q.sectionName}, '%')</if>
+        <if test="q != null and q.sectionCode != null and q.sectionCode != ''">AND line_code ILIKE concat('%', #{q.sectionCode}, '%')</if>
+        <if test="q != null and q.sectionName != null and q.sectionName != ''">AND line_name ILIKE concat('%', #{q.sectionName}, '%')</if>
         <if test="q != null and q.direction != null and q.direction != ''">AND direction = #{q.direction}</if>
         <if test="q != null and q.adcode != null and q.adcode != ''">AND adcode = #{q.adcode}</if>
         <if test="q != null and q.stake != null">AND start_stake &lt;= #{q.stake} AND end_stake &gt;= #{q.stake}</if>
+        <if test="q != null and q.projectId != null and q.projectId != ''">AND project_id = #{q.projectId}</if>
     </sql>
     <sql id="SectionColumns">
-        id, route_id, route_code, section_code, section_name, direction, start_stake, end_stake, length_km, pavement_type, technical_grade,
-        lane_count, road_width, traffic_volume_level, adcode, manage_org_id, ST_AsGeoJSON(geom) AS geom_geo_json, remark, created_at
+        id, route_id, route_code, line_code AS section_code, line_name AS section_name, direction, start_stake, end_stake, length_km, pavement_type, technical_grade,
+        lane_count, road_width, traffic_volume_level, adcode, manage_org_id, project_id, ST_AsGeoJSON(geom) AS geom_geo_json, remark, created_at
     </sql>
     <select id="selectPageVO" resultType="com.smartroad.srmp.roadasset.vo.RoadSectionVO">
-        SELECT <include refid="SectionColumns"/> FROM road_section WHERE <include refid="SectionWhere"/> ORDER BY route_code ASC, start_stake ASC
+        SELECT <include refid="SectionColumns"/> FROM road_section_line WHERE <include refid="SectionWhere"/> ORDER BY route_code ASC, start_stake ASC
     </select>
     <select id="selectDetail" resultType="com.smartroad.srmp.roadasset.vo.RoadSectionVO">
-        SELECT <include refid="SectionColumns"/> FROM road_section WHERE tenant_id=#{tenantId} AND id=#{id} AND deleted=false
+        SELECT <include refid="SectionColumns"/> FROM road_section_line WHERE tenant_id=#{tenantId} AND id=#{id} AND deleted=false
     </select>
     <select id="selectForMap" resultType="com.smartroad.srmp.roadasset.vo.RoadSectionVO">
-        SELECT <include refid="SectionColumns"/> FROM road_section WHERE <include refid="SectionWhere"/> AND geom IS NOT NULL
+        SELECT <include refid="SectionColumns"/> FROM road_section_line WHERE <include refid="SectionWhere"/> AND geom IS NOT NULL
         ORDER BY route_code ASC, start_stake ASC
     </select>
     <insert id="insertWithGeom" parameterType="com.smartroad.srmp.roadasset.entity.RoadSection">
-        INSERT INTO road_section(id, tenant_id, route_id, route_code, section_code, section_name, direction, start_stake, end_stake, length_km, pavement_type, technical_grade, lane_count, road_width, traffic_volume_level, adcode, manage_org_id, geom, remark, created_by, updated_by, created_at, updated_at, deleted)
-        VALUES (#{id}, #{tenantId}, #{routeId}, #{routeCode}, #{sectionCode}, #{sectionName}, #{direction}, #{startStake}, #{endStake}, #{lengthKm}, #{pavementType}, #{technicalGrade}, #{laneCount}, #{roadWidth}, #{trafficVolumeLevel}, #{adcode}, #{manageOrgId},
+        INSERT INTO road_section_line(id, tenant_id, route_id, route_code, line_code, line_name, direction, start_stake, end_stake, length_km, pavement_type, technical_grade, lane_count, road_width, traffic_volume_level, adcode, manage_org_id, project_id, geom, remark, created_by, updated_by, created_at, updated_at, deleted)
+        VALUES (#{id}, #{tenantId}, #{routeId}, #{routeCode}, #{sectionCode}, #{sectionName}, #{direction}, #{startStake}, #{endStake}, #{lengthKm}, #{pavementType}, #{technicalGrade}, #{laneCount}, #{roadWidth}, #{trafficVolumeLevel}, #{adcode}, #{manageOrgId}, #{projectId},
         <choose><when test="geomWkt != null and geomWkt != ''">ST_GeomFromText(#{geomWkt}, 4326)</when><otherwise>NULL</otherwise></choose>,
         #{remark}, #{createdBy}, #{updatedBy}, now(), now(), false)
     </insert>
     <update id="updateWithGeom" parameterType="com.smartroad.srmp.roadasset.entity.RoadSection">
-        UPDATE road_section SET route_id=#{routeId}, route_code=#{routeCode}, section_code=#{sectionCode}, section_name=#{sectionName}, direction=#{direction}, start_stake=#{startStake}, end_stake=#{endStake}, length_km=#{lengthKm}, pavement_type=#{pavementType}, technical_grade=#{technicalGrade}, lane_count=#{laneCount}, road_width=#{roadWidth}, traffic_volume_level=#{trafficVolumeLevel}, adcode=#{adcode}, manage_org_id=#{manageOrgId}, remark=#{remark}, updated_by=#{updatedBy}, updated_at=now()
+        UPDATE road_section_line SET route_id=#{routeId}, route_code=#{routeCode}, line_code=#{sectionCode}, line_name=#{sectionName}, direction=#{direction}, start_stake=#{startStake}, end_stake=#{endStake}, length_km=#{lengthKm}, pavement_type=#{pavementType}, technical_grade=#{technicalGrade}, lane_count=#{laneCount}, road_width=#{roadWidth}, traffic_volume_level=#{trafficVolumeLevel}, adcode=#{adcode}, manage_org_id=#{manageOrgId}, project_id=#{projectId}, remark=#{remark}, updated_by=#{updatedBy}, updated_at=now()
         <if test="geomWkt != null and geomWkt != ''">, geom=ST_GeomFromText(#{geomWkt}, 4326)</if>
         WHERE tenant_id=#{tenantId} AND id=#{id} AND deleted=false
     </update>
     <select id="selectIdByTenantAndSectionCode" resultType="java.lang.String">
-        SELECT id FROM road_section
-        WHERE tenant_id=#{tenantId} AND section_code=#{sectionCode} AND deleted=false LIMIT 1
+        SELECT id FROM road_section_line
+        WHERE tenant_id=#{tenantId} AND line_code=#{sectionCode} AND deleted=false LIMIT 1
     </select>
     <select id="selectIdByRouteStake" resultType="java.lang.String">
-        SELECT id FROM road_section
+        SELECT id FROM road_section_line
         WHERE tenant_id=#{tenantId} AND route_code=#{routeCode} AND direction=#{direction}
           AND start_stake=#{startStake} AND end_stake=#{endStake} AND deleted=false LIMIT 1
     </select>
+    <select id="selectLineIdsByLineCodes" resultType="com.smartroad.srmp.roadasset.dto.LineCodeIdRow">
+        SELECT line_code AS lineCode, id FROM road_section_line
+        WHERE tenant_id=#{tenantId} AND deleted=false
+        AND line_code IN
+        <foreach collection="codes" item="c" open="(" close=")" separator=",">#{c}</foreach>
+    </select>
+    <select id="selectLineIdsByStakes" resultType="com.smartroad.srmp.roadasset.dto.SectionStakeMatchRow">
+        SELECT id, route_code AS routeCode, direction, start_stake AS startStake, end_stake AS endStake
+        FROM road_section_line
+        WHERE tenant_id=#{tenantId} AND deleted=false
+        AND (route_code, direction, start_stake, end_stake) IN
+        <foreach collection="rows" item="r" open="(" separator="," close=")">
+            (#{r.routeCode},#{r.direction},#{r.startStake},#{r.endStake})
+        </foreach>
+    </select>
+    <insert id="upsertBatchWithGeom">
+        INSERT INTO road_section_line(id, tenant_id, route_id, route_code, line_code, line_name, direction, start_stake, end_stake, length_km, pavement_type, technical_grade, lane_count, road_width, traffic_volume_level, adcode, manage_org_id, project_id, geom, remark, created_by, updated_by, created_at, updated_at, deleted)
+        VALUES
+        <foreach collection="list" item="e" separator=",">
+            (#{e.id}, #{tenantId}, #{e.routeId}, #{e.routeCode}, #{e.sectionCode}, #{e.sectionName}, #{e.direction}, #{e.startStake}, #{e.endStake}, #{e.lengthKm}, #{e.pavementType}, #{e.technicalGrade}, #{e.laneCount}, #{e.roadWidth}, #{e.trafficVolumeLevel}, #{e.adcode}, #{e.manageOrgId}, #{e.projectId},
+            <choose><when test="e.geomWkt != null and e.geomWkt != ''">ST_GeomFromText(#{e.geomWkt}, 4326)</when><otherwise>NULL</otherwise></choose>,
+            #{e.remark}, #{userId}, #{userId}, now(), now(), false)
+        </foreach>
+        ON CONFLICT (tenant_id, line_code) DO UPDATE SET
+            route_id = EXCLUDED.route_id,
+            route_code = EXCLUDED.route_code,
+            line_name = EXCLUDED.line_name,
+            direction = EXCLUDED.direction,
+            start_stake = EXCLUDED.start_stake,
+            end_stake = EXCLUDED.end_stake,
+            length_km = EXCLUDED.length_km,
+            pavement_type = EXCLUDED.pavement_type,
+            technical_grade = EXCLUDED.technical_grade,
+            lane_count = EXCLUDED.lane_count,
+            road_width = EXCLUDED.road_width,
+            traffic_volume_level = EXCLUDED.traffic_volume_level,
+            adcode = EXCLUDED.adcode,
+            manage_org_id = EXCLUDED.manage_org_id,
+            project_id = EXCLUDED.project_id,
+            geom = EXCLUDED.geom,
+            remark = EXCLUDED.remark,
+            updated_by = EXCLUDED.updated_by,
+            updated_at = now(),
+            deleted = false
+    </insert>
 </mapper>

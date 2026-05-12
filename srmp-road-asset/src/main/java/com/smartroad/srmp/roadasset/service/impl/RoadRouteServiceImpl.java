@@ -36,7 +36,16 @@ public class RoadRouteServiceImpl implements RoadRouteService {
         mapper.insertWithGeom(e); return e.getId();
     }
     public void update(String id, RoadRouteSaveDTO dto) {
-        getById(id); RoadRoute e = new RoadRoute(); BeanUtils.copyProperties(dto, e); e.setId(id); e.setTenantId(TenantContextHolder.getTenantId()); mapper.updateWithGeom(e);
+        RoadRoute existing = mapper.selectById(id);
+        String tenantId = TenantContextHolder.getTenantId();
+        if (existing == null || !tenantId.equals(existing.getTenantId())) {
+            throw new BizException("路线不存在");
+        }
+        RoadRoute e = new RoadRoute();
+        BeanUtils.copyProperties(dto, e);
+        e.setId(id);
+        e.setTenantId(tenantId);
+        mapper.updateWithGeom(e);
     }
     public void delete(String id) {
         LambdaUpdateWrapper<RoadRoute> w = new LambdaUpdateWrapper<>(); w.eq(RoadRoute::getTenantId, TenantContextHolder.getTenantId()).eq(RoadRoute::getId, id).set(RoadRoute::getDeleted, true);

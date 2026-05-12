@@ -19,4 +19,7 @@ public interface AssessmentResultService {
 
     /** 导入路段包：按租户+objectType+objectId+year+standardCode 存在则更新，否则插入 */
     void upsertForImport(AssessmentResultSaveDTO dto);
+
+    /** 导入路段包：批量写入评定结果（存在则更新） */
+    void upsertBatchForImport(List<AssessmentResultSaveDTO> dtos);
 }

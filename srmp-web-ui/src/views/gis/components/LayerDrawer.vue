@@ -13,16 +13,14 @@
         <el-button size="small" plain @click="emit('fit')">全图</el-button>
       </div>
 
-      <div class="group-title">道路资产</div>
-      <layer-row label="路线" layer-key="roadRoute" :layers="localLayers" :status="statusMap.roadRoute" @change="emitChange" />
+      <div class="group-title">资产与业务</div>
+      <layer-row label="路网" layer-key="roadRoute" :layers="localLayers" :status="statusMap.roadRoute" @change="emitChange" />
       <layer-row label="路段" layer-key="roadSection" :layers="localLayers" :status="statusMap.roadSection" @change="emitChange" />
-      <layer-row label="评定单元" layer-key="evaluationUnit" :layers="localLayers" :status="statusMap.evaluationUnit" @change="emitChange" />
-
-      <el-divider />
-
-      <div class="group-title">业务图层</div>
       <layer-row label="病害" layer-key="disease" :layers="localLayers" :status="statusMap.disease" @change="emitChange" />
-      <layer-row label="评定专题" layer-key="assessment" :layers="localLayers" :status="statusMap.assessment" @change="emitChange" />
+
+      <layer-row label="评定" layer-key="assessment" :layers="localLayers" :status="statusMap.assessment" @change="emitChange" />
+
+      <p class="tier-hint">路段粒度由工具栏「路段专题」与「查询」决定；勾选「评定」才在地图上展示指标专题数据。</p>
 
       <div v-if="errorItems.length" class="layer-errors">
         <div class="error-title">加载异常</div>
@@ -40,9 +38,10 @@ import { computed, defineComponent, h, reactive, ref, watch, type PropType } fro
 
 export interface LayerState {
   roadRoute?: boolean
+  disease?: boolean
+  /** 兼容旧版一张图勾选态 */
   roadSection?: boolean
   evaluationUnit?: boolean
-  disease?: boolean
   assessment?: boolean
   assessmentResult?: boolean
 }
@@ -57,11 +56,11 @@ export interface LayerLoadStatus {
 }
 
 const layerLabels: Record<string, string> = {
-  roadRoute: '路线',
+  roadRoute: '路网',
   roadSection: '路段',
   evaluationUnit: '评定单元',
   disease: '病害',
-  assessment: '评定专题'
+  assessment: '评定'
 }
 
 const LayerRow = defineComponent({
@@ -211,6 +210,13 @@ function emitChange() {
   font-size: 12px;
   font-weight: 700;
   color: #475569;
+}
+
+.tier-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #64748b;
 }
 
 .layer-row {

@@ -9,5 +9,5 @@ public class RoadSectionSaveDTO {
     @NotNull(message="起点桩号不能为空") private BigDecimal startStake;
     @NotNull(message="终点桩号不能为空") private BigDecimal endStake;
     private BigDecimal lengthKm; private String pavementType; private String technicalGrade; private Integer laneCount; private BigDecimal roadWidth;
-    private String trafficVolumeLevel; private String adcode; private String manageOrgId; private String geomWkt; private String remark;
+    private String trafficVolumeLevel; private String adcode; private String manageOrgId; private String projectId; private String geomWkt; private String remark;
 }

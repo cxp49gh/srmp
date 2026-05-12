@@ -23,15 +23,14 @@ public class DemoDataServiceImpl implements DemoDataService {
         Map<String, Object> tables = counts(actual, y);
         Map<String, Object> health = new LinkedHashMap<>();
         health.put("hasRoutes", toLong(tables.get("road_route")) > 0);
-        health.put("hasSections", toLong(tables.get("road_section")) > 0);
-        health.put("hasUnits", toLong(tables.get("road_evaluation_unit")) >= 1000);
-        health.put("hasAssessments", toLong(tables.get("assessment_result")) >= 1000);
-        health.put("hasDiseases", toLong(tables.get("disease_record")) >= 3000);
+        health.put("hasSections", toLong(tables.get("road_section_line")) > 0);
+        health.put("hasUnits", toLong(tables.get("road_section_ledger")) > 0);
+        health.put("hasAssessments", toLong(tables.get("assessment_result")) > 0);
+        health.put("hasDiseases", toLong(tables.get("disease_record")) > 0);
         health.put("ready", Boolean.TRUE.equals(health.get("hasRoutes"))
                 && Boolean.TRUE.equals(health.get("hasSections"))
                 && Boolean.TRUE.equals(health.get("hasUnits"))
-                && Boolean.TRUE.equals(health.get("hasAssessments"))
-                && Boolean.TRUE.equals(health.get("hasDiseases")));
+                && Boolean.TRUE.equals(health.get("hasAssessments")));
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("requestedTenantId", requested);
@@ -71,8 +70,8 @@ public class DemoDataServiceImpl implements DemoDataService {
         MapSqlParameterSource p = params(tid, y);
         return namedParameterJdbcTemplate.queryForList(
                 "select r.route_code, max(r.route_name) route_name, round(max(r.length_km)::numeric,3) length_km, " +
-                        "(select count(*) from road_section s where s.tenant_id=r.tenant_id and s.route_code=r.route_code and coalesce(s.deleted,false)=false) section_count, " +
-                        "(select count(*) from road_evaluation_unit u where u.tenant_id=r.tenant_id and u.route_code=r.route_code and coalesce(u.deleted,false)=false) unit_count, " +
+                        "(select count(*) from road_section_line s where s.tenant_id=r.tenant_id and s.route_code=r.route_code and coalesce(s.deleted,false)=false) section_count, " +
+                        "(select count(*) from road_section_ledger u where u.tenant_id=r.tenant_id and u.route_code=r.route_code and coalesce(u.deleted,false)=false) unit_count, " +
                         "(select count(*) from assessment_result a where a.tenant_id=r.tenant_id and a.route_code=r.route_code and a.year=:year and coalesce(a.deleted,false)=false) assessment_count, " +
                         "(select count(*) from disease_record d where d.tenant_id=r.tenant_id and d.route_code=r.route_code and coalesce(d.deleted,false)=false) disease_count, " +
                         "round((select avg(a.mqi) from assessment_result a where a.tenant_id=r.tenant_id and a.route_code=r.route_code and a.year=:year and coalesce(a.deleted,false)=false)::numeric,2) avg_mqi, " +
@@ -86,11 +85,8 @@ public class DemoDataServiceImpl implements DemoDataService {
     @Override
     public List<Map<String, Object>> quickQuestions() {
         List<Map<String, Object>> list = new ArrayList<>();
-        list.add(question("分析 G210 2026 年路况", "G210", 2026));
-        list.add(question("生成 G210 2026 年技术状况评定报告草稿", "G210", 2026));
-        list.add(question("对比 G210 和 S205 的 MQI、PCI 情况", "G210", 2026));
-        list.add(question("统计 G210 主要病害类型和养护建议", "G210", 2026));
-        list.add(question("找出 2026 年次差路段较多的路线", "G210", 2026));
+        list.add(question("导入路网与路段数据后，如何查看 GIS 图层？", null, 2026));
+        list.add(question("技术状况评定结果在系统中如何查询？", null, 2026));
         return list;
     }
 
@@ -121,8 +117,10 @@ public class DemoDataServiceImpl implements DemoDataService {
     private Map<String, Object> counts(String tenantId, int year) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("road_route", count("road_route", tenantId, null));
-        m.put("road_section", count("road_section", tenantId, null));
-        m.put("road_evaluation_unit", count("road_evaluation_unit", tenantId, null));
+        m.put("road_section_line", count("road_section_line", tenantId, null));
+        m.put("road_section_ledger", count("road_section_ledger", tenantId, null));
+        m.put("road_section_km", count("road_section_km", tenantId, null));
+        m.put("road_section_hm", count("road_section_hm", tenantId, null));
         m.put("assessment_result", count("assessment_result", tenantId, year));
         m.put("index_result", count("index_result", tenantId, year));
         m.put("disease_record", count("disease_record", tenantId, null));
@@ -135,8 +133,8 @@ public class DemoDataServiceImpl implements DemoDataService {
                 "select " +
                         "(select count(*) from road_route where tenant_id=:tenantId and coalesce(deleted,false)=false) route_count, " +
                         "(select round(coalesce(sum(length_km),0)::numeric,3) from road_route where tenant_id=:tenantId and coalesce(deleted,false)=false) total_length_km, " +
-                        "(select count(*) from road_section where tenant_id=:tenantId and coalesce(deleted,false)=false) section_count, " +
-                        "(select count(*) from road_evaluation_unit where tenant_id=:tenantId and coalesce(deleted,false)=false) unit_count, " +
+                        "(select count(*) from road_section_line where tenant_id=:tenantId and coalesce(deleted,false)=false) section_count, " +
+                        "(select count(*) from road_section_ledger where tenant_id=:tenantId and coalesce(deleted,false)=false) unit_count, " +
                         "(select count(*) from assessment_result where tenant_id=:tenantId and year=:year and coalesce(deleted,false)=false) assessment_count, " +
                         "(select count(*) from disease_record where tenant_id=:tenantId and coalesce(deleted,false)=false) disease_count, " +
                         "(select round(avg(mqi)::numeric,2) from assessment_result where tenant_id=:tenantId and year=:year and coalesce(deleted,false)=false) avg_mqi, " +

@@ -27,8 +27,10 @@ REQUIRED_TABLES=(
   "ai_knowledge_chunk"
   "outline_sync_task"
   "road_route"
-  "road_section"
-  "evaluation_unit"
+  "road_section_line"
+  "road_section_ledger"
+  "road_section_km"
+  "road_section_hm"
   "disease_record"
   "assessment_result"
 )

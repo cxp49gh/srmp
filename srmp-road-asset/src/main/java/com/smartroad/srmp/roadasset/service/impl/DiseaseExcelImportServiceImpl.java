@@ -9,8 +9,10 @@ import com.smartroad.srmp.disease.dto.DiseaseSaveDTO;
 import com.smartroad.srmp.disease.service.DiseaseRecordService;
 import com.smartroad.srmp.disease.service.DiseaseTypeService;
 import com.smartroad.srmp.disease.vo.DiseaseTypeVO;
+import com.smartroad.srmp.roadasset.dto.RouteNetworkMatch;
 import com.smartroad.srmp.roadasset.mapper.RoadRouteMapper;
 import com.smartroad.srmp.roadasset.service.DiseaseExcelImportService;
+import com.smartroad.srmp.roadasset.util.RouteCodeNetworkLookup;
 import com.smartroad.srmp.roadasset.vo.ImportDiseaseExcelResultVO;
 import com.smartroad.srmp.tenant.context.TenantContextHolder;
 import org.slf4j.Logger;
@@ -77,10 +79,16 @@ public class DiseaseExcelImportServiceImpl implements DiseaseExcelImportService 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ImportDiseaseExcelResultVO importExcel(MultipartFile file) {
+        return importExcel(file, null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ImportDiseaseExcelResultVO importExcel(MultipartFile file, String projectId) {
         String tenantId = TenantContextHolder.getTenantId();
         String displayName = file != null ? file.getOriginalFilename() : null;
         long sizeBytes = file != null ? file.getSize() : 0;
-        log.info("[disease-excel-import] 开始 tenant={} file={} size={} bytes", tenantId, displayName, sizeBytes);
+        log.info("[disease-excel-import] 开始 tenant={} file={} size={} bytes projectId={}", tenantId, displayName, sizeBytes, projectId);
 
         if (file == null || file.isEmpty()) {
             log.warn("[disease-excel-import] 拒绝 tenant={} reason=空文件", tenantId);
@@ -94,7 +102,7 @@ public class DiseaseExcelImportServiceImpl implements DiseaseExcelImportService 
 
         long t0 = System.currentTimeMillis();
         try {
-            ImportDiseaseExcelResultVO vo = readAndPersistInBatches(file);
+            ImportDiseaseExcelResultVO vo = readAndPersistInBatches(file, projectId);
             log.info("[disease-excel-import] 完成 tenant={} file={} insertedCount={} skippedMissingRoute={} durationMs={}",
                     tenantId, displayName, vo.getInsertedCount(), vo.getSkippedMissingRouteCount(),
                     System.currentTimeMillis() - t0);
@@ -114,17 +122,18 @@ public class DiseaseExcelImportServiceImpl implements DiseaseExcelImportService 
      * 流式读行；每 {@link #PERSIST_BATCH_SIZE} 条调用一次 {@link DiseaseRecordService#createBatch}，
      * 与 {@link #importExcel} 同一事务；存在行级校验错误时整批回滚。
      *
-     * @return 写入条数与因路网无此路线编码而跳过的行数
+     * @return 写入条数、路网无匹配但仍入库行数及 warnings 提示
      */
-    private ImportDiseaseExcelResultVO readAndPersistInBatches(MultipartFile file) {
+    private ImportDiseaseExcelResultVO readAndPersistInBatches(MultipartFile file, String projectId) {
+        final String importProjectId = projectId != null && !projectId.trim().isEmpty() ? projectId.trim() : null;
         String tenantId = TenantContextHolder.getTenantId();
         String logFile = file.getOriginalFilename();
         List<DiseaseTypeVO> dict = diseaseTypeService.listEnabledForImport();
         List<DiseaseSaveDTO> batch = new ArrayList<>(PERSIST_BATCH_SIZE);
         List<String> rowErrors = new ArrayList<>();
         Set<String> missingRouteCodes = new HashSet<>();
-        AtomicInteger skippedNoRouteRows = new AtomicInteger(0);
-        Map<String, String> routeIdCache = new HashMap<>();
+        AtomicInteger orphanRoutePersistedRows = new AtomicInteger(0);
+        Map<String, RouteNetworkMatch> routeMatchCache = new HashMap<>();
         AtomicInteger totalInserted = new AtomicInteger(0);
         AtomicInteger dataRowsTouched = new AtomicInteger(0);
 
@@ -155,9 +164,9 @@ public class DiseaseExcelImportServiceImpl implements DiseaseExcelImportService 
                                 tenantId, logFile, touched, totalInserted.get());
                     }
                     try {
-                        DiseaseSaveDTO dto = buildDto(data, dict, routeIdCache, missingRouteCodes, skippedNoRouteRows);
-                        if (dto == null) {
-                            return;
+                        DiseaseSaveDTO dto = buildDto(data, dict, routeMatchCache, missingRouteCodes, orphanRoutePersistedRows);
+                        if (importProjectId != null) {
+                            dto.setProjectId(importProjectId);
                         }
                         batch.add(dto);
                         if (batch.size() >= PERSIST_BATCH_SIZE) {
@@ -177,8 +186,8 @@ public class DiseaseExcelImportServiceImpl implements DiseaseExcelImportService 
                     if (!missingRouteCodes.isEmpty()) {
                         List<String> sorted = new ArrayList<>(missingRouteCodes);
                         Collections.sort(sorted);
-                        log.warn("[disease-excel-import] 路网中无此路线编码，已跳过 {} 行（去重编码 {} 个）codes={}",
-                                skippedNoRouteRows.get(), missingRouteCodes.size(), sorted);
+                        log.warn("[disease-excel-import] 路网中无此路线编码，仍已入库 {} 行（去重编码 {} 个）codes={}",
+                                orphanRoutePersistedRows.get(), missingRouteCodes.size(), sorted);
                     }
                     if (totalInserted.get() == 0 && dataRowsTouched.get() == 0) {
                         throw new BizException("未解析到有效数据行（请确认表头在第 "
@@ -205,11 +214,17 @@ public class DiseaseExcelImportServiceImpl implements DiseaseExcelImportService 
             log.warn("[disease-excel-import] 读取异常 tenant={} msg={}", TenantContextHolder.getTenantId(), e.getMessage());
             throw new BizException("读取 Excel 失败：" + e.getMessage());
         }
-        log.info("[disease-excel-import] 解析结束 tenant={} file={} 数据区非空行≈{} 已入库={} 因路网无路线跳过={}",
-                tenantId, logFile, dataRowsTouched.get(), totalInserted.get(), skippedNoRouteRows.get());
+        log.info("[disease-excel-import] 解析结束 tenant={} file={} 数据区非空行≈{} 已入库={} 路网无路线仍入库行数={}",
+                tenantId, logFile, dataRowsTouched.get(), totalInserted.get(), orphanRoutePersistedRows.get());
         ImportDiseaseExcelResultVO result = new ImportDiseaseExcelResultVO();
         result.setInsertedCount(totalInserted.get());
-        result.setSkippedMissingRouteCount(skippedNoRouteRows.get());
+        result.setSkippedMissingRouteCount(orphanRoutePersistedRows.get());
+        if (!missingRouteCodes.isEmpty()) {
+            List<String> sorted = new ArrayList<>(missingRouteCodes);
+            Collections.sort(sorted);
+            result.getWarnings().add("以下路线编码在路网中均未找到对应路线，病害已写入且 route_id 为空（route_code 按未匹配规则去除末尾上下行后缀后入库）："
+                    + String.join("、", sorted));
+        }
         return result;
     }
 
@@ -227,74 +242,6 @@ public class DiseaseExcelImportServiceImpl implements DiseaseExcelImportService 
     }
 
     /**
-     * 按 Excel 中的路线编码在路网中解析 {@code road_route.id}。部分导出在编码末尾附带上下行标识
-     *（常见为 {@code AB}，或单侧 {@code A}/{@code B}，大小写不敏感），而路网表 {@code route_code} 通常不含该后缀，
-     * 故在原文无命中时再按去后缀后的候选依次查询。
-     */
-    private String lookupRouteIdInNetwork(String tenantId, String routeCodeFromExcel) {
-        for (String candidate : expandRouteCodeLookupKeys(routeCodeFromExcel)) {
-            if (candidate.isEmpty()) {
-                continue;
-            }
-            String id = roadRouteMapper.selectIdByTenantAndRouteCode(tenantId, candidate);
-            if (id != null) {
-                return id;
-            }
-        }
-        return null;
-    }
-
-    /** 原文 + 至多两次「剥末尾上下行后缀」，保持顺序、去重 */
-    private static List<String> expandRouteCodeLookupKeys(String routeCode) {
-        List<String> keys = new ArrayList<>(3);
-        String t = routeCode == null ? "" : routeCode.trim();
-        if (!t.isEmpty()) {
-            keys.add(t);
-        }
-        String s1 = stripOneLevelDirectionSuffix(t);
-        if (!s1.isEmpty() && !s1.equals(t)) {
-            keys.add(s1);
-        }
-        String s2 = stripOneLevelDirectionSuffix(s1);
-        if (!s2.isEmpty() && !s2.equals(s1) && !keys.contains(s2)) {
-            keys.add(s2);
-        }
-        return keys;
-    }
-
-    /**
-     * 剥一层末尾上下行后缀：优先 {@code AB}，否则单独末尾 {@code A}/{@code B}（与「上行/下行」单字母习惯一致）。
-     */
-    private static String stripOneLevelDirectionSuffix(String routeCode) {
-        if (routeCode == null) {
-            return "";
-        }
-        String s = routeCode.trim();
-        int n = s.length();
-        if (n < 2) {
-            return s;
-        }
-        String u = s.toUpperCase(Locale.ROOT);
-        if (u.endsWith("AB")) {
-            return s.substring(0, n - 2).trim();
-        }
-        if (u.endsWith("A") || u.endsWith("B")) {
-            return s.substring(0, n - 1).trim();
-        }
-        return s;
-    }
-
-    /** 反复剥末尾 A/B/AB，得到与路网 {@code route_code} 一致的入库编码 */
-    private static String stripAllDirectionSuffixes(String routeCode) {
-        String s = routeCode == null ? "" : routeCode.trim();
-        String t;
-        while (!(t = stripOneLevelDirectionSuffix(s)).equals(s)) {
-            s = t;
-        }
-        return s;
-    }
-
-    /**
      * 若路线编码末尾带上下行后缀，则映射为库内 {@code direction}：{@code A}→上行，{@code B}→下行，{@code AB}→双向；
      * 仅识别「与剥一层后缀后变短」的情况，避免误把正常以 A/B 结尾的编号当成上下行。
      */
@@ -303,7 +250,7 @@ public class DiseaseExcelImportServiceImpl implements DiseaseExcelImportService 
             return null;
         }
         String s = rawRouteCode.trim();
-        String stripped = stripOneLevelDirectionSuffix(s);
+        String stripped = RouteCodeNetworkLookup.stripOneLevelDirectionSuffix(s);
         if (stripped.equals(s)) {
             return null;
         }
@@ -336,13 +283,12 @@ public class DiseaseExcelImportServiceImpl implements DiseaseExcelImportService 
     }
 
     /**
-     * @param missingRouteCodes 路网中不存在的路线编码（去重，仅用于结束时的 WARN 汇总）
-     * @param skippedNoRouteRows 因路线不存在而跳过的行数累计
-     * @return 可入库的 DTO；若路线在路网中不存在则返回 {@code null}（跳过该行，不视为整文件失败）
+     * @param missingRouteCodes 路网中不存在的路线编码（去重，用于结束时的 WARN 与接口 warnings）
+     * @param orphanRoutePersistedRows 路网无匹配路线但仍写入的行数累计
      */
     private DiseaseSaveDTO buildDto(Map<Integer, String> data, List<DiseaseTypeVO> dict,
-                                    Map<String, String> routeIdCache, Set<String> missingRouteCodes,
-                                    AtomicInteger skippedNoRouteRows) {
+                                    Map<String, RouteNetworkMatch> routeMatchCache, Set<String> missingRouteCodes,
+                                    AtomicInteger orphanRoutePersistedRows) {
         String routeCode = cell(data, 1);
         if (routeCode.isEmpty()) {
             throw new BizException("路线编码不能为空");
@@ -353,11 +299,18 @@ public class DiseaseExcelImportServiceImpl implements DiseaseExcelImportService 
         }
 
         String tenantId = TenantContextHolder.getTenantId();
-        String routeId = routeIdCache.computeIfAbsent(routeCode, c -> lookupRouteIdInNetwork(tenantId, c));
-        if (routeId == null) {
+        if (!routeMatchCache.containsKey(routeCode)) {
+            routeMatchCache.put(routeCode, RouteCodeNetworkLookup.lookup(roadRouteMapper, tenantId, routeCode));
+        }
+        RouteNetworkMatch net = routeMatchCache.get(routeCode);
+        String routeId = net != null ? net.getRouteId() : null;
+        String routeCodeForDb = net != null && net.getCanonicalRouteCode() != null && !net.getCanonicalRouteCode().isEmpty()
+                ? net.getCanonicalRouteCode().trim()
+                : RouteCodeNetworkLookup.stripAllDirectionSuffixes(routeCode);
+        boolean missingInNetwork = (routeId == null);
+        if (missingInNetwork) {
             missingRouteCodes.add(routeCode);
-            skippedNoRouteRows.incrementAndGet();
-            return null;
+            orphanRoutePersistedRows.incrementAndGet();
         }
 
         String lonStr = cell(data, 5);
@@ -385,6 +338,10 @@ public class DiseaseExcelImportServiceImpl implements DiseaseExcelImportService 
         String remarkUser = cell(data, 12);
         String imageUrl = cell(data, 13);
         String remark = buildRemark(pavement, remarkUser, imageUrl);
+        if (missingInNetwork) {
+            String tag = "[路网未登记路线编码，route_id 已留空；入库 route_code=" + routeCodeForDb + "]";
+            remark = remark.isEmpty() ? tag : tag + " " + remark;
+        }
 
         BigDecimal damageLength = parseOptionalDecimal(cell(data, 9), "长度(m)");
         BigDecimal damageWidth = parseOptionalDecimal(cell(data, 10), "宽度(m)");
@@ -405,7 +362,7 @@ public class DiseaseExcelImportServiceImpl implements DiseaseExcelImportService 
 
         DiseaseSaveDTO dto = new DiseaseSaveDTO();
         dto.setRouteId(routeId);
-        dto.setRouteCode(stripAllDirectionSuffixes(routeCode));
+        dto.setRouteCode(routeCodeForDb);
         dto.setDirection(direction);
         dto.setStartStake(stakes[0]);
         dto.setEndStake(stakes[1]);

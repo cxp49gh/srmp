@@ -39,10 +39,10 @@ public enum MapObjectSolutionType {
         if ("ASSESSMENT".equals(type) || "ASSESSMENT_RESULT".equals(type)) {
             return LOW_SCORE_TREATMENT;
         }
-        if ("EVALUATION_UNIT".equals(type)) {
+        if ("EVALUATION_UNIT".equals(type) || "ROAD_SECTION_LEDGER".equals(type)) {
             return EVALUATION_UNIT_ADVICE;
         }
-        if ("ROAD_SECTION".equals(type)) {
+        if ("ROAD_SECTION".equals(type) || "ROAD_SECTION_LINE".equals(type)) {
             return SECTION_PLAN;
         }
         if ("ROAD_ROUTE".equals(type)) {

@@ -29,4 +29,5 @@ public class DiseaseSaveDTO {
     private String status;
     private String geomWkt;
     private String remark;
+    private String projectId;
 }

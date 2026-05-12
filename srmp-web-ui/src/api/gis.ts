@@ -2,8 +2,15 @@ import request from '../utils/request'
 import type { GeoJsonFeatureCollection } from '../types/geojson'
 import type { AiSolutionDraftSaveRequest } from './solution'
 
+/** 评定/路段包专题粒度：路线级线段 / 台账 / 公里 / 百米 */
+export type GisSectionTier = 'LINE' | 'LEDGER' | 'KM' | 'HM'
+
 export interface GisLayerQuery {
+  /** 数据管理项目 id；不传或空表示不按项目过滤（含 GIS 直连导入的 project_id 为空数据） */
+  projectId?: string
   routeCode?: string
+  /** 评定专题数据来源（对应 assessment_result.object_type），默认 LINE */
+  sectionTier?: GisSectionTier | string
   year?: number | string
   indexCode?: string
   grade?: string

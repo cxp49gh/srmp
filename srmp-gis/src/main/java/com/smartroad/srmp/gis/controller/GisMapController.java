@@ -7,6 +7,7 @@ import com.smartroad.srmp.gis.service.GisAssessmentLayerService;
 import com.smartroad.srmp.gis.service.GisDiseaseLayerService;
 import com.smartroad.srmp.gis.service.GisMapSupportService;
 import com.smartroad.srmp.gis.service.GisRoadAssetLayerService;
+import com.smartroad.srmp.gis.support.GisQueryPreconditions;
 import com.smartroad.srmp.gis.vo.GeoJsonFeatureCollectionVO;
 import com.smartroad.srmp.roadasset.dto.EvaluationUnitQueryDTO;
 import com.smartroad.srmp.roadasset.dto.RoadRouteQueryDTO;
@@ -53,36 +54,43 @@ public class GisMapController {
 
     @GetMapping("/road-routes")
     public R<GeoJsonFeatureCollectionVO> roadRoutes(RoadRouteQueryDTO query) {
+        GisQueryPreconditions.requireProjectId(query == null ? null : query.getProjectId());
         return R.ok(roadAssetLayerService.roadRoutes(query));
     }
 
     @GetMapping("/road-sections")
     public R<GeoJsonFeatureCollectionVO> roadSections(RoadSectionQueryDTO query) {
+        GisQueryPreconditions.requireProjectId(query == null ? null : query.getProjectId());
         return R.ok(roadAssetLayerService.roadSections(query));
     }
 
     @GetMapping("/evaluation-units")
     public R<GeoJsonFeatureCollectionVO> evaluationUnits(EvaluationUnitQueryDTO query) {
+        GisQueryPreconditions.requireProjectId(query == null ? null : query.getProjectId());
         return R.ok(roadAssetLayerService.evaluationUnits(query));
     }
 
     @GetMapping("/diseases")
     public R<GeoJsonFeatureCollectionVO> diseases(DiseaseQueryDTO query) {
+        GisQueryPreconditions.requireProjectId(query == null ? null : query.getProjectId());
         return R.ok(diseaseLayerService.diseases(query));
     }
 
     @GetMapping("/assessment-results")
     public R<GeoJsonFeatureCollectionVO> assessmentResults(AssessmentResultQueryDTO query) {
+        GisQueryPreconditions.requireProjectId(query == null ? null : query.getProjectId());
         return R.ok(assessmentLayerService.assessmentResults(query));
     }
 
     @PostMapping("/spatial-query")
     public R<GeoJsonFeatureCollectionVO> spatialQuery(@RequestBody(required = false) Map<String, Object> query) {
+        GisQueryPreconditions.requireProjectId(GisQueryPreconditions.projectIdFromFlatOrNested(query));
         return R.ok(gisMapSupportService.spatialQuery(query));
     }
 
     @PostMapping("/map-statistics")
     public R<Map<String, Object>> mapStatistics(@RequestBody(required = false) Map<String, Object> request) {
+        GisQueryPreconditions.requireProjectId(GisQueryPreconditions.projectIdFromFlatOrNested(request));
         return R.ok(gisMapSupportService.mapStatistics(request));
     }
 

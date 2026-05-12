@@ -36,27 +36,27 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("totalLengthKm", firstValue(
-                "select coalesce(sum(length_km),0) from road_route where tenant_id=:tenantId and deleted=false " + optionalRoute(),
+                "select coalesce(sum(length_km),0) from road_route where tenant_id=:tenantId and deleted=false " + optionalRoute() + optionalProjectIdRow(),
                 params
         ));
         result.put("routeCount", firstValue(
-                "select count(*) from road_route where tenant_id=:tenantId and deleted=false " + optionalRoute(),
+                "select count(*) from road_route where tenant_id=:tenantId and deleted=false " + optionalRoute() + optionalProjectIdRow(),
                 params
         ));
         result.put("sectionCount", firstValue(
-                "select count(*) from road_section where tenant_id=:tenantId and deleted=false " + optionalRoute(),
+                "select count(*) from road_section_line where tenant_id=:tenantId and deleted=false " + optionalRoute() + optionalProjectIdRow(),
                 params
         ));
         result.put("unitCount", firstValue(
-                "select count(*) from road_evaluation_unit where tenant_id=:tenantId and deleted=false " + optionalRoute(),
+                "select count(*) from road_section_ledger where tenant_id=:tenantId and deleted=false " + optionalRoute() + optionalProjectIdEvalUnit(),
                 params
         ));
         result.put("diseaseCount", firstValue(
-                "select count(*) from disease_record where tenant_id=:tenantId and deleted=false " + optionalRoute(),
+                "select count(*) from disease_record where tenant_id=:tenantId and deleted=false " + optionalRoute() + optionalProjectIdRow(),
                 params
         ));
         result.put("heavyDiseaseCount", firstValue(
-                "select count(*) from disease_record where tenant_id=:tenantId and deleted=false and severity='HEAVY' " + optionalRoute(),
+                "select count(*) from disease_record where tenant_id=:tenantId and deleted=false and severity='HEAVY' " + optionalRoute() + optionalProjectIdRow(),
                 params
         ));
 
@@ -67,7 +67,8 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
                         "round(avg(pci),3) as avg_pci, " +
                         "sum(case when grade in ('EXCELLENT','GOOD') then 1 else 0 end) as good_count, " +
                         "sum(case when grade in ('POOR','BAD') then 1 else 0 end) as poor_count " +
-                        "from assessment_result where tenant_id=:tenantId and deleted=false " + optionalRoute() + optionalYear(),
+                        "from assessment_result where tenant_id=:tenantId and deleted=false " + optionalRoute() + optionalYear() + optionalProjectIdAssessment()
+                        + optionalSectionTier(""),
                 params
         );
         result.put("assessmentCount", assessment.get("assessment_count"));
@@ -88,11 +89,28 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
         if ("ROAD_ROUTE".equals(type)) {
             return queryOne("select id, route_code, route_name, route_type, technical_grade, start_stake, end_stake, length_km from road_route where tenant_id=:tenantId and id=:id and deleted=false", params);
         }
-        if ("ROAD_SECTION".equals(type)) {
-            return queryOne("select id, route_code, section_code, section_name, direction, start_stake, end_stake, length_km, pavement_type from road_section where tenant_id=:tenantId and id=:id and deleted=false", params);
+        if ("ROAD_SECTION".equals(type) || "ROAD_SECTION_LINE".equals(type)) {
+            return queryOne("select id, route_code, line_code as section_code, line_name as section_name, direction, start_stake, end_stake, length_km, pavement_type from road_section_line where tenant_id=:tenantId and id=:id and deleted=false", params);
         }
-        if ("EVALUATION_UNIT".equals(type)) {
-            return queryOne("select id, route_code, unit_code, direction, lane_no, start_stake, end_stake, length_m from road_evaluation_unit where tenant_id=:tenantId and id=:id and deleted=false", params);
+        if ("EVALUATION_UNIT".equals(type) || "ROAD_SECTION_LEDGER".equals(type)) {
+            return queryOne("select id, route_code, ledger_code as unit_code, direction, lane_no, start_stake, end_stake, length_m from road_section_ledger where tenant_id=:tenantId and id=:id and deleted=false", params);
+        }
+        if ("ROAD_SECTION_KM".equals(type)) {
+            return queryOne(
+                    "select id, route_code, km_code as section_code, coalesce(label, km_code) as section_name, direction, "
+                            + "start_stake, end_stake, length_m, pavement_type from road_section_km "
+                            + "where tenant_id=:tenantId and id=:id and deleted=false",
+                    params
+            );
+        }
+        if ("ROAD_SECTION_HM".equals(type)) {
+            return queryOne(
+                    "select id, route_code, hm_code as section_code, coalesce(label, hm_code) as section_name, direction, "
+                            + "start_stake, end_stake, length_m "
+                            + "from road_section_hm "
+                            + "where tenant_id=:tenantId and id=:id and deleted=false",
+                    params
+            );
         }
         if ("DISEASE".equals(type)) {
             return queryOne("select id, route_code, disease_type, disease_name, severity, start_stake, end_stake, quantity, measure_unit, status, verified from disease_record where tenant_id=:tenantId and id=:id and deleted=false", params);
@@ -121,7 +139,7 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
                     "ROAD_ROUTE",
                     "select id, ST_AsGeoJSON(geom) as geom_geojson, route_code, route_name, route_type, technical_grade, start_stake, end_stake, length_km " +
                             "from road_route where tenant_id=:tenantId and deleted=false and geom is not null " +
-                            optionalRoute() + spatialIntersectsSql("geom") +
+                            optionalRoute() + optionalProjectIdRow() + spatialIntersectsSql("geom") +
                             " order by route_code limit " + limit,
                     params
             ));
@@ -129,9 +147,9 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
         if (layers.contains("ROAD_SECTION")) {
             collection.getFeatures().addAll(querySpatialLayer(
                     "ROAD_SECTION",
-                    "select id, ST_AsGeoJSON(geom) as geom_geojson, route_code, section_code, section_name, direction, start_stake, end_stake, length_km, pavement_type " +
-                            "from road_section where tenant_id=:tenantId and deleted=false and geom is not null " +
-                            optionalRoute() + spatialIntersectsSql("geom") +
+                    "select id, ST_AsGeoJSON(geom) as geom_geojson, route_code, line_code as section_code, line_name as section_name, direction, start_stake, end_stake, length_km, pavement_type " +
+                            "from road_section_line where tenant_id=:tenantId and deleted=false and geom is not null " +
+                            optionalRoute() + optionalProjectIdRow() + spatialIntersectsSql("geom") +
                             " order by route_code, start_stake limit " + limit,
                     params
             ));
@@ -139,9 +157,9 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
         if (layers.contains("EVALUATION_UNIT")) {
             collection.getFeatures().addAll(querySpatialLayer(
                     "EVALUATION_UNIT",
-                    "select id, ST_AsGeoJSON(geom) as geom_geojson, route_code, unit_code, direction, lane_no, start_stake, end_stake, length_m " +
-                            "from road_evaluation_unit where tenant_id=:tenantId and deleted=false and geom is not null " +
-                            optionalRoute() + spatialIntersectsSql("geom") +
+                    "select id, ST_AsGeoJSON(geom) as geom_geojson, route_code, ledger_code as unit_code, direction, lane_no, start_stake, end_stake, length_m " +
+                            "from road_section_ledger where tenant_id=:tenantId and deleted=false and geom is not null " +
+                            optionalRoute() + optionalProjectIdEvalUnit() + spatialIntersectsSql("geom") +
                             " order by route_code, start_stake limit " + limit,
                     params
             ));
@@ -151,7 +169,7 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
                     "DISEASE",
                     "select id, ST_AsGeoJSON(geom) as geom_geojson, route_code, direction, lane_no, start_stake, end_stake, disease_category, disease_type, disease_name, severity, quantity, measure_unit, status, verified " +
                             "from disease_record where tenant_id=:tenantId and deleted=false and geom is not null " +
-                            optionalRoute() + optionalDiseaseType() + optionalSeverity() + spatialIntersectsSql("geom") +
+                            optionalRoute() + optionalProjectIdRow() + optionalDiseaseType() + optionalSeverity() + spatialIntersectsSql("geom") +
                             " order by route_code, start_stake limit " + limit,
                     params
             ));
@@ -159,12 +177,18 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
         if (layers.contains("ASSESSMENT") || layers.contains("ASSESSMENT_RESULT")) {
             collection.getFeatures().addAll(querySpatialLayer(
                     "ASSESSMENT_RESULT",
-                    "select ar.id, ST_AsGeoJSON(u.geom) as geom_geojson, ar.route_code, ar.direction, ar.unit_id, ar.start_stake, ar.end_stake, ar.year, " +
-                            "ar.mqi, ar.sci, ar.pqi, ar.bci, ar.tci, ar.pci, ar.rqi, ar.rdi, ar.pbi, ar.pwi, ar.sri, ar.pssi, ar.grade " +
-                            "from assessment_result ar left join road_evaluation_unit u on u.tenant_id=ar.tenant_id and u.id=ar.unit_id and u.deleted=false " +
-                            "where ar.tenant_id=:tenantId and ar.deleted=false and u.geom is not null " +
-                            optionalRoute("ar") + optionalYear("ar") + optionalGrade("ar") + spatialIntersectsSql("u.geom") +
-                            " order by ar.route_code, ar.start_stake limit " + limit,
+                    "select ar.id, ST_AsGeoJSON(COALESCE(km.geom, hm.geom, u.geom, ln.geom)) as geom_geojson, ar.route_code, ar.direction, ar.unit_id, ar.start_stake, ar.end_stake, ar.year, "
+                            + "ar.mqi, ar.sci, ar.pqi, ar.bci, ar.tci, ar.pci, ar.rqi, ar.rdi, ar.pbi, ar.pwi, ar.sri, ar.pssi, ar.grade "
+                            + "from assessment_result ar "
+                            + "left join road_section_ledger u on u.tenant_id=ar.tenant_id and ar.unit_id is not null and u.id=ar.unit_id and u.deleted=false "
+                            + "left join road_section_line ln on ln.tenant_id=ar.tenant_id and ar.section_id is not null and ln.id=ar.section_id and ln.deleted=false "
+                            + "left join road_section_km km on km.tenant_id=ar.tenant_id and ar.object_type='ROAD_SECTION_KM' and km.id=ar.object_id and km.deleted=false "
+                            + "left join road_section_hm hm on hm.tenant_id=ar.tenant_id and ar.object_type='ROAD_SECTION_HM' and hm.id=ar.object_id and hm.deleted=false "
+                            + "where ar.tenant_id=:tenantId and ar.deleted=false and COALESCE(km.geom, hm.geom, u.geom, ln.geom) is not null "
+                            + optionalRoute("ar") + optionalYear("ar") + optionalGrade("ar") + optionalProjectIdAssessmentAlias("ar")
+                            + optionalSectionTier("ar")
+                            + spatialIntersectsSql("COALESCE(km.geom, hm.geom, u.geom, ln.geom)")
+                            + " order by ar.route_code, ar.start_stake limit " + limit,
                     params
             ));
         }
@@ -176,7 +200,35 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
         params.addValue("tenantId", TenantContextHolder.getTenantId());
         params.addValue("routeCode", getString(request, "routeCode") == null ? "" : getString(request, "routeCode"));
         params.addValue("year", getString(request, "year") == null ? "" : getString(request, "year"));
+        params.addValue("projectId", getString(request, "projectId") == null ? "" : getString(request, "projectId"));
+        String tier = normalizeSectionTierToken(getString(request, "sectionTier"));
+        params.addValue("sectionTier", tier == null ? "" : tier);
         return params;
+    }
+
+    /** 当前表含 project_id 列（路线 / 路段 / 病害） */
+    private String optionalProjectIdRow() {
+        return " and (nullif(:projectId, '') is null or project_id = nullif(:projectId, '')) ";
+    }
+
+    /** road_section_ledger：按 project_id 或所属路线的 project_id 过滤 */
+    private String optionalProjectIdEvalUnit() {
+        return " and (nullif(:projectId, '') is null or road_section_ledger.project_id = nullif(:projectId, '') "
+                + "or exists (select 1 from road_route r where r.tenant_id = road_section_ledger.tenant_id "
+                + "and r.id = road_section_ledger.route_id and r.deleted = false and r.project_id = nullif(:projectId, ''))) ";
+    }
+
+    /** assessment_result 主表（无别名） */
+    private String optionalProjectIdAssessment() {
+        return " and (nullif(:projectId, '') is null or exists (select 1 from road_route r where r.tenant_id = assessment_result.tenant_id "
+                + "and r.id = assessment_result.route_id and r.deleted = false and r.project_id = nullif(:projectId, ''))) ";
+    }
+
+    /** assessment_result 带表别名，如 ar */
+    private String optionalProjectIdAssessmentAlias(String alias) {
+        String a = alias == null || alias.trim().isEmpty() ? "ar" : alias.trim();
+        return " and (nullif(:projectId, '') is null or exists (select 1 from road_route r where r.tenant_id = " + a + ".tenant_id "
+                + "and r.id = " + a + ".route_id and r.deleted = false and r.project_id = nullif(:projectId, ''))) ";
     }
 
     private String optionalRoute() {
@@ -202,6 +254,35 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
         return " and (nullif(:grade, '') is null or " + prefix + "grade = nullif(:grade, '')) ";
     }
 
+    /** 与 assessment_result Mapper 中段级枚举一致：LINE / LEDGER / KM / HM */
+    private String optionalSectionTier(String aliasOverride) {
+        String alias = aliasOverride == null || aliasOverride.trim().isEmpty()
+                ? "assessment_result"
+                : aliasOverride.trim();
+        return " and (nullif(trim(:sectionTier), '') IS NULL "
+                + "OR (trim(:sectionTier) = 'LINE' AND " + alias + ".object_type IN ('ROAD_SECTION_LINE')) "
+                + "OR (trim(:sectionTier) = 'LEDGER' AND " + alias + ".object_type IN ('ROAD_SECTION_LEDGER','EVALUATION_UNIT')) "
+                + "OR (trim(:sectionTier) = 'KM' AND " + alias + ".object_type IN ('ROAD_SECTION_KM')) "
+                + "OR (trim(:sectionTier) = 'HM' AND " + alias + ".object_type IN ('ROAD_SECTION_HM')) "
+                + ") ";
+    }
+
+    /** @return LINE|LEDGER|KM|HM 或 null */
+    private static String normalizeSectionTierToken(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return null;
+        }
+        switch (raw.trim().toUpperCase()) {
+            case "LINE":
+            case "LEDGER":
+            case "KM":
+            case "HM":
+                return raw.trim().toUpperCase();
+            default:
+                return null;
+        }
+    }
+
     private String optionalDiseaseType() {
         return " and (nullif(:diseaseType, '') is null or disease_type = nullif(:diseaseType, '')) ";
     }
@@ -219,11 +300,13 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
         Map<String, Object> nestedQuery = request == null || !(request.get("query") instanceof Map)
                 ? Collections.emptyMap()
                 : (Map<String, Object>) request.get("query");
-        MapSqlParameterSource params = baseParams(nestedQuery);
+        MapSqlParameterSource params = baseParams(mergeSpatialQueryRoot(request, nestedQuery));
         params.addValue("geometryGeoJson", geometryGeoJson);
         params.addValue("grade", getString(nestedQuery, "grade") == null ? "" : getString(nestedQuery, "grade"));
         params.addValue("diseaseType", getString(nestedQuery, "diseaseType") == null ? "" : getString(nestedQuery, "diseaseType"));
         params.addValue("severity", getString(nestedQuery, "severity") == null ? "" : getString(nestedQuery, "severity"));
+        String tier = normalizeSectionTierToken(getString(nestedQuery, "sectionTier"));
+        params.addValue("sectionTier", tier == null ? "" : tier);
         return params;
     }
 
@@ -354,6 +437,19 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
             return null;
         }
         return String.valueOf(request.get(key));
+    }
+
+    /** spatial-query 请求体可能在根上带 projectId，与 query 子对象合并供 baseParams 使用 */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> mergeSpatialQueryRoot(Map<String, Object> request, Map<String, Object> nestedQuery) {
+        Map<String, Object> m = new LinkedHashMap<>(nestedQuery == null ? Collections.emptyMap() : nestedQuery);
+        if (request != null && request.get("projectId") != null && !m.containsKey("projectId")) {
+            m.put("projectId", request.get("projectId"));
+        }
+        if (request != null && request.get("sectionTier") != null && !m.containsKey("sectionTier")) {
+            m.put("sectionTier", request.get("sectionTier"));
+        }
+        return m;
     }
 
     private BigDecimal rate(Object numerator, Object denominator) {

@@ -22,6 +22,8 @@ public class RoadRoute extends BaseEntity {
     private BigDecimal lengthKm;
     private String adcode;
     private String manageOrgId;
+    /** 数据管理项目冗余；GIS 直连导入可为空 */
+    private String projectId;
     private String remark;
     @TableField(exist = false)
     private String geomWkt;

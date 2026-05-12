@@ -28,9 +28,9 @@ grep -R "proxy_pass http://backend:8080/api/" -n deploy/docker/frontend/nginx.co
 grep -R "phase36_one_click_demo_seed" -n srmp-admin/src/main/resources/db/srmp_full_init.sql >/dev/null
 grep -R "docker exec -i srmp-postgres psql" -n scripts/srmp-init-demo.sh >/dev/null
 grep -R "docker compose -f docker-compose.yml -f docker-compose.app.yml" -n scripts/srmp-one-click-start.sh docs/one-click-start-guide.md README.md >/dev/null
-grep -R "1000" -n srmp-admin/src/main/resources/db/srmp_full_init.sql scripts/srmp-check-ready.sh >/dev/null
-grep -R "3000" -n scripts/srmp-check-ready.sh >/dev/null
-grep -R "generate_series(1, 3)" -n srmp-admin/src/main/resources/db/srmp_full_init.sql >/dev/null
+grep -R "'road_route'" -n scripts/srmp-check-ready.sh >/dev/null
+grep -R "'disease_record'" -n scripts/srmp-check-ready.sh >/dev/null
+grep -R "road_section_line" -n srmp-admin/src/main/resources/db/srmp_full_init.sql >/dev/null
 
 if command -v docker >/dev/null 2>&1; then
   docker compose -f docker-compose.yml -f docker-compose.app.yml config >/tmp/srmp-compose-config.yml

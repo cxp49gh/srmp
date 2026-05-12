@@ -3,15 +3,25 @@ package com.smartroad.srmp.roadasset.service.impl;
 import com.smartroad.srmp.assessment.dto.AssessmentResultSaveDTO;
 import com.smartroad.srmp.assessment.service.AssessmentResultService;
 import com.smartroad.srmp.common.exception.BizException;
-import com.smartroad.srmp.roadasset.dto.EvaluationUnitSaveDTO;
-import com.smartroad.srmp.roadasset.dto.RoadSectionSaveDTO;
+import com.smartroad.srmp.roadasset.dto.HmCodeIdRow;
+import com.smartroad.srmp.roadasset.dto.KmCodeIdRow;
+import com.smartroad.srmp.roadasset.dto.LineCodeIdRow;
+import com.smartroad.srmp.roadasset.dto.RouteNetworkMatch;
+import com.smartroad.srmp.roadasset.dto.UnitCodeIdRow;
+import com.smartroad.srmp.roadasset.sectionpkg.SectionPackageTier;
+import com.smartroad.srmp.roadasset.entity.RoadEvaluationUnit;
+import com.smartroad.srmp.roadasset.entity.RoadSection;
+import com.smartroad.srmp.roadasset.entity.RoadSectionHm;
+import com.smartroad.srmp.roadasset.entity.RoadSectionKm;
 import com.smartroad.srmp.roadasset.mapper.RoadEvaluationUnitMapper;
 import com.smartroad.srmp.roadasset.mapper.RoadRouteMapper;
+import com.smartroad.srmp.roadasset.mapper.RoadSectionHmMapper;
+import com.smartroad.srmp.roadasset.mapper.RoadSectionKmMapper;
 import com.smartroad.srmp.roadasset.mapper.RoadSectionMapper;
-import com.smartroad.srmp.roadasset.service.RoadEvaluationUnitService;
 import com.smartroad.srmp.roadasset.service.RoadSectionPackageImportService;
-import com.smartroad.srmp.roadasset.service.RoadSectionService;
+import com.smartroad.srmp.roadasset.util.RouteCodeNetworkLookup;
 import com.smartroad.srmp.roadasset.vo.ImportSectionPackageResultVO;
+import com.smartroad.srmp.common.util.IdUtils;
 import com.smartroad.srmp.tenant.context.TenantContextHolder;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
@@ -39,6 +49,7 @@ import org.opengis.referencing.operation.MathTransform;
 import org.springframework.beans.factory.annotation.Value;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -58,14 +69,9 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.security.MessageDigest;
+import java.sql.SQLException;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Stream;
 
 @Service
@@ -76,6 +82,8 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
     private static final long MAX_EXTRACT_BYTES = 500L * 1024 * 1024;
     private static final int SECTION_CODE_MAX = 100;
     private static final int UNIT_CODE_MAX = 100;
+    private static final int KM_CODE_MAX = 1000;
+    private static final int HM_CODE_MAX = 1000;
 
     @Resource
     private RoadRouteMapper roadRouteMapper;
@@ -84,22 +92,28 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
     @Resource
     private RoadEvaluationUnitMapper roadEvaluationUnitMapper;
     @Resource
-    private RoadSectionService roadSectionService;
+    private RoadSectionKmMapper roadSectionKmMapper;
     @Resource
-    private RoadEvaluationUnitService roadEvaluationUnitService;
+    private RoadSectionHmMapper roadSectionHmMapper;
     @Resource
     private AssessmentResultService assessmentResultService;
 
     @Value("${srmp.import.section.dbf-charset:UTF-8}")
     private String shapefileDbfCharset;
 
-    private enum Tier {
-        SECTION, LEDGER, IGNORE, UNKNOWN
-    }
+    /** 每批写入数据库的要素条数（批量 INSERT/UPSERT + 批量评定） */
+    private static final int IMPORT_DB_BATCH_SIZE = 1000;
+    private static final int SQL_IN_CHUNK = 1000;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ImportSectionPackageResultVO importPackage(MultipartFile file) {
+        return importPackage(file, null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ImportSectionPackageResultVO importPackage(MultipartFile file, String projectId) {
         long t0 = System.currentTimeMillis();
         if (file == null || file.isEmpty()) {
             throw new BizException("导入文件不能为空");
@@ -109,7 +123,7 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
             throw new BizException("仅支持 .tar 格式");
         }
         String tenantId = TenantContextHolder.getTenantId();
-        log.info("[section-import] 开始 tenant={} file={} size={} bytes", tenantId, original, file.getSize());
+        log.info("[section-import] 开始 tenant={} file={} size={} bytes projectId={}", tenantId, original, file.getSize(), projectId);
         Path tempDir = null;
         try {
             tempDir = Files.createTempDirectory("srmp-section-import-");
@@ -117,11 +131,13 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
             try (InputStream in = new BufferedInputStream(file.getInputStream())) {
                 safeUntar(in, tempDir);
             }
-            ImportSectionPackageResultVO vo = importFromExtracted(tempDir, t0);
-            log.info("[section-import] 完成 tenant={} sections={} units={} assessments={} durationMs={} warningCount={}",
+            ImportSectionPackageResultVO vo = importFromExtracted(tempDir, t0, projectId);
+            log.info("[section-import] 完成 tenant={} line={} ledger={} km={} hm={} assessments={} durationMs={} warningCount={}",
                     tenantId,
-                    vo.getRouteSectionCount(),
-                    vo.getEvaluationUnitCount(),
+                    vo.getLineCount(),
+                    vo.getLedgerCount(),
+                    vo.getKmCount(),
+                    vo.getHmCount(),
                     vo.getAssessmentRowCount(),
                     vo.getDurationMs(),
                     vo.getWarnings() == null ? 0 : vo.getWarnings().size());
@@ -139,12 +155,13 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
         }
     }
 
-    private ImportSectionPackageResultVO importFromExtracted(Path root, long t0) throws Exception {
+    private ImportSectionPackageResultVO importFromExtracted(Path root, long t0, String projectId) throws Exception {
         ImportSectionPackageResultVO result = new ImportSectionPackageResultVO();
         List<String> warnings = new ArrayList<>();
-        List<Path> sectionShps = new ArrayList<>();
+        List<Path> lineShps = new ArrayList<>();
         List<Path> ledgerShps = new ArrayList<>();
-        List<String> ignored = new ArrayList<>();
+        List<Path> kmShps = new ArrayList<>();
+        List<Path> hmShps = new ArrayList<>();
 
         List<Path> allShp = new ArrayList<>();
         try (Stream<Path> walk = Files.walk(root)) {
@@ -154,56 +171,94 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
             throw new BizException("压缩包内未找到 .shp 文件");
         }
         log.info("[section-import] 发现 .shp 共 {} 个", allShp.size());
+        EnumSet<SectionPackageTier> tiersPresent = EnumSet.noneOf(SectionPackageTier.class);
         for (Path shp : allShp) {
             if (!isCompleteShapefileGroup(shp)) {
                 throw new BizException("缺少 .dbf 或 .shx 或 .prj 文件，无法导入：" + shp.getFileName());
             }
-            Tier tier = classifyTier(shp, root);
-            if (tier == Tier.UNKNOWN) {
-                throw new BizException("存在无法识别的 Shapefile 级别，请按命名约定放置路线级/台账级数据：" + relativize(root, shp));
+            SectionPackageTier tier = classifyTier(shp, root);
+            if (tier == SectionPackageTier.UNKNOWN) {
+                throw new BizException("存在无法识别的 Shapefile 级别，请按命名约定放置线路级/台账级/公里级/百米级数据：" + relativize(root, shp));
             }
-            if (tier == Tier.IGNORE) {
-                ignored.add(relativize(root, shp));
-                continue;
-            }
-            if (tier == Tier.SECTION) {
-                sectionShps.add(shp);
-            } else {
+            tiersPresent.add(tier);
+            if (tier == SectionPackageTier.LINE) {
+                lineShps.add(shp);
+            } else if (tier == SectionPackageTier.LEDGER) {
                 ledgerShps.add(shp);
+            } else if (tier == SectionPackageTier.KM) {
+                kmShps.add(shp);
+            } else {
+                hmShps.add(shp);
             }
             log.debug("[section-import] 归类 {} -> {} ({})", relativize(root, shp), tier, shp.getFileName());
         }
-        log.info("[section-import] 路线级 shp={} 台账级 shp={} 忽略={}",
-                sectionShps.size(), ledgerShps.size(), ignored.size());
-        if (sectionShps.isEmpty() && ledgerShps.isEmpty()) {
-            throw new BizException("压缩包内未找到路线级或台账级 Shapefile");
+        EnumSet<SectionPackageTier> required = EnumSet.of(SectionPackageTier.LINE, SectionPackageTier.LEDGER, SectionPackageTier.KM, SectionPackageTier.HM);
+        if (!tiersPresent.containsAll(required)) {
+            EnumSet<SectionPackageTier> missing = EnumSet.copyOf(required);
+            missing.removeAll(tiersPresent);
+            throw new BizException("压缩包缺少必须级别的 Shapefile，需同时包含：线路级、台账级、公里级、百米级。缺少：" + tierLabels(missing));
         }
-        result.setIgnoredShapefileGroups(ignored);
+        log.info("[section-import] 线路级 shp={} 台账级 shp={} 公里级 shp={} 百米级 shp={}",
+                lineShps.size(), ledgerShps.size(), kmShps.size(), hmShps.size());
+        result.setIgnoredShapefileGroups(new ArrayList<>());
 
-        Map<String, String> stakeSectionId = new HashMap<>();
-        int secCount = 0;
-        int unitCount = 0;
+        int lineCount = 0;
+        int ledgerCount = 0;
+        int kmCount = 0;
+        int hmCount = 0;
         int arCount = 0;
 
-        for (Path shp : sectionShps) {
-            log.info("[section-import] 处理路线级 {}", relativize(root, shp));
-            Counts c = processSectionShapefile(shp, stakeSectionId, warnings);
-            secCount += c.entities;
+        for (Path shp : lineShps) {
+            log.info("[section-import] 处理线路级 {}", relativize(root, shp));
+            Counts c = processTierShapefile(SectionPackageTier.LINE, shp, warnings, projectId);
+            lineCount += c.entities;
             arCount += c.assessments;
         }
         for (Path shp : ledgerShps) {
             log.info("[section-import] 处理台账级 {}", relativize(root, shp));
-            Counts c = processLedgerShapefile(shp, stakeSectionId, warnings);
-            unitCount += c.entities;
+            Counts c = processTierShapefile(SectionPackageTier.LEDGER, shp, warnings, projectId);
+            ledgerCount += c.entities;
+            arCount += c.assessments;
+        }
+        for (Path shp : kmShps) {
+            log.info("[section-import] 处理公里级 {}", relativize(root, shp));
+            Counts c = processTierShapefile(SectionPackageTier.KM, shp, warnings, projectId);
+            kmCount += c.entities;
+            arCount += c.assessments;
+        }
+        for (Path shp : hmShps) {
+            log.info("[section-import] 处理百米级 {}", relativize(root, shp));
+            Counts c = processTierShapefile(SectionPackageTier.HM, shp, warnings, projectId);
+            hmCount += c.entities;
             arCount += c.assessments;
         }
 
-        result.setRouteSectionCount(secCount);
-        result.setEvaluationUnitCount(unitCount);
+        result.setLineCount(lineCount);
+        result.setLedgerCount(ledgerCount);
+        result.setKmCount(kmCount);
+        result.setHmCount(hmCount);
+        result.setRouteSectionCount(lineCount);
+        result.setEvaluationUnitCount(ledgerCount);
         result.setAssessmentRowCount(arCount);
         result.setWarnings(warnings);
         result.setDurationMs(System.currentTimeMillis() - t0);
         return result;
+    }
+
+    private static String tierLabels(EnumSet<SectionPackageTier> missing) {
+        List<String> labels = new ArrayList<>();
+        for (SectionPackageTier t : missing) {
+            if (t == SectionPackageTier.LINE) {
+                labels.add("线路级");
+            } else if (t == SectionPackageTier.LEDGER) {
+                labels.add("台账级");
+            } else if (t == SectionPackageTier.KM) {
+                labels.add("公里级");
+            } else if (t == SectionPackageTier.HM) {
+                labels.add("百米级");
+            }
+        }
+        return String.join("、", labels);
     }
 
     private static String relativize(Path root, Path shp) {
@@ -214,20 +269,23 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
         }
     }
 
-    private static Tier classifyTier(Path shp, Path root) {
+    private static SectionPackageTier classifyTier(Path shp, Path root) {
         String rel = relativize(root, shp).toLowerCase(Locale.ROOT);
         String base = stripExtension(shp.getFileName().toString()).toLowerCase(Locale.ROOT);
         String hay = rel + "|" + base;
-        if (containsAny(hay, "公里", "百米", "km_unit", "hm_unit")) {
-            return Tier.IGNORE;
+        if (containsAny(hay, "百米级", "百米", "road_section_hm", "hm_unit", "bmj")) {
+            return SectionPackageTier.HM;
         }
-        if (containsAny(hay, "台账级", "evaluation_unit", "eval_unit", "ledger", "评定单元")) {
-            return Tier.LEDGER;
+        if (containsAny(hay, "公里级", "road_section_km", "km_unit", "glj")) {
+            return SectionPackageTier.KM;
         }
-        if (containsAny(hay, "路线级", "road_section", "路段")) {
-            return Tier.SECTION;
+        if (containsAny(hay, "台账级", "台账", "road_section_ledger", "ledger", "评定单元", "evaluation_unit", "eval_unit")) {
+            return SectionPackageTier.LEDGER;
         }
-        return Tier.UNKNOWN;
+        if (containsAny(hay, "线路级", "线路", "road_section_line", "section_line", "xlj", "路线级", "road_section", "路段")) {
+            return SectionPackageTier.LINE;
+        }
+        return SectionPackageTier.UNKNOWN;
     }
 
     private static boolean containsAny(String hay, String... needles) {
@@ -249,122 +307,430 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
         }
     }
 
-    private Counts processSectionShapefile(Path shpFile, Map<String, String> stakeSectionId, List<String> warnings) throws Exception {
-        String tenantId = TenantContextHolder.getTenantId();
-        Map<String, Object> params = new HashMap<>();
-        params.put("url", shpFile.toUri().toURL());
-        DataStore store = DataStoreFinder.getDataStore(params);
-        if (store == null) {
-            throw new BizException("无法读取 Shapefile：" + shpFile.getFileName());
+    /** 解析完成、待批量对齐路网 {@code route_code} 并生成业务编码 */
+    private static class ParsedFeature {
+        final int index;
+        final ParsedRow row;
+
+        ParsedFeature(int index, ParsedRow row) {
+            this.index = index;
+            this.row = row;
         }
-        int entities = 0;
-        int assessments = 0;
-        int skippedUnknownRoute = 0;
-        Set<String> seenSectionCodes = new HashSet<>();
-        try {
-            if (store instanceof org.geotools.data.shapefile.ShapefileDataStore) {
-                ((org.geotools.data.shapefile.ShapefileDataStore) store).setCharset(resolveDbfCharset());
-            }
-            Charset dbfCs = resolveDbfCharset();
-            String typeName = store.getTypeNames()[0];
-            SimpleFeatureSource source = store.getFeatureSource(typeName);
-            CoordinateReferenceSystem sourceCrs = source.getSchema().getCoordinateReferenceSystem();
-            if (sourceCrs == null) {
-                throw new BizException("缺少 .prj 文件，无法确定坐标系");
-            }
-            SingleCRS horizontal = CRS.getHorizontalCRS(sourceCrs);
-            CoordinateReferenceSystem source2d = horizontal != null ? horizontal : sourceCrs;
-            MathTransform toWgs84 = CRS.findMathTransform(source2d, DefaultGeographicCRS.WGS84, true);
-            log.info("[section-import] 路线级打开 typeName={} dbfCharset={} crs={}",
-                    typeName, dbfCs.name(), source2d.getName());
-
-            SimpleFeatureCollection collection = source.getFeatures();
-            int featureHint = collection.size();
-            if (featureHint >= 0) {
-                log.info("[section-import] 路线级要素数量(估算) {}", featureHint);
-            }
-            List<String> rowErrors = new ArrayList<>();
-            int index = 0;
-            try (SimpleFeatureIterator it = collection.features()) {
-                while (it.hasNext()) {
-                    index++;
-                    SimpleFeature feature = it.next();
-                    Map<String, Object> attrs = buildAttrMap(feature);
-                    try {
-                        ParsedRow row = parseRow(attrs, feature, toWgs84, index, shpFile.getFileName().toString());
-                        String routeId = roadRouteMapper.selectIdByTenantAndRouteCode(tenantId, row.routeCode);
-                        if (routeId == null) {
-                            skippedUnknownRoute++;
-                            String warn = baseErr(shpFile, index) + "路线编号(linkCode) " + row.routeCode + " 在路网中不存在，已跳过";
-                            warnings.add(warn);
-                            log.debug("[section-import] {}", warn);
-                            continue;
-                        }
-                        String sectionCode = buildSectionCode(row);
-                        if (!seenSectionCodes.add(sectionCode)) {
-                            throw new BizException("压缩包内路段编码重复：" + sectionCode);
-                        }
-                        RoadSectionSaveDTO dto = new RoadSectionSaveDTO();
-                        dto.setRouteId(routeId);
-                        dto.setRouteCode(row.routeCode);
-                        dto.setSectionCode(sectionCode);
-                        dto.setSectionName(firstNonBlank(row.routeName, row.routeCode));
-                        dto.setDirection(row.direction);
-                        dto.setStartStake(row.startStake);
-                        dto.setEndStake(row.endStake);
-                        dto.setLengthKm(row.lengthM != null
-                                ? row.lengthM.divide(BigDecimal.valueOf(1000), 3, RoundingMode.HALF_UP)
-                                : null);
-                        dto.setPavementType(row.pavementType);
-                        dto.setTechnicalGrade(row.technicalGrade);
-                        dto.setRoadWidth(row.roadWidth);
-                        dto.setAdcode(row.adcode);
-                        dto.setManageOrgId(null);
-                        dto.setGeomWkt(row.geomWkt);
-                        String remark = row.remarkCn;
-                        if (row.detectionMethod != null && !row.detectionMethod.trim().isEmpty()) {
-                            String tag = "检测方式:" + row.detectionMethod.trim();
-                            remark = remark == null || remark.trim().isEmpty() ? tag : tag + " | " + remark;
-                        }
-                        dto.setRemark(trimRemark(remark));
-
-                        String existingId = roadSectionMapper.selectIdByTenantAndSectionCode(tenantId, sectionCode);
-                        String sectionId;
-                        if (existingId == null) {
-                            sectionId = roadSectionService.create(dto);
-                        } else {
-                            roadSectionService.update(existingId, dto);
-                            sectionId = existingId;
-                        }
-                        entities++;
-                        stakeSectionId.put(stakeKey(row.routeCode, row.direction, row.startStake, row.endStake), sectionId);
-
-                        AssessmentResultSaveDTO ar = buildAssessmentDto(row, "ROAD_SECTION", sectionId, sectionId, null, routeId);
-                        assessmentResultService.upsertForImport(ar);
-                        assessments++;
-                    } catch (BizException ex) {
-                        throw ex;
-                    } catch (Exception ex) {
-                        rowErrors.add(baseErr(shpFile, index) + ex.getMessage());
-                    }
-                }
-            }
-            if (!rowErrors.isEmpty()) {
-                throw new BizException(joinDetails("路线级数据校验失败", rowErrors));
-            }
-            log.info("[section-import] 路线级完成 file={} 扫描要素={} 写入路段={} 评定行={} 跳过(无路线)={}",
-                    shpFile.getFileName(), index, entities, assessments, skippedUnknownRoute);
-            if (skippedUnknownRoute > 0) {
-                log.warn("[section-import] 路线级 {} 因路网无对应路线共跳过 {} 条，详见返回 warnings", shpFile.getFileName(), skippedUnknownRoute);
-            }
-        } finally {
-            store.dispose();
-        }
-        return new Counts(entities, assessments);
     }
 
-    private Counts processLedgerShapefile(Path shpFile, Map<String, String> stakeSectionId, List<String> warnings) throws Exception {
+    /**
+     * 四级共用的导入工作项：解析行 + 业务编码与路网命中结果。
+     * 持久化时通过各实体上的 routeId / routeCode 与路网关联，不再写入 line_id、km_id、section_id 等层级外键。
+     */
+    private static final class ImportWorkItem {
+        final int index;
+        final ParsedRow row;
+        final SectionPackageTier tier;
+        final String segmentCode;
+        final String routeCodeDb;
+        final RouteNetworkMatch networkMatch;
+
+        ImportWorkItem(int index, ParsedRow row, SectionPackageTier tier, String segmentCode, String routeCodeDb,
+                       RouteNetworkMatch networkMatch) {
+            this.index = index;
+            this.row = row;
+            this.tier = tier;
+            this.segmentCode = segmentCode;
+            this.routeCodeDb = routeCodeDb;
+            this.networkMatch = networkMatch;
+        }
+    }
+
+    private List<ImportWorkItem> buildWorkItems(SectionPackageTier tier, String tenantId, List<ParsedFeature> drafts,
+                                                String projectId, Set<String> seenSegmentCodes) {
+        if (drafts.isEmpty()) {
+            return Collections.emptyList();
+        }
+        LinkedHashSet<String> importCodes = new LinkedHashSet<>();
+        for (ParsedFeature d : drafts) {
+            importCodes.add(d.row.routeCode);
+        }
+        Map<String, RouteNetworkMatch> net = RouteCodeNetworkLookup.resolveBatch(roadRouteMapper, tenantId, importCodes);
+        List<ImportWorkItem> items = new ArrayList<>(drafts.size());
+        for (ParsedFeature d : drafts) {
+            RouteNetworkMatch m = net.get(d.row.routeCode);
+            String rcDb = m != null && m.getCanonicalRouteCode() != null && !m.getCanonicalRouteCode().isEmpty()
+                    ? m.getCanonicalRouteCode().trim()
+                    : d.row.routeCode;
+            String segment = segmentCodeForTier(tier, d.row, rcDb);
+            ensureUniqueSegment(tier, segment, seenSegmentCodes);
+            items.add(new ImportWorkItem(d.index, d.row, tier, segment, rcDb, m));
+        }
+        return items;
+    }
+
+    private static String segmentCodeForTier(SectionPackageTier tier, ParsedRow row, String routeCodeForDb) {
+        switch (tier) {
+            case LINE:
+                return buildSectionCode(row, routeCodeForDb);
+            case LEDGER:
+                return buildUnitCode(row, routeCodeForDb);
+            case KM:
+                return buildKmCode(row, routeCodeForDb);
+            case HM:
+                return buildHmCode(row, routeCodeForDb);
+            default:
+                throw new BizException("未知路段级别");
+        }
+    }
+
+    private static void ensureUniqueSegment(SectionPackageTier tier, String code, Set<String> seen) {
+        if (seen.add(code)) {
+            return;
+        }
+        switch (tier) {
+            case LINE:
+                throw new BizException("压缩包内路段编码重复：" + code);
+            case LEDGER:
+                throw new BizException("压缩包内评定单元编码重复：" + code);
+            case KM:
+                throw new BizException("压缩包内公里编码重复：" + code);
+            case HM:
+                throw new BizException("压缩包内百米编码重复：" + code);
+            default:
+                throw new BizException("编码重复：" + code);
+        }
+    }
+
+    private Map<String, String> loadLineCodeIdMap(String tenantId, List<String> lineCodes) {
+        if (lineCodes.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, String> out = new HashMap<>();
+        for (int i = 0; i < lineCodes.size(); i += SQL_IN_CHUNK) {
+            int end = Math.min(i + SQL_IN_CHUNK, lineCodes.size());
+            for (LineCodeIdRow r : roadSectionMapper.selectLineIdsByLineCodes(tenantId, lineCodes.subList(i, end))) {
+                out.put(r.getLineCode(), r.getId());
+            }
+        }
+        return out;
+    }
+
+    private Map<String, String> loadUnitCodeIdMap(String tenantId, List<String> unitCodes) {
+        if (unitCodes.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, String> out = new HashMap<>();
+        for (int i = 0; i < unitCodes.size(); i += SQL_IN_CHUNK) {
+            int end = Math.min(i + SQL_IN_CHUNK, unitCodes.size());
+            for (UnitCodeIdRow r : roadEvaluationUnitMapper.selectLedgerIdsByUnitCodes(tenantId, unitCodes.subList(i, end))) {
+                out.put(r.getUnitCode(), r.getId());
+            }
+        }
+        return out;
+    }
+
+    private Map<String, String> loadKmCodeIdMap(String tenantId, List<String> kmCodes) {
+        if (kmCodes.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, String> out = new HashMap<>();
+        for (int i = 0; i < kmCodes.size(); i += SQL_IN_CHUNK) {
+            int end = Math.min(i + SQL_IN_CHUNK, kmCodes.size());
+            for (KmCodeIdRow r : roadSectionKmMapper.selectKmIdsByKmCodes(tenantId, kmCodes.subList(i, end))) {
+                out.put(r.getKmCode(), r.getId());
+            }
+        }
+        return out;
+    }
+
+    private Map<String, String> loadHmCodeIdMap(String tenantId, List<String> hmCodes) {
+        if (hmCodes.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, String> out = new HashMap<>();
+        for (int i = 0; i < hmCodes.size(); i += SQL_IN_CHUNK) {
+            int end = Math.min(i + SQL_IN_CHUNK, hmCodes.size());
+            for (HmCodeIdRow r : roadSectionHmMapper.selectHmIdsByHmCodes(tenantId, hmCodes.subList(i, end))) {
+                out.put(r.getHmCode(), r.getId());
+            }
+        }
+        return out;
+    }
+
+    private RoadSection buildLineSectionEntity(ParsedRow row, String sectionCode, String projectId, String routeCodeForDb) {
+        RoadSection e = new RoadSection();
+        e.setRouteCode(routeCodeForDb);
+        e.setSectionCode(sectionCode);
+        e.setSectionName(firstNonBlank(row.routeName, routeCodeForDb));
+        e.setDirection(row.direction);
+        e.setStartStake(row.startStake);
+        e.setEndStake(row.endStake);
+        e.setLengthKm(row.lengthM != null
+                ? row.lengthM.divide(BigDecimal.valueOf(1000), 3, RoundingMode.HALF_UP)
+                : null);
+        e.setPavementType(row.pavementType);
+        e.setTechnicalGrade(row.technicalGrade);
+        e.setRoadWidth(row.roadWidth);
+        e.setAdcode(row.adcode);
+        e.setManageOrgId(null);
+        e.setGeomWkt(row.geomWkt);
+        if (projectId != null && !projectId.trim().isEmpty()) {
+            e.setProjectId(projectId.trim());
+        }
+        return e;
+    }
+
+    private RoadEvaluationUnit buildLedgerUnitEntity(ParsedRow row, String unitCode, String projectId, String routeCodeForDb) {
+        RoadEvaluationUnit u = new RoadEvaluationUnit();
+        u.setRouteCode(routeCodeForDb);
+        u.setUnitCode(unitCode);
+        u.setLedgerName(firstNonBlank(row.routeName, routeCodeForDb));
+        if (projectId != null && !projectId.trim().isEmpty()) {
+            u.setProjectId(projectId.trim());
+        }
+        u.setDirection(row.direction);
+        u.setLaneNo(null);
+        u.setStartStake(row.startStake);
+        u.setEndStake(row.endStake);
+        u.setLengthM(row.lengthM != null ? row.lengthM.setScale(0, RoundingMode.HALF_UP).intValue() : 1000);
+        u.setPavementType(row.pavementType);
+        u.setTechnicalGrade(row.technicalGrade);
+        u.setRoadWidth(row.roadWidth);
+        u.setAdcode(row.adcode);
+        u.setManageOrgId(null);
+        u.setGeomWkt(row.geomWkt);
+        u.setCenterPointWkt(midPointWkt(row.geomWkt));
+        return u;
+    }
+
+    private RoadSectionKm buildKmEntity(ParsedRow row, String kmCode, String projectId, String routeCodeForDb) {
+        RoadSectionKm km = new RoadSectionKm();
+        km.setRouteCode(routeCodeForDb);
+        km.setKmCode(kmCode);
+        km.setDirection(row.direction);
+        km.setStartStake(row.startStake);
+        km.setEndStake(row.endStake);
+        km.setLengthM(row.lengthM != null ? row.lengthM.setScale(0, RoundingMode.HALF_UP).intValue() : null);
+        km.setPavementType(row.pavementType);
+        km.setTechnicalGrade(row.technicalGrade);
+        km.setRoadWidth(row.roadWidth);
+        if (projectId != null && !projectId.trim().isEmpty()) {
+            km.setProjectId(projectId.trim());
+        }
+        km.setGeomWkt(row.geomWkt);
+        return km;
+    }
+
+    private RoadSectionHm buildHmEntity(ParsedRow row, String hmCode, String projectId, String routeCodeForDb) {
+        RoadSectionHm hm = new RoadSectionHm();
+        hm.setRouteCode(routeCodeForDb);
+        hm.setHmCode(hmCode);
+        hm.setDirection(row.direction);
+        hm.setStartStake(row.startStake);
+        hm.setEndStake(row.endStake);
+        hm.setLengthM(row.lengthM != null ? row.lengthM.setScale(0, RoundingMode.HALF_UP).intValue() : null);
+        if (projectId != null && !projectId.trim().isEmpty()) {
+            hm.setProjectId(projectId.trim());
+        }
+        hm.setGeomWkt(row.geomWkt);
+        return hm;
+    }
+
+    private int flushWorkBatch(SectionPackageTier tier, List<ImportWorkItem> batch, String tenantId, String projectId) {
+        if (batch.isEmpty()) {
+            return 0;
+        }
+        switch (tier) {
+            case LINE:
+                return flushLineTier(batch, tenantId, projectId);
+            case LEDGER:
+                return flushLedgerTier(batch, tenantId, projectId);
+            case KM:
+                return flushKmTier(batch, tenantId, projectId);
+            case HM:
+                return flushHmTier(batch, tenantId, projectId);
+            default:
+                throw new BizException("未知路段级别");
+        }
+    }
+
+    private int flushLineTier(List<ImportWorkItem> batch, String tenantId, String projectId) {
+        int orphan = 0;
+        List<String> lineCodes = new ArrayList<>(batch.size());
+        List<RoadSection> sections = new ArrayList<>(batch.size());
+        for (ImportWorkItem it : batch) {
+            String routeId = it.networkMatch != null ? it.networkMatch.getRouteId() : null;
+            if (routeId == null) {
+                orphan++;
+            }
+            RoadSection e = buildLineSectionEntity(it.row, it.segmentCode, projectId, it.routeCodeDb);
+            e.setRouteId(routeId);
+            String remark = it.row.remarkCn;
+            if (it.row.detectionMethod != null && !it.row.detectionMethod.trim().isEmpty()) {
+                String tag = "检测方式:" + it.row.detectionMethod.trim();
+                remark = remark == null || remark.trim().isEmpty() ? tag : tag + " | " + remark;
+            }
+            if (routeId == null) {
+                remark = mergeRemarkWithOrphanRouteHint(remark, it.row.routeCode);
+            }
+            e.setRemark(trimRemark(remark));
+            lineCodes.add(e.getSectionCode());
+            sections.add(e);
+        }
+        Map<String, String> existing = loadLineCodeIdMap(tenantId, lineCodes);
+        LocalDateTime now = LocalDateTime.now();
+        for (RoadSection e : sections) {
+            String id = existing.get(e.getSectionCode());
+            e.setId(id != null ? id : IdUtils.uuid());
+            e.setTenantId(tenantId);
+            e.setCreatedAt(now);
+            e.setUpdatedAt(now);
+            e.setDeleted(false);
+        }
+        roadSectionMapper.upsertBatchWithGeom(tenantId, sections, null);
+        List<AssessmentResultSaveDTO> ars = new ArrayList<>(batch.size());
+        for (int i = 0; i < batch.size(); i++) {
+            RoadSection e = sections.get(i);
+            ImportWorkItem it = batch.get(i);
+            ars.add(buildAssessmentDto(it.row, "ROAD_SECTION_LINE", e.getId(), e.getId(), null, e.getRouteId(), e.getRouteCode()));
+        }
+        assessmentResultService.upsertBatchForImport(ars);
+        return orphan;
+    }
+
+    private int flushLedgerTier(List<ImportWorkItem> batch, String tenantId, String projectId) {
+        int orphan = 0;
+        List<String> unitCodes = new ArrayList<>(batch.size());
+        List<RoadEvaluationUnit> units = new ArrayList<>(batch.size());
+        for (ImportWorkItem it : batch) {
+            String routeId = it.networkMatch != null ? it.networkMatch.getRouteId() : null;
+            if (routeId == null) {
+                orphan++;
+            }
+            RoadEvaluationUnit u = buildLedgerUnitEntity(it.row, it.segmentCode, projectId, it.routeCodeDb);
+            u.setRouteId(routeId);
+            u.setSectionId(null);
+            unitCodes.add(u.getUnitCode());
+            units.add(u);
+        }
+        Map<String, String> existingUnits = loadUnitCodeIdMap(tenantId, unitCodes);
+        LocalDateTime now = LocalDateTime.now();
+        for (RoadEvaluationUnit u : units) {
+            String id = existingUnits.get(u.getUnitCode());
+            u.setId(id != null ? id : IdUtils.uuid());
+            u.setTenantId(tenantId);
+            u.setCreatedAt(now);
+            u.setUpdatedAt(now);
+            u.setDeleted(false);
+        }
+        roadEvaluationUnitMapper.upsertBatchWithGeom(tenantId, units, null);
+        List<AssessmentResultSaveDTO> ars = new ArrayList<>(batch.size());
+        for (int i = 0; i < batch.size(); i++) {
+            RoadEvaluationUnit u = units.get(i);
+            ImportWorkItem it = batch.get(i);
+            ars.add(buildAssessmentDto(it.row, "ROAD_SECTION_LEDGER", u.getId(), null, u.getId(), u.getRouteId(), u.getRouteCode()));
+        }
+        assessmentResultService.upsertBatchForImport(ars);
+        return orphan;
+    }
+
+    private int flushKmTier(List<ImportWorkItem> batch, String tenantId, String projectId) {
+        int orphan = 0;
+        List<String> kmCodes = new ArrayList<>(batch.size());
+        List<RoadSectionKm> rows = new ArrayList<>(batch.size());
+        for (ImportWorkItem it : batch) {
+            String routeId = it.networkMatch != null ? it.networkMatch.getRouteId() : null;
+            if (routeId == null) {
+                orphan++;
+            }
+            RoadSectionKm km = buildKmEntity(it.row, it.segmentCode, projectId, it.routeCodeDb);
+            km.setRouteId(routeId);
+            km.setLineId(null);
+            String kmRemark = it.row.remarkCn;
+            if (routeId == null) {
+                kmRemark = mergeRemarkWithOrphanRouteHint(kmRemark, it.row.routeCode);
+            }
+            km.setRemark(trimRemark(kmRemark));
+            kmCodes.add(km.getKmCode());
+            rows.add(km);
+        }
+        Map<String, String> existingKm = loadKmCodeIdMap(tenantId, kmCodes);
+        LocalDateTime now = LocalDateTime.now();
+        for (RoadSectionKm km : rows) {
+            String id = existingKm.get(km.getKmCode());
+            km.setId(id != null ? id : IdUtils.uuid());
+            km.setTenantId(tenantId);
+            km.setCreatedAt(now);
+            km.setUpdatedAt(now);
+            km.setDeleted(false);
+        }
+        roadSectionKmMapper.upsertBatchWithGeom(tenantId, rows, null);
+        List<AssessmentResultSaveDTO> ars = new ArrayList<>(batch.size());
+        for (int i = 0; i < batch.size(); i++) {
+            RoadSectionKm km = rows.get(i);
+            ImportWorkItem it = batch.get(i);
+            ars.add(buildAssessmentDto(it.row, "ROAD_SECTION_KM", km.getId(), null, null, km.getRouteId(), km.getRouteCode()));
+        }
+        assessmentResultService.upsertBatchForImport(ars);
+        return orphan;
+    }
+
+    private int flushHmTier(List<ImportWorkItem> batch, String tenantId, String projectId) {
+        int orphan = 0;
+        List<String> hmCodes = new ArrayList<>(batch.size());
+        List<RoadSectionHm> rows = new ArrayList<>(batch.size());
+        for (ImportWorkItem it : batch) {
+            String routeId = it.networkMatch != null ? it.networkMatch.getRouteId() : null;
+            if (routeId == null) {
+                orphan++;
+            }
+            RoadSectionHm hm = buildHmEntity(it.row, it.segmentCode, projectId, it.routeCodeDb);
+            hm.setRouteId(routeId);
+            hm.setLineId(null);
+            hm.setKmId(null);
+            String hmRemark = it.row.remarkCn;
+            if (routeId == null) {
+                hmRemark = mergeRemarkWithOrphanRouteHint(hmRemark, it.row.routeCode);
+            }
+            hm.setRemark(trimRemark(hmRemark));
+            hmCodes.add(hm.getHmCode());
+            rows.add(hm);
+        }
+        Map<String, String> existingHm = loadHmCodeIdMap(tenantId, hmCodes);
+        LocalDateTime now = LocalDateTime.now();
+        for (RoadSectionHm hm : rows) {
+            String id = existingHm.get(hm.getHmCode());
+            hm.setId(id != null ? id : IdUtils.uuid());
+            hm.setTenantId(tenantId);
+            hm.setCreatedAt(now);
+            hm.setUpdatedAt(now);
+            hm.setDeleted(false);
+        }
+        roadSectionHmMapper.upsertBatchWithGeom(tenantId, rows, null);
+        List<AssessmentResultSaveDTO> ars = new ArrayList<>(batch.size());
+        for (int i = 0; i < batch.size(); i++) {
+            RoadSectionHm hm = rows.get(i);
+            ImportWorkItem it = batch.get(i);
+            ars.add(buildAssessmentDto(it.row, "ROAD_SECTION_HM", hm.getId(), null, null, hm.getRouteId(), hm.getRouteCode()));
+        }
+        assessmentResultService.upsertBatchForImport(ars);
+        return orphan;
+    }
+
+    private static String tierShortLabel(SectionPackageTier tier) {
+        switch (tier) {
+            case LINE:
+                return "线路级";
+            case LEDGER:
+                return "台账级";
+            case KM:
+                return "公里级";
+            case HM:
+                return "百米级";
+            default:
+                return "路段包";
+        }
+    }
+
+    private Counts processTierShapefile(SectionPackageTier tier, Path shpFile, List<String> warnings, String projectId) throws Exception {
         String tenantId = TenantContextHolder.getTenantId();
+        String tierLabel = tierShortLabel(tier);
         Map<String, Object> params = new HashMap<>();
         params.put("url", shpFile.toUri().toURL());
         DataStore store = DataStoreFinder.getDataStore(params);
@@ -373,8 +739,8 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
         }
         int entities = 0;
         int assessments = 0;
-        int skippedUnknownRoute = 0;
-        Set<String> seenUnitCodes = new HashSet<>();
+        int orphanRouteFeatures = 0;
+        Set<String> seenSegmentCodes = new HashSet<>();
         try {
             if (store instanceof org.geotools.data.shapefile.ShapefileDataStore) {
                 ((org.geotools.data.shapefile.ShapefileDataStore) store).setCharset(resolveDbfCharset());
@@ -389,16 +755,17 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
             SingleCRS horizontal = CRS.getHorizontalCRS(sourceCrs);
             CoordinateReferenceSystem source2d = horizontal != null ? horizontal : sourceCrs;
             MathTransform toWgs84 = CRS.findMathTransform(source2d, DefaultGeographicCRS.WGS84, true);
-            log.info("[section-import] 台账级打开 typeName={} dbfCharset={} crs={}",
-                    typeName, dbfCs.name(), source2d.getName());
+            log.info("[section-import] {}打开 typeName={} dbfCharset={} crs={}",
+                    tierLabel, typeName, dbfCs.name(), source2d.getName());
 
             SimpleFeatureCollection collection = source.getFeatures();
             int featureHint = collection.size();
             if (featureHint >= 0) {
-                log.info("[section-import] 台账级要素数量(估算) {}", featureHint);
+                log.info("[section-import] {}要素数量(估算) {}", tierLabel, featureHint);
             }
             List<String> rowErrors = new ArrayList<>();
             int index = 0;
+            List<ParsedFeature> drafts = new ArrayList<>(IMPORT_DB_BATCH_SIZE);
             try (SimpleFeatureIterator it = collection.features()) {
                 while (it.hasNext()) {
                     index++;
@@ -406,70 +773,39 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
                     Map<String, Object> attrs = buildAttrMap(feature);
                     try {
                         ParsedRow row = parseRow(attrs, feature, toWgs84, index, shpFile.getFileName().toString());
-                        String routeId = roadRouteMapper.selectIdByTenantAndRouteCode(tenantId, row.routeCode);
-                        if (routeId == null) {
-                            skippedUnknownRoute++;
-                            String warn = baseErr(shpFile, index) + "路线编号(linkCode) " + row.routeCode + " 在路网中不存在，已跳过";
-                            warnings.add(warn);
-                            log.debug("[section-import] {}", warn);
-                            continue;
+                        drafts.add(new ParsedFeature(index, row));
+                        if (drafts.size() >= IMPORT_DB_BATCH_SIZE) {
+                            List<ImportWorkItem> workBatch = buildWorkItems(tier, tenantId, drafts, projectId, seenSegmentCodes);
+                            orphanRouteFeatures += flushWorkBatch(tier, workBatch, tenantId, projectId);
+                            entities += workBatch.size();
+                            assessments += workBatch.size();
+                            drafts.clear();
                         }
-                        String unitCode = buildUnitCode(row);
-                        if (!seenUnitCodes.add(unitCode)) {
-                            throw new BizException("压缩包内评定单元编码重复：" + unitCode);
-                        }
-                        String sk = stakeKey(row.routeCode, row.direction, row.startStake, row.endStake);
-                        String sectionId = stakeSectionId.get(sk);
-                        if (sectionId == null) {
-                            sectionId = roadSectionMapper.selectIdByRouteStake(tenantId, row.routeCode, row.direction, row.startStake, row.endStake);
-                        }
-
-                        EvaluationUnitSaveDTO dto = new EvaluationUnitSaveDTO();
-                        dto.setRouteId(routeId);
-                        dto.setSectionId(sectionId);
-                        dto.setRouteCode(row.routeCode);
-                        dto.setUnitCode(unitCode);
-                        dto.setDirection(row.direction);
-                        dto.setLaneNo(null);
-                        dto.setStartStake(row.startStake);
-                        dto.setEndStake(row.endStake);
-                        dto.setLengthM(row.lengthM != null ? row.lengthM.setScale(0, RoundingMode.HALF_UP).intValue() : 1000);
-                        dto.setPavementType(row.pavementType);
-                        dto.setTechnicalGrade(row.technicalGrade);
-                        dto.setRoadWidth(row.roadWidth);
-                        dto.setAdcode(row.adcode);
-                        dto.setManageOrgId(null);
-                        dto.setGeomWkt(row.geomWkt);
-                        dto.setCenterPointWkt(midPointWkt(row.geomWkt));
-
-                        String existingId = roadEvaluationUnitMapper.selectIdByTenantAndUnitCode(tenantId, unitCode);
-                        String unitId;
-                        if (existingId == null) {
-                            unitId = roadEvaluationUnitService.create(dto);
-                        } else {
-                            roadEvaluationUnitService.update(existingId, dto);
-                            unitId = existingId;
-                        }
-                        entities++;
-
-                        AssessmentResultSaveDTO ar = buildAssessmentDto(row, "EVALUATION_UNIT", unitId, sectionId, unitId, routeId);
-                        assessmentResultService.upsertForImport(ar);
-                        assessments++;
                     } catch (BizException ex) {
                         throw ex;
+                    } catch (DataAccessException ex) {
+                        throw ex;
                     } catch (Exception ex) {
+                        rethrowIfDatabaseFailure(ex);
                         rowErrors.add(baseErr(shpFile, index) + ex.getMessage());
                     }
                 }
             }
+            if (!drafts.isEmpty()) {
+                List<ImportWorkItem> workBatch = buildWorkItems(tier, tenantId, drafts, projectId, seenSegmentCodes);
+                orphanRouteFeatures += flushWorkBatch(tier, workBatch, tenantId, projectId);
+                entities += workBatch.size();
+                assessments += workBatch.size();
+            }
             if (!rowErrors.isEmpty()) {
-                throw new BizException(joinDetails("台账级数据校验失败", rowErrors));
+                throw new BizException(joinDetails(tierLabel + "数据校验失败", rowErrors));
             }
-            log.info("[section-import] 台账级完成 file={} 扫描要素={} 写入单元={} 评定行={} 跳过(无路线)={}",
-                    shpFile.getFileName(), index, entities, assessments, skippedUnknownRoute);
-            if (skippedUnknownRoute > 0) {
-                log.warn("[section-import] 台账级 {} 因路网无对应路线共跳过 {} 条，详见返回 warnings", shpFile.getFileName(), skippedUnknownRoute);
+            if (orphanRouteFeatures > 0) {
+                warnings.add(tierLabel + " " + shpFile.getFileName() + "：共 " + orphanRouteFeatures
+                        + " 条要素的路线编号在路网中未登记，已写入（route_id 为空、route_code 已保留），请补录路网后关联。");
             }
+            log.info("[section-import] {}完成 file={} 扫描要素={} 写入要素={} 评定行={}",
+                    tierLabel, shpFile.getFileName(), index, entities, assessments);
         } finally {
             store.dispose();
         }
@@ -480,13 +816,28 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
         return shp.getFileName() + " 第" + index + "条要素：";
     }
 
+    /**
+     * PostgreSQL 等：任一条 SQL 失败后事务即中止，若再捕获异常并继续循环，后续语句会报 25P02。
+     * 凡带 {@link SQLException} 链或 Spring 数据访问异常，必须立刻抛出，保留首条真实错误。
+     */
+    private static void rethrowIfDatabaseFailure(Throwable ex) {
+        for (Throwable t = ex; t != null; t = t.getCause()) {
+            if (t instanceof SQLException) {
+                if (ex instanceof RuntimeException) {
+                    throw (RuntimeException) ex;
+                }
+                throw new RuntimeException(ex);
+            }
+        }
+    }
+
     private AssessmentResultSaveDTO buildAssessmentDto(ParsedRow row, String objectType, String objectId,
-                                                       String sectionId, String unitId, String routeId) {
+                                                       String sectionId, String unitId, String routeId, String routeCodeForDb) {
         AssessmentResultSaveDTO ar = new AssessmentResultSaveDTO();
         ar.setObjectType(objectType);
         ar.setObjectId(objectId);
         ar.setRouteId(routeId);
-        ar.setRouteCode(row.routeCode);
+        ar.setRouteCode(routeCodeForDb);
         ar.setDirection(row.direction);
         ar.setStartStake(row.startStake);
         ar.setEndStake(row.endStake);
@@ -561,21 +912,24 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
         String remarkCn;
         String sectionCodeAttr;
         String unitCodeAttr;
+        String kmCodeAttr;
+        String hmCodeAttr;
         String geomWkt;
     }
 
     /**
-     * SHP 属性名与业务字段一一对应（仅此一套）：
-     * linkCode→路线编号，adCode→行政区划代码，linkName→路线名称，startMp/endMp→起止桩号，
+     * 路段包线路编码（与库表 {@code route_code}、路网对齐）仅取自属性 <strong>{@code linkCode}</strong>。
+     * {@link #attr} 同时匹配原始列名与全大写，故 DBF 导出为 {@code LINKCODE} 亦可识别。
+     * <p>
+     * 其它：adCode→行政区划，linkName→路线名称，startMp/endMp→起止桩号，
      * upDown→检测方向，techLevel→技术等级，roadType→路面类型，length→路段长度(m)，
      * roadWidth→路面宽度(m)，detMethod→检测方式，year→检测年度，MQI…remark 同名列。
-     * {@link #attr} 同时匹配原始列名与全大写，故 DBF 为 LINKCODE 等亦可识别。
      */
     private ParsedRow parseRow(Map<String, Object> attrs, SimpleFeature feature, MathTransform toWgs84, int index, String shpLabel) throws Exception {
         ParsedRow r = new ParsedRow();
         r.routeCode = pickString(attrs, "linkCode");
         if (isBlank(r.routeCode)) {
-            throw new BizException("linkCode(路线编号)为空");
+            throw new BizException("路线编号为空：路段 Shapefile 必须提供 linkCode 列（与路网 road_route.route_code 同义；DBF 大写列名 LINKCODE 亦可）");
         }
         r.routeCode = r.routeCode.trim();
         r.routeName = pickString(attrs, "linkName");
@@ -615,6 +969,10 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
         r.iri = pickDecimal(attrs, "IRI");
         r.detectionMethod = pickString(attrs, "detMethod");
         r.remarkCn = pickString(attrs, "remark");
+        r.sectionCodeAttr = pickString(attrs, "SECTION_CODE", "LDBM", "section_code", "路段编码", "线路编码");
+        r.unitCodeAttr = pickString(attrs, "UNIT_CODE", "DYBM", "unit_code", "台账编码", "评定单元编码");
+        r.kmCodeAttr = pickString(attrs, "KM_CODE", "GJBM", "km_code");
+        r.hmCodeAttr = pickString(attrs, "HM_CODE", "BM_CODE", "hm_code");
 
         Geometry geom = (Geometry) feature.getDefaultGeometry();
         if (geom != null && !geom.isEmpty()) {
@@ -631,26 +989,48 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
         return r;
     }
 
-    private static String buildSectionCode(ParsedRow row) {
+    private static String buildSectionCode(ParsedRow row, String routeCodeForAutoSegment) {
         if (row.sectionCodeAttr != null && !row.sectionCodeAttr.trim().isEmpty()) {
             return truncateCode(sanitizeCode(row.sectionCodeAttr.trim()), SECTION_CODE_MAX);
         }
-        String base = sanitizeCode(row.routeCode + "-K" + stakePlain(row.startStake) + "-K" + stakePlain(row.endStake) + "-" + row.direction);
+        String base = sanitizeCode(routeCodeForAutoSegment + "-L-K" + stakePlain(row.startStake) + "-K" + stakePlain(row.endStake) + "-" + row.direction);
         if (base.length() <= SECTION_CODE_MAX) {
             return base;
         }
         return truncateWithHash(base, SECTION_CODE_MAX, "S");
     }
 
-    private static String buildUnitCode(ParsedRow row) {
+    private static String buildUnitCode(ParsedRow row, String routeCodeForAutoSegment) {
         if (row.unitCodeAttr != null && !row.unitCodeAttr.trim().isEmpty()) {
             return truncateCode(sanitizeCode(row.unitCodeAttr.trim()), UNIT_CODE_MAX);
         }
-        String base = sanitizeCode(row.routeCode + "-U-K" + stakePlain(row.startStake) + "-K" + stakePlain(row.endStake) + "-" + row.direction);
+        String base = sanitizeCode(routeCodeForAutoSegment + "-LD-K" + stakePlain(row.startStake) + "-K" + stakePlain(row.endStake) + "-" + row.direction);
         if (base.length() <= UNIT_CODE_MAX) {
             return base;
         }
         return truncateWithHash(base, UNIT_CODE_MAX, "U");
+    }
+
+    private static String buildKmCode(ParsedRow row, String routeCodeForAutoSegment) {
+        if (row.kmCodeAttr != null && !row.kmCodeAttr.trim().isEmpty()) {
+            return truncateCode(sanitizeCode(row.kmCodeAttr.trim()), KM_CODE_MAX);
+        }
+        String base = sanitizeCode(routeCodeForAutoSegment + "-KM-K" + stakePlain(row.startStake) + "-K" + stakePlain(row.endStake) + "-" + row.direction);
+        if (base.length() <= KM_CODE_MAX) {
+            return base;
+        }
+        return truncateWithHash(base, KM_CODE_MAX, "K");
+    }
+
+    private static String buildHmCode(ParsedRow row, String routeCodeForAutoSegment) {
+        if (row.hmCodeAttr != null && !row.hmCodeAttr.trim().isEmpty()) {
+            return truncateCode(sanitizeCode(row.hmCodeAttr.trim()), HM_CODE_MAX);
+        }
+        String base = sanitizeCode(routeCodeForAutoSegment + "-HM-K" + stakePlain(row.startStake) + "-K" + stakePlain(row.endStake) + "-" + row.direction);
+        if (base.length() <= HM_CODE_MAX) {
+            return base;
+        }
+        return truncateWithHash(base, HM_CODE_MAX, "H");
     }
 
     private static String stakePlain(BigDecimal v) {
@@ -690,14 +1070,6 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
             sb.append('0');
         }
         return sb.substring(0, 16);
-    }
-
-    private static String stakeKey(String routeCode, String direction, BigDecimal start, BigDecimal end) {
-        return routeCode + "\0" + direction + "\0" + normStakeKey(start) + "\0" + normStakeKey(end);
-    }
-
-    private static String normStakeKey(BigDecimal v) {
-        return v == null ? "" : v.stripTrailingZeros().toPlainString();
     }
 
     private static String normalizeDirection(String raw) {
@@ -890,6 +1262,16 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
             return remark.substring(0, 2000);
         }
         return remark;
+    }
+
+    /** 路网无该路线编号时写入备注前缀，便于后续排查与补录路网后关联 */
+    private static String mergeRemarkWithOrphanRouteHint(String baseRemark, String routeCode) {
+        String rc = routeCode == null ? "" : routeCode.trim();
+        String tag = "[路网未登记路线编号:" + rc + "]";
+        if (baseRemark == null || baseRemark.trim().isEmpty()) {
+            return tag;
+        }
+        return tag + " " + baseRemark.trim();
     }
 
     private static String midPointWkt(String geomWkt) {

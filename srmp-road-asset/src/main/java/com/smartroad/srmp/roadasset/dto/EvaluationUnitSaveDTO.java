@@ -10,4 +10,6 @@ public class EvaluationUnitSaveDTO {
     @NotNull(message="终点桩号不能为空") private BigDecimal endStake;
     private Integer lengthM = 1000; private String pavementType; private String technicalGrade; private BigDecimal roadWidth;
     private String adcode; private String manageOrgId; private String geomWkt; private String centerPointWkt;
+    /** 数据管理项目冗余 */
+    private String projectId;
 }

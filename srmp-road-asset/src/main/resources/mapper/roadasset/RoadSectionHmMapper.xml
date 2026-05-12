@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartroad.srmp.roadasset.mapper.RoadSectionHmMapper">
+    <insert id="insertWithGeom" parameterType="com.smartroad.srmp.roadasset.entity.RoadSectionHm">
+        INSERT INTO road_section_hm(id, tenant_id, route_id, route_code, line_id, km_id, hm_code, direction, start_stake, end_stake, length_m, label,
+            project_id, remark, geom, created_by, updated_by, created_at, updated_at, deleted)
+        VALUES (#{id}, #{tenantId}, #{routeId}, #{routeCode}, #{lineId}, #{kmId}, #{hmCode}, #{direction}, #{startStake}, #{endStake}, #{lengthM}, #{label},
+            #{projectId}, #{remark},
+            <choose><when test="geomWkt != null and geomWkt != ''">ST_GeomFromText(#{geomWkt}, 4326)</when><otherwise>NULL</otherwise></choose>,
+            #{createdBy}, #{updatedBy}, now(), now(), false)
+    </insert>
+    <update id="updateWithGeom" parameterType="com.smartroad.srmp.roadasset.entity.RoadSectionHm">
+        UPDATE road_section_hm SET route_id=#{routeId}, route_code=#{routeCode}, line_id=#{lineId}, km_id=#{kmId}, hm_code=#{hmCode}, direction=#{direction},
+            start_stake=#{startStake}, end_stake=#{endStake}, length_m=#{lengthM}, label=#{label}, project_id=#{projectId}, remark=#{remark}, updated_by=#{updatedBy}, updated_at=now()
+        <if test="geomWkt != null and geomWkt != ''">, geom=ST_GeomFromText(#{geomWkt}, 4326)</if>
+        WHERE tenant_id=#{tenantId} AND id=#{id} AND deleted=false
+    </update>
+    <select id="selectIdByTenantAndHmCode" resultType="java.lang.String">
+        SELECT id FROM road_section_hm
+        WHERE tenant_id=#{tenantId} AND hm_code=#{hmCode} AND deleted=false LIMIT 1
+    </select>
+    <select id="selectIdByRouteStake" resultType="java.lang.String">
+        SELECT id FROM road_section_hm
+        WHERE tenant_id=#{tenantId} AND route_code=#{routeCode} AND direction=#{direction}
+          AND start_stake=#{startStake} AND end_stake=#{endStake} AND deleted=false LIMIT 1
+    </select>
+    <select id="selectHmIdsByHmCodes" resultType="com.smartroad.srmp.roadasset.dto.HmCodeIdRow">
+        SELECT hm_code AS hmCode, id FROM road_section_hm
+        WHERE tenant_id=#{tenantId} AND deleted=false
+        AND hm_code IN
+        <foreach collection="codes" item="c" open="(" close=")" separator=",">#{c}</foreach>
+    </select>
+    <select id="selectHmIdsByStakes" resultType="com.smartroad.srmp.roadasset.dto.SectionStakeMatchRow">
+        SELECT id, route_code AS routeCode, direction, start_stake AS startStake, end_stake AS endStake
+        FROM road_section_hm
+        WHERE tenant_id=#{tenantId} AND deleted=false
+        AND (route_code, direction, start_stake, end_stake) IN
+        <foreach collection="rows" item="r" open="(" separator="," close=")">
+            (#{r.routeCode},#{r.direction},#{r.startStake},#{r.endStake})
+        </foreach>
+    </select>
+    <insert id="upsertBatchWithGeom">
+        INSERT INTO road_section_hm(id, tenant_id, route_id, route_code, line_id, km_id, hm_code, direction, start_stake, end_stake, length_m, label,
+            project_id, remark, geom, created_by, updated_by, created_at, updated_at, deleted)
+        VALUES
+        <foreach collection="list" item="e" separator=",">
+            (#{e.id}, #{tenantId}, #{e.routeId}, #{e.routeCode}, #{e.lineId}, #{e.kmId}, #{e.hmCode}, #{e.direction}, #{e.startStake}, #{e.endStake}, #{e.lengthM}, #{e.label},
+            #{e.projectId}, #{e.remark},
+            <choose><when test="e.geomWkt != null and e.geomWkt != ''">ST_GeomFromText(#{e.geomWkt}, 4326)</when><otherwise>NULL</otherwise></choose>,
+            #{userId}, #{userId}, now(), now(), false)
+        </foreach>
+        ON CONFLICT (tenant_id, hm_code) DO UPDATE SET
+            route_id = EXCLUDED.route_id,
+            route_code = EXCLUDED.route_code,
+            line_id = EXCLUDED.line_id,
+            km_id = EXCLUDED.km_id,
+            direction = EXCLUDED.direction,
+            start_stake = EXCLUDED.start_stake,
+            end_stake = EXCLUDED.end_stake,
+            length_m = EXCLUDED.length_m,
+            label = EXCLUDED.label,
+            project_id = EXCLUDED.project_id,
+            remark = EXCLUDED.remark,
+            geom = EXCLUDED.geom,
+            updated_by = EXCLUDED.updated_by,
+            updated_at = now(),
+            deleted = false
+    </insert>
+</mapper>

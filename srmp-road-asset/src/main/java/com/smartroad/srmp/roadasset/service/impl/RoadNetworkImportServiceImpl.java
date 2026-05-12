@@ -89,6 +89,12 @@ public class RoadNetworkImportServiceImpl implements RoadNetworkImportService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ImportNetworkResultVO importNetwork(MultipartFile file) {
+        return importNetwork(file, null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ImportNetworkResultVO importNetwork(MultipartFile file, String projectId) {
         if (file == null || file.isEmpty()) {
             throw new BizException("导入文件不能为空");
         }
@@ -103,7 +109,7 @@ public class RoadNetworkImportServiceImpl implements RoadNetworkImportService {
                 safeUntar(in, tempDir);
             }
             Path shpFile = findSingleShapefileGroup(tempDir);
-            return importFromShapefile(shpFile);
+            return importFromShapefile(shpFile, projectId);
         } catch (BizException e) {
             throw e;
         } catch (Exception e) {
@@ -192,7 +198,7 @@ public class RoadNetworkImportServiceImpl implements RoadNetworkImportService {
         return i > 0 ? name.substring(0, i) : name;
     }
 
-    private ImportNetworkResultVO importFromShapefile(Path shpFile) throws Exception {
+    private ImportNetworkResultVO importFromShapefile(Path shpFile, String projectId) throws Exception {
         Map<String, Object> params = new HashMap<>();
         params.put("url", shpFile.toUri().toURL());
         DataStore store = DataStoreFinder.getDataStore(params);
@@ -307,6 +313,9 @@ public class RoadNetworkImportServiceImpl implements RoadNetworkImportService {
                     }
 
                     dto.setRemark(buildRemark(attrs));
+                    if (projectId != null && !projectId.trim().isEmpty()) {
+                        dto.setProjectId(projectId.trim());
+                    }
 
                     String importKey = importDuplicateKey(routeCode, dto.getStartStake(), dto.getEndStake());
                     if (!seenImportKeys.add(importKey)) {

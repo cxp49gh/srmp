@@ -6,6 +6,7 @@
 
       <nav class="sidebar-nav">
         <router-link to="/gis/one-map">GIS 一张图</router-link>
+        <router-link to="/admin/data-management">数据管理</router-link>
         <router-link to="/agent/ai-ops">AI 运维总览</router-link>
         <router-link to="/agent/langgraph-ops">LangGraph 编排</router-link>
         <router-link to="/agent/chat">AI 问答</router-link>
@@ -82,11 +83,38 @@ defineProps<{
 
 .sidebar-nav {
   margin-top: 28px;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
   overflow-y: auto;
-  padding-right: 4px;
+  overflow-x: hidden;
+  padding-right: 6px;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: #475569 transparent;
+}
+
+.sidebar-nav::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-nav::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 6px;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.55);
+  background-clip: padding-box;
 }
 
 .sidebar-nav a {
@@ -145,10 +173,28 @@ p {
 
   .sidebar-nav {
     margin-top: 14px;
+    flex: none;
+    min-height: 0;
     flex-direction: row;
     overflow-x: auto;
     overflow-y: hidden;
-    padding-bottom: 6px;
+    padding-bottom: 8px;
+    margin-right: 0;
+    padding-right: 4px;
+    scrollbar-width: thin;
+    scrollbar-color: #475569 transparent;
+  }
+
+  .sidebar-nav::-webkit-scrollbar {
+    width: auto;
+    height: 6px;
+  }
+
+  .sidebar-nav::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.35);
+    border-radius: 6px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
   }
 
   .sidebar-nav a {

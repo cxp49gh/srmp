@@ -13,12 +13,13 @@
         <if test="q != null and q.status != null and q.status != ''">AND status = #{q.status}</if>
         <if test="q != null and q.startStake != null">AND (end_stake IS NULL OR end_stake &gt;= #{q.startStake})</if>
         <if test="q != null and q.endStake != null">AND (start_stake IS NULL OR start_stake &lt;= #{q.endStake})</if>
+        <if test="q != null and q.projectId != null and q.projectId != ''">AND project_id = #{q.projectId}</if>
     </sql>
     <sql id="DiseaseColumns">
         id, task_id, route_id, section_id, unit_id, route_code, direction, lane_no, start_stake, end_stake,
         disease_category, disease_type, disease_name, severity, quantity, measure_unit, damage_area, damage_length,
         damage_width, damage_depth, source, confidence, status, verified, verified_by, verified_at,
-        ST_AsGeoJSON(geom) AS geom_geo_json, remark, created_at
+        project_id, ST_AsGeoJSON(geom) AS geom_geo_json, remark, created_at
     </sql>
     <select id="selectPageVO" resultType="com.smartroad.srmp.disease.vo.DiseaseRecordVO">
         SELECT <include refid="DiseaseColumns"/> FROM disease_record WHERE <include refid="DiseaseWhere"/> ORDER BY route_code ASC, start_stake ASC NULLS LAST, created_at DESC
@@ -45,22 +46,22 @@
     <insert id="insertWithGeom" parameterType="com.smartroad.srmp.disease.entity.DiseaseRecord">
         INSERT INTO disease_record(id, tenant_id, task_id, route_id, section_id, unit_id, route_code, direction, lane_no, start_stake, end_stake,
         disease_category, disease_type, disease_name, severity, quantity, measure_unit, damage_area, damage_length, damage_width, damage_depth,
-        source, confidence, geom, status, verified, remark, created_by, updated_by, created_at, updated_at, deleted)
+        source, confidence, project_id, geom, status, verified, remark, created_by, updated_by, created_at, updated_at, deleted)
         VALUES (#{id}, #{tenantId}, #{taskId}, #{routeId}, #{sectionId}, #{unitId}, #{routeCode}, #{direction}, #{laneNo}, #{startStake}, #{endStake},
         #{diseaseCategory}, #{diseaseType}, #{diseaseName}, #{severity}, #{quantity}, #{measureUnit}, #{damageArea}, #{damageLength}, #{damageWidth}, #{damageDepth},
-        #{source}, #{confidence},
+        #{source}, #{confidence}, #{projectId},
         <choose><when test="geomWkt != null and geomWkt != ''">ST_GeomFromText(#{geomWkt}, 4326)</when><otherwise>NULL</otherwise></choose>,
         #{status}, #{verified}, #{remark}, #{createdBy}, #{updatedBy}, now(), now(), false)
     </insert>
     <insert id="insertBatchWithGeom">
         INSERT INTO disease_record(id, tenant_id, task_id, route_id, section_id, unit_id, route_code, direction, lane_no, start_stake, end_stake,
         disease_category, disease_type, disease_name, severity, quantity, measure_unit, damage_area, damage_length, damage_width, damage_depth,
-        source, confidence, geom, status, verified, remark, created_by, updated_by, created_at, updated_at, deleted)
+        source, confidence, project_id, geom, status, verified, remark, created_by, updated_by, created_at, updated_at, deleted)
         VALUES
         <foreach collection="list" item="e" separator=",">
         (#{e.id}, #{e.tenantId}, #{e.taskId}, #{e.routeId}, #{e.sectionId}, #{e.unitId}, #{e.routeCode}, #{e.direction}, #{e.laneNo}, #{e.startStake}, #{e.endStake},
         #{e.diseaseCategory}, #{e.diseaseType}, #{e.diseaseName}, #{e.severity}, #{e.quantity}, #{e.measureUnit}, #{e.damageArea}, #{e.damageLength}, #{e.damageWidth}, #{e.damageDepth},
-        #{e.source}, #{e.confidence},
+        #{e.source}, #{e.confidence}, #{e.projectId},
         <choose><when test="e.geomWkt != null and e.geomWkt != ''">ST_GeomFromText(#{e.geomWkt}, 4326)</when><otherwise>NULL</otherwise></choose>,
         #{e.status}, #{e.verified}, #{e.remark}, #{e.createdBy}, #{e.updatedBy}, now(), now(), false)
         </foreach>
@@ -69,7 +70,7 @@
         UPDATE disease_record SET task_id=#{taskId}, route_id=#{routeId}, section_id=#{sectionId}, unit_id=#{unitId}, route_code=#{routeCode}, direction=#{direction}, lane_no=#{laneNo},
         start_stake=#{startStake}, end_stake=#{endStake}, disease_category=#{diseaseCategory}, disease_type=#{diseaseType}, disease_name=#{diseaseName}, severity=#{severity},
         quantity=#{quantity}, measure_unit=#{measureUnit}, damage_area=#{damageArea}, damage_length=#{damageLength}, damage_width=#{damageWidth}, damage_depth=#{damageDepth},
-        source=#{source}, confidence=#{confidence}, status=#{status}, remark=#{remark}, updated_by=#{updatedBy}, updated_at=now()
+        source=#{source}, confidence=#{confidence}, project_id=#{projectId}, status=#{status}, remark=#{remark}, updated_by=#{updatedBy}, updated_at=now()
         <if test="geomWkt != null and geomWkt != ''">, geom=ST_GeomFromText(#{geomWkt}, 4326)</if>
         WHERE tenant_id=#{tenantId} AND id=#{id} AND deleted=false
     </update>

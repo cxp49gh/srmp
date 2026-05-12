@@ -34,11 +34,13 @@ health = data.get("health") or {}
 print(json.dumps({"tables": tables, "health": health}, ensure_ascii=False, indent=2))
 
 required = {
-    "road_route": 1,
-    "road_section": 1,
-    "road_evaluation_unit": 1000,
-    "assessment_result": 1000,
-    "disease_record": 3000,
+    "road_route": 0,
+    "road_section_line": 0,
+    "road_section_ledger": 0,
+    "road_section_km": 0,
+    "road_section_hm": 0,
+    "assessment_result": 0,
+    "disease_record": 0,
 }
 failed = []
 for k, min_count in required.items():

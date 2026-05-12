@@ -43,6 +43,8 @@ public class DiseaseRecord extends BaseEntity {
     private String verifiedBy;
     private LocalDateTime verifiedAt;
     private String remark;
+    /** 数据管理项目冗余 */
+    private String projectId;
 
     @TableField(exist = false)
     private String geomWkt;

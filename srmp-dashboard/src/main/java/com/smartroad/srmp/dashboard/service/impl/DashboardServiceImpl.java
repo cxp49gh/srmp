@@ -23,8 +23,8 @@ public class DashboardServiceImpl implements DashboardService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("routeCount", value("select count(*) from road_route where tenant_id=:tenantId and deleted=false" + routeFilter(), params));
         result.put("totalLengthKm", value("select coalesce(sum(length_km),0) from road_route where tenant_id=:tenantId and deleted=false" + routeFilter(), params));
-        result.put("sectionCount", value("select count(*) from road_section where tenant_id=:tenantId and deleted=false" + routeFilter(), params));
-        result.put("unitCount", value("select count(*) from road_evaluation_unit where tenant_id=:tenantId and deleted=false" + routeFilter(), params));
+        result.put("sectionCount", value("select count(*) from road_section_line where tenant_id=:tenantId and deleted=false" + routeFilter(), params));
+        result.put("unitCount", value("select count(*) from road_section_ledger where tenant_id=:tenantId and deleted=false" + routeFilter(), params));
         result.put("disease", diseaseSummary(routeCode));
         result.put("assessment", assessmentSummary(routeCode, year));
         return result;

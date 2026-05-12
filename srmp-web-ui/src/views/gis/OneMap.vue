@@ -7,17 +7,11 @@
         :query="query"
         :region-mode="regionMode"
         :has-region="!!regionGeometry"
-        :network-import-loading="importNetworkLoading"
-        :section-package-import-loading="importSectionPackageLoading"
-        :disease-excel-import-loading="importDiseaseExcelLoading"
         @search="handleSearch"
         @reset="handleReset"
         @fit="handleFitAll"
         @start-region="startRegionDraw"
         @clear-region="clearRegion"
-        @import-network="handleImportNetwork"
-        @import-section-package="handleImportSectionPackage"
-        @import-disease-excel="handleImportDiseaseExcel"
       />
     </div>
 
@@ -34,7 +28,11 @@
         @fit="handleFitAll"
       />
 
-      <LegendPanel class="map-legend-fixed" :index-code="query.indexCode" />
+      <LegendPanel
+        v-if="layers.assessment"
+        class="map-legend-fixed"
+        :index-code="query.indexCode"
+      />
 
       <div class="map-zoom-panel srmp-card" aria-label="地图缩放控制">
         <button type="button" title="放大" @click="zoomInMap">+</button>
@@ -106,6 +104,7 @@
 <script setup lang="ts">
 import L, { GeoJSON, LatLngBounds, Map as LeafletMap } from 'leaflet'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import MapToolbar from './components/MapToolbar.vue'
@@ -113,7 +112,6 @@ import {
   analyzeMapRegion,
   getAssessmentResults,
   getDiseases,
-  getEvaluationUnits,
   getMapStatistics,
   getObjectDetail,
   getRoadRoutes,
@@ -121,18 +119,12 @@ import {
   saveMapRegionSolutionDraft,
   type GisLayerQuery
 } from '../../api/gis'
-import { importDiseaseExcel, importRoadNetwork, importSectionPackage } from '../../api/roadAsset'
 import { mapAgentRun } from '../../api/agent'
 import { getOrchestratorLiveTrace } from '../../api/orchestrator'
 import { styleForMapLayer } from '../../utils/leafletStyle'
 import { addTiandituBasemap, MAP_GEOGRAPHIC_CRS } from '../../utils/mapBasemap'
 import { getMetricGrade, getMetricMeta, getMetricValue } from '../../utils/roadConditionMetrics'
 import type { GeoJsonFeatureCollection } from '../../types/geojson'
-import type {
-  ImportDiseaseExcelResultVO,
-  ImportNetworkResultVO,
-  ImportSectionPackageResultVO
-} from '../../types/importNetwork'
 import { ZOOM_MIN_DISEASE_LAYER } from '../../constants/gisDiseaseLayer'
 import { type LayerState } from './components/LayerDrawer.vue'
 import GisLeftWorkbench from './components/GisLeftWorkbench.vue'
@@ -159,17 +151,27 @@ type MapRegionSolutionResponse = {
   knowledgeSources?: Record<string, any>[]
 }
 
+const route = useRoute()
+
 const query = reactive<GisLayerQuery>({
-  routeCode: 'G210',
-  year: '2026',
+  routeCode: '',
   indexCode: 'MQI',
-  grade: ''
+  grade: '',
+  sectionTier: 'LINE'
 })
+
+function applyProjectIdFromRoute() {
+  const raw = route.query.projectId
+  if (!raw) return
+  const id = Array.isArray(raw) ? raw[0] : String(raw)
+  if (id && id.trim()) query.projectId = id.trim()
+}
+
+applyProjectIdFromRoute()
 
 const layers = reactive<LayerState>({
   roadRoute: true,
-  roadSection: true,
-  evaluationUnit: true,
+  roadSection: false,
   disease: true,
   assessment: true
 })
@@ -179,9 +181,6 @@ const selectedDetail = ref<Record<string, any> | null>(null)
 const selectedFeatureProperties = ref<Record<string, any> | null>(null)
 const loading = ref(false)
 const mapLoadingMask = ref(false)
-const importNetworkLoading = ref(false)
-const importSectionPackageLoading = ref(false)
-const importDiseaseExcelLoading = ref(false)
 const agentVisible = ref(true)
 const pendingAiQuestion = ref('')
 const regionMode = ref<'NONE' | 'RECTANGLE' | 'POLYGON'>('NONE')
@@ -206,7 +205,6 @@ const polygonPoints = ref<L.LatLng[]>([])
 const layerCounts = reactive<Record<string, number>>({
   roadRoute: 0,
   roadSection: 0,
-  evaluationUnit: 0,
   disease: 0,
   assessment: 0
 })
@@ -260,7 +258,7 @@ const selectedMapObject = computed(() => {
     objectId,
     id: objectId,
     routeCode: firstValue(props.routeCode, props.route_code, raw.routeCode, raw.route_code, query.routeCode),
-    year: Number(firstValue(props.year, query.year, 2026)),
+    year: Number(firstValue(props.year, 2026)),
     startStake: firstValue(props.startStake, props.start_stake, raw.startStake, raw.start_stake),
     endStake: firstValue(props.endStake, props.end_stake, raw.endStake, raw.end_stake),
     routeName: firstValue(props.routeName, props.route_name, raw.routeName, raw.route_name),
@@ -418,6 +416,11 @@ function layerQuery(): GisLayerQuery {
   return next as GisLayerQuery
 }
 
+/** 一张图业务数据仅在已选数据管理项目后加载 */
+function hasProjectSelected(): boolean {
+  return Boolean(query.projectId && String(query.projectId).trim())
+}
+
 function diseaseZoomEligible(): boolean {
   return Boolean(map && !mapDisposed && map.getZoom() >= ZOOM_MIN_DISEASE_LAYER)
 }
@@ -436,6 +439,14 @@ function diseaseLayerQuery(): GisLayerQuery {
 }
 
 function scheduleDiseaseViewportReload() {
+  if (!hasProjectSelected()) {
+    if (diseaseViewportTimer) {
+      window.clearTimeout(diseaseViewportTimer)
+      diseaseViewportTimer = null
+    }
+    removeLayerByKey('disease')
+    return
+  }
   if (!layers.disease || mapDisposed || typeof map === 'undefined' || !map) return
   if (!diseaseZoomEligible()) {
     if (diseaseViewportTimer) {
@@ -460,6 +471,9 @@ function scheduleDiseaseViewportReload() {
 async function handleSearch(nextQuery?: GisLayerQuery) {
   if (nextQuery) {
     Object.assign(query, nextQuery)
+  }
+  if (!hasProjectSelected() && nextQuery !== undefined) {
+    ElMessage.warning('请先在上方的「项目」中选择数据管理项目，再点击查询加载地图数据')
   }
   await reloadLayers({ preserveViewport: true, clearSelection: true })
   await loadStatistics()
@@ -486,122 +500,11 @@ async function handleLayerRefresh() {
   await loadStatistics()
 }
 
-async function handleImportSectionPackage(file: File) {
-  if (!file.name.toLowerCase().endsWith('.tar')) {
-    ElMessage.error('仅支持 .tar 格式')
-    return
-  }
-  if (!map) return
-  importSectionPackageLoading.value = true
-  try {
-    const r = (await importSectionPackage(file)) as ImportSectionPackageResultVO
-    const parts = [
-      `路段 ${r.routeSectionCount} 条`,
-      `评定单元 ${r.evaluationUnitCount} 条`,
-      `评定记录 ${r.assessmentRowCount} 条`
-    ]
-    if (r.ignoredShapefileGroups?.length) {
-      parts.push(`已忽略 ${r.ignoredShapefileGroups.length} 组未支持级别`)
-    }
-    ElMessage.success(`路段包导入成功（${parts.join('，')}）`)
-    if (r.warnings?.length) {
-      ElMessage.warning(r.warnings.slice(0, 8).join('；'))
-    }
-    layers.roadSection = true
-    layers.evaluationUnit = true
-    removeLayerByKey('roadSection')
-    removeLayerByKey('evaluationUnit')
-    const params = layerQuery()
-    await loadLayerSafely('roadSection', () => getRoadSections(params))
-    await loadLayerSafely('evaluationUnit', () => getEvaluationUnits(params))
-    await loadStatistics()
-    fitViewportToQueryRoadRoutes()
-  } catch (error: any) {
-    const ax = error?.response?.data
-    const details = ax?.data?.details
-    if (Array.isArray(details) && details.length) {
-      ElMessage.error(`${ax?.message || error?.message || '导入失败'}：${details.slice(0, 12).join('；')}`)
-    } else {
-      ElMessage.error(ax?.message || error?.message || '路段包导入失败')
-    }
-  } finally {
-    importSectionPackageLoading.value = false
-  }
-}
-
-async function handleImportDiseaseExcel(file: File) {
-  const name = file.name.toLowerCase()
-  if (!name.endsWith('.xlsx')) {
-    ElMessage.error('仅支持 .xlsx 格式')
-    return
-  }
-  if (!map) return
-  importDiseaseExcelLoading.value = true
-  try {
-    const r = (await importDiseaseExcel(file)) as ImportDiseaseExcelResultVO
-    const skip = r.skippedMissingRouteCount ?? 0
-    const msg =
-      skip > 0
-        ? `上传成功，共导入 ${r.insertedCount} 条病害；${skip} 行因路线编码不在路网中已跳过`
-        : `上传成功，共导入 ${r.insertedCount} 条病害`
-    ElMessage.success(msg)
-    layers.disease = true
-    removeLayerByKey('disease')
-    if (diseaseZoomEligible()) {
-      await loadLayerSafely('disease', () => getDiseases(diseaseLayerQuery()))
-    } else {
-      ElMessage.info(`病害已导入；请将地图放大至 ${ZOOM_MIN_DISEASE_LAYER} 级及以上，将按当前视窗范围自动加载病害`)
-    }
-    await loadStatistics()
-  } catch (error: any) {
-    const ax = error?.biz ?? error?.response?.data
-    const details = ax?.data?.details
-    if (Array.isArray(details) && details.length) {
-      ElMessage.error(`${ax?.message || error?.message || '导入失败'}：${details.slice(0, 12).join('；')}`)
-    } else {
-      ElMessage.error(ax?.message || error?.message || '病害数据导入失败')
-    }
-  } finally {
-    importDiseaseExcelLoading.value = false
-  }
-}
-
-async function handleImportNetwork(file: File) {
-  if (!file.name.toLowerCase().endsWith('.tar')) {
-    ElMessage.error('仅支持 .tar 格式')
-    return
-  }
-  if (!map) return
-  importNetworkLoading.value = true
-  try {
-    const r = (await importRoadNetwork(file)) as ImportNetworkResultVO
-    const parts = [`新增 ${r.insertedCount} 条`, `更新 ${r.updatedCount} 条`]
-    if (r.skippedCount) parts.push(`跳过 ${r.skippedCount} 条`)
-    ElMessage.success(`路网导入成功（${parts.join('，')}）`)
-    if (r.warnings?.length) {
-      ElMessage.warning(r.warnings.slice(0, 8).join('；'))
-    }
-    layers.roadRoute = true
-    removeLayerByKey('roadRoute')
-    await loadLayerSafely('roadRoute', () => getRoadRoutes(layerQuery()))
-    await loadStatistics()
-    fitViewportToQueryRoadRoutes()
-  } catch (error: any) {
-    const ax = error?.response?.data
-    const details = ax?.data?.details
-    if (Array.isArray(details) && details.length) {
-      ElMessage.error(`${ax?.message || error?.message || '导入失败'}：${details.slice(0, 12).join('；')}`)
-    }
-  } finally {
-    importNetworkLoading.value = false
-  }
-}
-
 async function handleReset() {
-  query.routeCode = 'G210'
-  query.year = '2026'
+  query.routeCode = ''
   query.indexCode = 'MQI'
   query.grade = ''
+  query.sectionTier = 'LINE'
   await handleSearch()
 }
 
@@ -639,16 +542,17 @@ async function reloadLayers(options: ReloadLayerOptions = {}) {
     const tasks: Promise<void>[] = []
     const params = layerQuery()
 
-    if (layers.roadRoute) tasks.push(loadLayerSafely('roadRoute', () => getRoadRoutes(params)))
-    if (layers.roadSection) tasks.push(loadLayerSafely('roadSection', () => getRoadSections(params)))
-    if (layers.evaluationUnit) tasks.push(loadLayerSafely('evaluationUnit', () => getEvaluationUnits(params)))
-    if (layers.disease && diseaseZoomEligible()) {
-      tasks.push(loadLayerSafely('disease', () => getDiseases(diseaseLayerQuery())))
-    } else if (layers.disease) {
+    if (!hasProjectSelected()) {
       removeLayerByKey('disease')
-    }
-    if (layers.assessment || layers.assessmentResult) {
-      tasks.push(loadLayerSafely('assessment', () => getAssessmentResults(params)))
+    } else {
+      if (layers.roadRoute) tasks.push(loadLayerSafely('roadRoute', () => getRoadRoutes(params)))
+      if (layers.roadSection) tasks.push(loadLayerSafely('roadSection', () => getRoadSections(params)))
+      if (layers.disease && diseaseZoomEligible()) {
+        tasks.push(loadLayerSafely('disease', () => getDiseases(diseaseLayerQuery())))
+      } else if (layers.disease) {
+        removeLayerByKey('disease')
+      }
+      if (layers.assessment) tasks.push(loadLayerSafely('assessment', () => getAssessmentResults(params)))
     }
 
     await settleLayerTasks(tasks, '图层加载')
@@ -666,6 +570,15 @@ async function syncVisibleLayers() {
   loading.value = true
   mapLoadingMask.value = false
   try {
+    if (!hasProjectSelected()) {
+      removeLayerByKey('roadRoute')
+      removeLayerByKey('roadSection')
+      removeLayerByKey('disease')
+      removeLayerByKey('assessment')
+      await loadStatistics()
+      return
+    }
+
     const params = layerQuery()
     const tasks: Promise<void>[] = []
 
@@ -675,9 +588,6 @@ async function syncVisibleLayers() {
     if (!layers.roadSection) removeLayerByKey('roadSection')
     else if (!layerMap.has('roadSection')) tasks.push(loadLayerSafely('roadSection', () => getRoadSections(params)))
 
-    if (!layers.evaluationUnit) removeLayerByKey('evaluationUnit')
-    else if (!layerMap.has('evaluationUnit')) tasks.push(loadLayerSafely('evaluationUnit', () => getEvaluationUnits(params)))
-
     if (!layers.disease) removeLayerByKey('disease')
     else if (!layerMap.has('disease') && diseaseZoomEligible()) {
       tasks.push(loadLayerSafely('disease', () => getDiseases(diseaseLayerQuery())))
@@ -685,7 +595,7 @@ async function syncVisibleLayers() {
       removeLayerByKey('disease')
     }
 
-    if (!(layers.assessment || layers.assessmentResult)) removeLayerByKey('assessment')
+    if (!layers.assessment) removeLayerByKey('assessment')
     else if (!layerMap.has('assessment')) tasks.push(loadLayerSafely('assessment', () => getAssessmentResults(params)))
 
     await settleLayerTasks(tasks, '图层切换')
@@ -736,11 +646,10 @@ function resetLayerErrors() {
 
 function layerKeyText(layerKey: string) {
   const labels: Record<string, string> = {
-    roadRoute: '路线',
+    roadRoute: '路网',
     roadSection: '路段',
-    evaluationUnit: '评定单元',
     disease: '病害',
-    assessment: '评定专题'
+    assessment: '评定'
   }
   return labels[layerKey] || layerKey
 }
@@ -941,7 +850,7 @@ function popupRowsByType(type: string, properties: Record<string, any>): Array<[
     return compactRows([
       ['路线编号', route],
       ['评定单元', firstValue(properties.unitCode, properties.unit_code, properties.unitId, properties.unit_id)],
-      ['年度', firstValue(properties.year, query.year)],
+      ['年度', firstValue(properties.year)],
       ['方向', direction],
       ['起讫桩号', stake],
       ...metricRows,
@@ -1056,7 +965,6 @@ function layerKeyToObjectType(layerKey: string) {
   const map: Record<string, string> = {
     roadRoute: 'ROAD_ROUTE',
     roadSection: 'ROAD_SECTION',
-    evaluationUnit: 'EVALUATION_UNIT',
     disease: 'DISEASE',
     assessment: 'ASSESSMENT_RESULT'
   }
@@ -1404,6 +1312,13 @@ async function loadRegionSummary(geometry: Record<string, any>) {
   const requestSeq = ++regionSummaryRequestSeq
   regionSummaryLoading.value = true
   try {
+    if (!hasProjectSelected()) {
+      if (requestSeq === regionSummaryRequestSeq && regionGeometry.value) {
+        regionSummary.value = buildClientRegionSummary(geometry)
+      }
+      ElMessage.warning('请先在工具栏选择数据管理项目，再进行框选统计')
+      return
+    }
     const result = await analyzeMapRegion({
       geometry,
       query: { ...query, indexCode: query.indexCode, grade: query.grade },
@@ -1469,6 +1384,10 @@ async function generateRegionSolution() {
     ElMessage.warning('请先绘制区域')
     return
   }
+  if (!hasProjectSelected()) {
+    ElMessage.warning('请先选择数据管理项目')
+    return
+  }
   const requestToken = regionSolutionRequestGuard.next()
   const geometrySnapshot = regionGeometry.value
   const geometryTypeSnapshot = regionGeometryType.value
@@ -1487,14 +1406,15 @@ async function generateRegionSolution() {
         tenantId: 'default',
         mode: 'REGION',
         routeCode: querySnapshot.routeCode,
-        year: Number(querySnapshot.year),
+        year: Number(firstValue(querySnapshot.year, 2026)),
         geometry: geometrySnapshot,
         regionSummary: summarySnapshot,
         selectedLayers: layerSnapshot,
         extra: {
           indexCode: querySnapshot.indexCode,
           grade: querySnapshot.grade,
-          geometryType: geometryTypeSnapshot
+          geometryType: geometryTypeSnapshot,
+          projectId: querySnapshot.projectId
         }
       },
       actionInput: {
@@ -1548,9 +1468,10 @@ async function generateRegionSolution() {
 function isSameRegionSolutionContext(geometry: Record<string, any>, querySnapshot: GisLayerQuery, layerSnapshot: string[]) {
   return regionGeometry.value === geometry &&
     String(query.routeCode || '') === String(querySnapshot.routeCode || '') &&
-    String(query.year || '') === String(querySnapshot.year || '') &&
     String(query.indexCode || '') === String(querySnapshot.indexCode || '') &&
     String(query.grade || '') === String(querySnapshot.grade || '') &&
+    String(query.sectionTier || 'LINE') === String(querySnapshot.sectionTier || 'LINE') &&
+    String(query.projectId || '') === String(querySnapshot.projectId || '') &&
     sameStringList(activeLayerNames(), layerSnapshot)
 }
 
@@ -1563,9 +1484,8 @@ function activeLayerNames() {
   const result: string[] = []
   if (layers.roadRoute) result.push('ROAD_ROUTE')
   if (layers.roadSection) result.push('ROAD_SECTION')
-  if (layers.evaluationUnit) result.push('EVALUATION_UNIT')
   if (layers.disease) result.push('DISEASE')
-  if (layers.assessment || layers.assessmentResult) result.push('ASSESSMENT_RESULT')
+  if (layers.assessment) result.push('ASSESSMENT_RESULT')
   return result
 }
 
@@ -1715,7 +1635,17 @@ function featureMatchesTarget(layerKey: string, feature: any, target: GisSourceM
 }
 
 function isConcreteMapObjectType(type: string) {
-  return ['ROAD_ROUTE', 'ROAD_SECTION', 'EVALUATION_UNIT', 'DISEASE', 'ASSESSMENT_RESULT'].includes(type)
+  return [
+    'ROAD_ROUTE',
+    'ROAD_SECTION',
+    'ROAD_SECTION_LINE',
+    'ROAD_SECTION_LEDGER',
+    'ROAD_SECTION_KM',
+    'ROAD_SECTION_HM',
+    'EVALUATION_UNIT',
+    'DISEASE',
+    'ASSESSMENT_RESULT'
+  ].includes(type)
 }
 
 function stakeToNumber(value: any) {
@@ -1745,6 +1675,10 @@ function zoomOutMap() {
 
 async function loadStatistics() {
   if (mapDisposed) return
+  if (!hasProjectSelected()) {
+    statistics.value = {}
+    return
+  }
   try {
     const viewport = currentViewport()
     const selectedLayers = activeLayerNames()
@@ -1781,21 +1715,18 @@ function handleFitAll() {
   }
 }
 
-/** 查询/导入后：优先路段图层，其次路线图层，否则全图要素范围。 */
 function fitViewportToQueryRoadRoutes() {
   if (!map) return
-  if (layers.roadSection) {
-    const sectionLayer = layerMap.get('roadSection')
-    if (sectionLayer) {
-      const b = (sectionLayer as GeoJSON).getBounds()
-      if (b.isValid()) {
-        map.fitBounds(b, {
-          paddingTopLeft: [340, 120],
-          paddingBottomRight: [430, 140],
-          maxZoom: 16
-        })
-        return
-      }
+  const assessmentLayer = layerMap.get('assessment')
+  if (assessmentLayer) {
+    const b = (assessmentLayer as GeoJSON).getBounds()
+    if (b.isValid()) {
+      map.fitBounds(b, {
+        paddingTopLeft: [340, 120],
+        paddingBottomRight: [430, 140],
+        maxZoom: 16
+      })
+      return
     }
   }
   if (layers.roadRoute) {
@@ -1837,13 +1768,14 @@ function fitViewportToQueryRoadRoutes() {
   top: 16px;
   left: 16px;
   z-index: 930;
-  width: min(960px, calc(100vw - 592px));
-  min-width: 760px;
+  box-sizing: border-box;
+  width: 1280px;
+  max-width: calc(100vw - 32px);
 }
 
 .left-map-stack {
   position: absolute;
-  top: 88px;
+  top: 126px;
   left: 18px;
   bottom: 32px;
   z-index: 920;
@@ -1970,7 +1902,7 @@ function fitViewportToQueryRoadRoutes() {
 .region-draw-tip {
   position: absolute;
   left: 50%;
-  top: 88px;
+  top: 122px;
   z-index: 935;
   display: inline-flex;
   align-items: center;
@@ -2048,19 +1980,18 @@ function fitViewportToQueryRoadRoutes() {
   right: 548px;
 }
 
+.one-map-page.agent-open .top-toolbar {
+  max-width: min(1280px, calc(100vw - 580px));
+}
+
 .one-map-page.agent-open .ai-float-button {
   display: none;
 }
 
 
 @media (max-width: 1280px) {
-  .top-toolbar {
-    width: min(900px, calc(100vw - 560px));
-    min-width: 700px;
-  }
-
   .left-map-stack {
-    top: 92px;
+    top: 128px;
     bottom: 24px;
   }
 
@@ -2078,12 +2009,12 @@ function fitViewportToQueryRoadRoutes() {
 @media (max-width: 960px) {
   .top-toolbar {
     left: 10px;
-    width: calc(100vw - 20px);
-    min-width: 0;
+    width: 1280px;
+    max-width: calc(100vw - 20px);
   }
 
   .left-map-stack {
-    top: 92px;
+    top: 132px;
     left: 10px;
     bottom: 24px;
     width: min(292px, calc(100vw - 20px));
@@ -2092,7 +2023,7 @@ function fitViewportToQueryRoadRoutes() {
   .region-draw-tip {
     left: 10px;
     right: 10px;
-    top: 86px;
+    top: 118px;
     max-width: none;
     transform: none;
   }

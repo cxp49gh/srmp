@@ -18,6 +18,7 @@ public class RoadRouteVO {
     private BigDecimal lengthKm;
     private String adcode;
     private String manageOrgId;
+    private String projectId;
     private String geomGeoJson;
     private String remark;
     private LocalDateTime createdAt;

@@ -120,8 +120,10 @@ if [ "$RESET_DEMO" = "1" ]; then
 DELETE FROM index_result WHERE tenant_id = 'default' AND route_code = 'G210';
 DELETE FROM assessment_result WHERE tenant_id = 'default' AND route_code = 'G210';
 DELETE FROM disease_record WHERE tenant_id = 'default' AND route_code = 'G210';
-DELETE FROM road_evaluation_unit WHERE tenant_id = 'default' AND route_code = 'G210';
-DELETE FROM road_section WHERE tenant_id = 'default' AND route_code = 'G210';
+DELETE FROM road_section_hm WHERE tenant_id = 'default' AND route_code = 'G210';
+DELETE FROM road_section_km WHERE tenant_id = 'default' AND route_code = 'G210';
+DELETE FROM road_section_ledger WHERE tenant_id = 'default' AND route_code = 'G210';
+DELETE FROM road_section_line WHERE tenant_id = 'default' AND route_code = 'G210';
 DELETE FROM road_route WHERE tenant_id = 'default' AND route_code = 'G210';
 "
 fi

@@ -5,4 +5,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 public interface DiseaseExcelImportService {
     ImportDiseaseExcelResultVO importExcel(MultipartFile file);
+
+    ImportDiseaseExcelResultVO importExcel(MultipartFile file, String projectId);
 }

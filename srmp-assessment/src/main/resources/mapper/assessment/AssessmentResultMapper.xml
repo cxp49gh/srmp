@@ -13,29 +13,55 @@
         <if test="q != null and q.grade != null and q.grade != ''">AND a.grade = #{q.grade}</if>
         <if test="q != null and q.startStake != null">AND (a.end_stake IS NULL OR a.end_stake &gt;= #{q.startStake})</if>
         <if test="q != null and q.endStake != null">AND (a.start_stake IS NULL OR a.start_stake &lt;= #{q.endStake})</if>
+        <if test="q != null and q.projectId != null and q.projectId != ''">AND EXISTS (SELECT 1 FROM road_route r WHERE r.tenant_id = a.tenant_id AND r.id = a.route_id AND r.deleted = false AND r.project_id = #{q.projectId})</if>
+        <!-- 使用 "X".equals(q.sectionTier)：OGNL 对 .equals("LINE") 在部分环境下匹配失败会导致整段 choose 不生效，从而不按粒度过滤 -->
+        <if test="q != null and q.sectionTier != null and q.sectionTier != ''">
+            <choose>
+                <when test='"LINE".equals(q.sectionTier)'>
+                    AND a.object_type IN ('ROAD_SECTION_LINE')
+                </when>
+                <when test='"LEDGER".equals(q.sectionTier)'>
+                    AND a.object_type IN ('ROAD_SECTION_LEDGER', 'EVALUATION_UNIT')
+                </when>
+                <when test='"KM".equals(q.sectionTier)'>
+                    AND a.object_type IN ('ROAD_SECTION_KM')
+                </when>
+                <when test='"HM".equals(q.sectionTier)'>
+                    AND a.object_type IN ('ROAD_SECTION_HM')
+                </when>
+            </choose>
+        </if>
+    </sql>
+    <sql id="AssessmentJoins">
+        LEFT JOIN road_section_ledger u ON a.tenant_id = u.tenant_id AND a.unit_id IS NOT NULL AND a.unit_id = u.id AND u.deleted = false
+        LEFT JOIN road_section_line ln ON a.tenant_id = ln.tenant_id AND a.section_id IS NOT NULL AND a.section_id = ln.id AND ln.deleted = false
+        LEFT JOIN road_section_km km ON a.tenant_id = km.tenant_id AND a.object_type = 'ROAD_SECTION_KM' AND a.object_id = km.id AND km.deleted = false
+        LEFT JOIN road_section_hm hm ON a.tenant_id = hm.tenant_id AND a.object_type = 'ROAD_SECTION_HM' AND a.object_id = hm.id AND hm.deleted = false
     </sql>
     <sql id="AssessmentColumns">
         a.id, a.task_id, a.object_type, a.object_id, a.route_id, a.section_id, a.unit_id, a.route_code, a.direction, a.start_stake, a.end_stake,
         a.year, a.standard_code, a.mqi, a.sci, a.pqi, a.bci, a.tci, a.pci, a.rqi, a.rdi, a.pbi, a.pwi, a.sri, a.pssi,
-        a.grade, a.zero_reason, a.assessed_at, ST_AsGeoJSON(u.geom) AS geom_geo_json, a.created_at
+        a.grade, a.zero_reason, a.assessed_at,
+        ST_AsGeoJSON(COALESCE(km.geom, hm.geom, u.geom, ln.geom)) AS geom_geo_json,
+        a.created_at
     </sql>
     <select id="selectPageVO" resultType="com.smartroad.srmp.assessment.vo.AssessmentResultVO">
         SELECT <include refid="AssessmentColumns"/>
         FROM assessment_result a
-        LEFT JOIN road_evaluation_unit u ON a.tenant_id = u.tenant_id AND a.unit_id = u.id AND u.deleted = false
+        <include refid="AssessmentJoins"/>
         WHERE <include refid="AssessmentWhere"/> ORDER BY a.route_code ASC, a.start_stake ASC NULLS LAST, a.year DESC
     </select>
     <select id="selectDetail" resultType="com.smartroad.srmp.assessment.vo.AssessmentResultVO">
         SELECT <include refid="AssessmentColumns"/>
         FROM assessment_result a
-        LEFT JOIN road_evaluation_unit u ON a.tenant_id = u.tenant_id AND a.unit_id = u.id AND u.deleted = false
+        <include refid="AssessmentJoins"/>
         WHERE a.tenant_id = #{tenantId} AND a.id = #{id} AND a.deleted = false
     </select>
     <select id="selectForMap" resultType="com.smartroad.srmp.assessment.vo.AssessmentResultVO">
         SELECT <include refid="AssessmentColumns"/>
         FROM assessment_result a
-        LEFT JOIN road_evaluation_unit u ON a.tenant_id = u.tenant_id AND a.unit_id = u.id AND u.deleted = false
-        WHERE <include refid="AssessmentWhere"/> AND u.geom IS NOT NULL ORDER BY a.route_code ASC, a.start_stake ASC NULLS LAST
+        <include refid="AssessmentJoins"/>
+        WHERE <include refid="AssessmentWhere"/> AND COALESCE(km.geom, hm.geom, u.geom, ln.geom) IS NOT NULL ORDER BY a.route_code ASC, a.start_stake ASC NULLS LAST
     </select>
     <select id="selectSummary" resultType="com.smartroad.srmp.assessment.vo.AssessmentSummaryVO">
         SELECT count(1) AS total_count,
@@ -50,4 +76,68 @@
         FROM assessment_result a
         WHERE <include refid="AssessmentWhere"/>
     </select>
+
+    <select id="selectExistingForImportKeys" resultType="com.smartroad.srmp.assessment.dto.AssessmentImportExistingRow">
+        SELECT a.id, a.object_type AS objectType, a.object_id AS objectId, a.year, a.standard_code AS standardCode
+        FROM assessment_result a
+        INNER JOIN (
+        VALUES
+        <foreach collection="keys" item="k" separator=",">
+            (#{k.objectType}, #{k.objectId}, #{k.year}, #{k.standardCode})
+        </foreach>
+        ) AS t(object_type, object_id, year, standard_code)
+        ON a.object_type = t.object_type AND a.object_id = t.object_id AND a.year = t.year AND a.standard_code = t.standard_code
+        WHERE a.tenant_id = #{tenantId} AND a.deleted = false
+    </select>
+
+    <insert id="insertImportBatch">
+        INSERT INTO assessment_result(id, tenant_id, task_id, object_type, object_id, route_id, section_id, unit_id, route_code, direction,
+            start_stake, end_stake, year, standard_code, mqi, sci, pqi, bci, tci, pci, rqi, rdi, pbi, pwi, sri, pssi, grade, zero_reason,
+            assessed_at, created_by, updated_by, created_at, updated_at, deleted)
+        VALUES
+        <foreach collection="list" item="e" separator=",">
+            (#{e.id}, #{tenantId}, #{e.taskId}, #{e.objectType}, #{e.objectId}, #{e.routeId}, #{e.sectionId}, #{e.unitId}, #{e.routeCode}, #{e.direction},
+            #{e.startStake}, #{e.endStake}, #{e.year}, #{e.standardCode}, #{e.mqi}, #{e.sci}, #{e.pqi}, #{e.bci}, #{e.tci}, #{e.pci}, #{e.rqi}, #{e.rdi}, #{e.pbi}, #{e.pwi}, #{e.sri}, #{e.pssi}, #{e.grade}, #{e.zeroReason},
+            #{e.assessedAt}, #{userId}, #{userId}, #{e.createdAt}, #{e.updatedAt}, false)
+        </foreach>
+    </insert>
+
+    <update id="updateImportBatch">
+        UPDATE assessment_result AS t SET
+            task_id = d.task_id,
+            route_id = d.route_id,
+            section_id = d.section_id,
+            unit_id = d.unit_id,
+            route_code = d.route_code,
+            direction = d.direction,
+            start_stake = d.start_stake,
+            end_stake = d.end_stake,
+            mqi = d.mqi,
+            sci = d.sci,
+            pqi = d.pqi,
+            bci = d.bci,
+            tci = d.tci,
+            pci = d.pci,
+            rqi = d.rqi,
+            rdi = d.rdi,
+            pbi = d.pbi,
+            pwi = d.pwi,
+            sri = d.sri,
+            pssi = d.pssi,
+            grade = d.grade,
+            zero_reason = d.zero_reason,
+            assessed_at = d.assessed_at,
+            updated_by = d.updated_by,
+            updated_at = now()
+        FROM (
+        VALUES
+        <foreach collection="list" item="e" separator=",">
+            (#{e.id}, #{e.taskId}, #{e.routeId}, #{e.sectionId}, #{e.unitId}, #{e.routeCode}, #{e.direction},
+             #{e.startStake}, #{e.endStake}, #{e.mqi}, #{e.sci}, #{e.pqi}, #{e.bci}, #{e.tci}, #{e.pci}, #{e.rqi}, #{e.rdi}, #{e.pbi}, #{e.pwi}, #{e.sri}, #{e.pssi},
+             #{e.grade}, #{e.zeroReason}, #{e.assessedAt}, #{userId})
+        </foreach>
+        ) AS d(id, task_id, route_id, section_id, unit_id, route_code, direction, start_stake, end_stake,
+               mqi, sci, pqi, bci, tci, pci, rqi, rdi, pbi, pwi, sri, pssi, grade, zero_reason, assessed_at, updated_by)
+        WHERE t.tenant_id = #{tenantId} AND t.id = d.id AND t.deleted = false
+    </update>
 </mapper>

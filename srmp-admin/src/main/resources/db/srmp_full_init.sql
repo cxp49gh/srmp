@@ -106,20 +106,21 @@ CREATE TABLE IF NOT EXISTS road_route (
     updated_by          VARCHAR(64),
     created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    deleted             BOOLEAN DEFAULT FALSE,
-    CONSTRAINT uk_road_route_code UNIQUE(tenant_id, route_code)
+    deleted             BOOLEAN DEFAULT FALSE
 );
 
 CREATE INDEX IF NOT EXISTS idx_route_geom ON road_route USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_route_code ON road_route(tenant_id, route_code);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_road_route_active_code ON road_route(tenant_id, route_code) WHERE COALESCE(deleted, false) = false;
 
-CREATE TABLE IF NOT EXISTS road_section (
+-- 路段四级分表：线路 / 台账 / 公里 / 百米（与 .feature/导入路段数据-需求说明.md 一致）
+CREATE TABLE IF NOT EXISTS road_section_line (
     id                    VARCHAR(64) PRIMARY KEY DEFAULT gen_random_uuid()::varchar,
     tenant_id             VARCHAR(64) NOT NULL,
-    route_id              VARCHAR(64) NOT NULL,
+    route_id              VARCHAR(64),
     route_code            VARCHAR(50) NOT NULL,
-    section_code          VARCHAR(100) NOT NULL,
-    section_name          VARCHAR(200),
+    line_code             VARCHAR(100) NOT NULL,
+    line_name             VARCHAR(200),
     direction             VARCHAR(20) DEFAULT 'BOTH',
     start_stake           NUMERIC(12,3) NOT NULL,
     end_stake             NUMERIC(12,3) NOT NULL,
@@ -127,22 +128,33 @@ CREATE TABLE IF NOT EXISTS road_section (
     pavement_type         VARCHAR(50),
     technical_grade       VARCHAR(50),
     geom                  GEOMETRY(LineString, 4326),
+    project_id            VARCHAR(64),
+    lane_count            INTEGER,
+    road_width            NUMERIC(8,2),
+    traffic_volume_level  VARCHAR(50),
+    adcode                VARCHAR(20),
+    manage_org_id         VARCHAR(64),
+    remark                TEXT,
+    created_by            VARCHAR(64),
+    updated_by            VARCHAR(64),
     created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     deleted               BOOLEAN DEFAULT FALSE,
-    CONSTRAINT uk_road_section_code UNIQUE(tenant_id, section_code)
+    CONSTRAINT uk_road_section_line_code UNIQUE(tenant_id, line_code)
 );
 
-CREATE INDEX IF NOT EXISTS idx_section_geom ON road_section USING GIST(geom);
-CREATE INDEX IF NOT EXISTS idx_section_stake ON road_section(tenant_id, route_code, direction, start_stake, end_stake);
+CREATE INDEX IF NOT EXISTS idx_section_line_geom ON road_section_line USING GIST(geom);
+CREATE INDEX IF NOT EXISTS idx_section_line_stake ON road_section_line(tenant_id, route_code, direction, start_stake, end_stake);
+CREATE INDEX IF NOT EXISTS idx_section_line_tenant_project ON road_section_line(tenant_id, project_id) WHERE deleted = false;
 
-CREATE TABLE IF NOT EXISTS road_evaluation_unit (
+CREATE TABLE IF NOT EXISTS road_section_ledger (
     id                    VARCHAR(64) PRIMARY KEY DEFAULT gen_random_uuid()::varchar,
     tenant_id             VARCHAR(64) NOT NULL,
-    route_id              VARCHAR(64) NOT NULL,
-    section_id            VARCHAR(64),
+    route_id              VARCHAR(64),
+    line_id               VARCHAR(64),
     route_code            VARCHAR(50) NOT NULL,
-    unit_code             VARCHAR(100) NOT NULL,
+    ledger_code           VARCHAR(100) NOT NULL,
+    ledger_name           VARCHAR(200),
     direction             VARCHAR(20) DEFAULT 'BOTH',
     lane_no               INTEGER,
     start_stake           NUMERIC(12,3) NOT NULL,
@@ -150,34 +162,80 @@ CREATE TABLE IF NOT EXISTS road_evaluation_unit (
     length_m              INTEGER DEFAULT 1000,
     geom                  GEOMETRY(LineString, 4326),
     center_point          GEOMETRY(Point, 4326),
+    pavement_type         VARCHAR(50),
+    technical_grade       VARCHAR(50),
+    road_width            NUMERIC(8,2),
+    adcode                VARCHAR(20),
+    manage_org_id         VARCHAR(64),
+    project_id            VARCHAR(64),
+    created_by            VARCHAR(64),
+    updated_by            VARCHAR(64),
     created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     deleted               BOOLEAN DEFAULT FALSE,
-    CONSTRAINT uk_eval_unit_code UNIQUE(tenant_id, unit_code)
+    CONSTRAINT uk_road_section_ledger_code UNIQUE(tenant_id, ledger_code)
 );
 
-CREATE INDEX IF NOT EXISTS idx_eval_unit_geom ON road_evaluation_unit USING GIST(geom);
-CREATE INDEX IF NOT EXISTS idx_eval_unit_center ON road_evaluation_unit USING GIST(center_point);
-CREATE INDEX IF NOT EXISTS idx_eval_unit_route_stake ON road_evaluation_unit(tenant_id, route_code, direction, start_stake, end_stake);
+CREATE INDEX IF NOT EXISTS idx_section_ledger_geom ON road_section_ledger USING GIST(geom);
+CREATE INDEX IF NOT EXISTS idx_section_ledger_center ON road_section_ledger USING GIST(center_point);
+CREATE INDEX IF NOT EXISTS idx_section_ledger_route_stake ON road_section_ledger(tenant_id, route_code, direction, start_stake, end_stake);
+CREATE INDEX IF NOT EXISTS idx_section_ledger_tenant_project ON road_section_ledger(tenant_id, project_id) WHERE deleted = false;
 
+CREATE TABLE IF NOT EXISTS road_section_km (
+    id                    VARCHAR(64) PRIMARY KEY DEFAULT gen_random_uuid()::varchar,
+    tenant_id             VARCHAR(64) NOT NULL,
+    route_id              VARCHAR(64),
+    route_code            VARCHAR(50) NOT NULL,
+    line_id               VARCHAR(64),
+    km_code               VARCHAR(120) NOT NULL,
+    direction             VARCHAR(20) DEFAULT 'BOTH',
+    start_stake           NUMERIC(12,3) NOT NULL,
+    end_stake             NUMERIC(12,3) NOT NULL,
+    length_m              INTEGER,
+    label                 VARCHAR(200),
+    pavement_type         VARCHAR(50),
+    technical_grade       VARCHAR(50),
+    road_width            NUMERIC(8,2),
+    geom                  GEOMETRY(LineString, 4326),
+    project_id            VARCHAR(64),
+    remark                TEXT,
+    created_by            VARCHAR(64),
+    updated_by            VARCHAR(64),
+    created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted               BOOLEAN DEFAULT FALSE,
+    CONSTRAINT uk_road_section_km_code UNIQUE(tenant_id, km_code)
+);
 
--- 阶段二道路资产补充字段，重复执行安全。
-ALTER TABLE road_section ADD COLUMN IF NOT EXISTS lane_count INTEGER;
-ALTER TABLE road_section ADD COLUMN IF NOT EXISTS road_width NUMERIC(8,2);
-ALTER TABLE road_section ADD COLUMN IF NOT EXISTS traffic_volume_level VARCHAR(50);
-ALTER TABLE road_section ADD COLUMN IF NOT EXISTS adcode VARCHAR(20);
-ALTER TABLE road_section ADD COLUMN IF NOT EXISTS manage_org_id VARCHAR(64);
-ALTER TABLE road_section ADD COLUMN IF NOT EXISTS remark TEXT;
-ALTER TABLE road_section ADD COLUMN IF NOT EXISTS created_by VARCHAR(64);
-ALTER TABLE road_section ADD COLUMN IF NOT EXISTS updated_by VARCHAR(64);
+CREATE INDEX IF NOT EXISTS idx_section_km_geom ON road_section_km USING GIST(geom);
+CREATE INDEX IF NOT EXISTS idx_section_km_tenant_project ON road_section_km(tenant_id, project_id) WHERE deleted = false;
 
-ALTER TABLE road_evaluation_unit ADD COLUMN IF NOT EXISTS pavement_type VARCHAR(50);
-ALTER TABLE road_evaluation_unit ADD COLUMN IF NOT EXISTS technical_grade VARCHAR(50);
-ALTER TABLE road_evaluation_unit ADD COLUMN IF NOT EXISTS road_width NUMERIC(8,2);
-ALTER TABLE road_evaluation_unit ADD COLUMN IF NOT EXISTS adcode VARCHAR(20);
-ALTER TABLE road_evaluation_unit ADD COLUMN IF NOT EXISTS manage_org_id VARCHAR(64);
-ALTER TABLE road_evaluation_unit ADD COLUMN IF NOT EXISTS created_by VARCHAR(64);
-ALTER TABLE road_evaluation_unit ADD COLUMN IF NOT EXISTS updated_by VARCHAR(64);
+CREATE TABLE IF NOT EXISTS road_section_hm (
+    id                    VARCHAR(64) PRIMARY KEY DEFAULT gen_random_uuid()::varchar,
+    tenant_id             VARCHAR(64) NOT NULL,
+    route_id              VARCHAR(64),
+    route_code            VARCHAR(50) NOT NULL,
+    line_id               VARCHAR(64),
+    km_id                 VARCHAR(64),
+    hm_code               VARCHAR(120) NOT NULL,
+    direction             VARCHAR(20) DEFAULT 'BOTH',
+    start_stake           NUMERIC(12,3) NOT NULL,
+    end_stake             NUMERIC(12,3) NOT NULL,
+    length_m              INTEGER,
+    label                 VARCHAR(200),
+    geom                  GEOMETRY(LineString, 4326),
+    project_id            VARCHAR(64),
+    remark                TEXT,
+    created_by            VARCHAR(64),
+    updated_by            VARCHAR(64),
+    created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted               BOOLEAN DEFAULT FALSE,
+    CONSTRAINT uk_road_section_hm_code UNIQUE(tenant_id, hm_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_section_hm_geom ON road_section_hm USING GIST(geom);
+CREATE INDEX IF NOT EXISTS idx_section_hm_tenant_project ON road_section_hm(tenant_id, project_id) WHERE deleted = false;
 
 -- ===== Phase 2 Continued: disease and assessment GIS layers =====
 CREATE TABLE IF NOT EXISTS disease_type_dict (
@@ -368,9 +426,14 @@ CREATE INDEX IF NOT EXISTS idx_import_error_type ON data_import_error_log(tenant
 
 -- >>> BEGIN: srmp-admin/src/main/resources/db/init_dict.sql
 
-INSERT INTO tenant(tenant_code, tenant_name, tenant_type, status)
-VALUES ('default', '默认租户', 'PLATFORM', 'ENABLED')
-ON CONFLICT (tenant_code) DO NOTHING;
+INSERT INTO tenant(id, tenant_code, tenant_name, tenant_type, status, created_at, updated_at, deleted)
+VALUES ('default', 'default', '默认租户', 'PLATFORM', 'ENABLED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, FALSE)
+ON CONFLICT (tenant_code) DO UPDATE
+SET tenant_name = EXCLUDED.tenant_name,
+    tenant_type = EXCLUDED.tenant_type,
+    status = EXCLUDED.status,
+    updated_at = CURRENT_TIMESTAMP,
+    deleted = FALSE;
 
 INSERT INTO sys_dict_type(tenant_id, dict_type, dict_name, description)
 VALUES
@@ -1642,279 +1705,46 @@ SET content = EXCLUDED.content,
 
 
 -- >>> BEGIN: srmp-admin/src/main/resources/db/phase36_one_click_demo_seed.sql
-
-CREATE EXTENSION IF NOT EXISTS postgis;
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
-INSERT INTO tenant(id, tenant_code, tenant_name, tenant_type, status, created_at, updated_at, deleted)
-VALUES ('default', 'default', '默认租户', 'PLATFORM', 'ENABLED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, FALSE)
-ON CONFLICT (tenant_code) DO UPDATE
-SET tenant_name = EXCLUDED.tenant_name,
-    status = EXCLUDED.status,
-    updated_at = CURRENT_TIMESTAMP,
-    deleted = FALSE;
-
-WITH route_shape AS (
-  SELECT ST_GeomFromText('LINESTRING(106.0043335 25.7825803,106.0427856 25.9247018,106.2254333 25.8678737,106.1293030 25.7405291)', 4326) AS geom
-)
-INSERT INTO road_route(id, tenant_id, route_code, route_name, route_type, admin_grade, technical_grade, start_stake, end_stake, length_km, geom, remark, created_at, updated_at, deleted)
-SELECT 'demo-route-g210', 'default', 'G210', 'G210 演示路线', 'NATIONAL_HIGHWAY', 'NATIONAL', 'FIRST_CLASS', 0, 100, 100, geom, 'one-click demo seed', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, FALSE
-FROM route_shape
-ON CONFLICT (tenant_id, route_code) DO UPDATE
-SET route_name = EXCLUDED.route_name,
-    route_type = EXCLUDED.route_type,
-    admin_grade = EXCLUDED.admin_grade,
-    technical_grade = EXCLUDED.technical_grade,
-    start_stake = EXCLUDED.start_stake,
-    end_stake = EXCLUDED.end_stake,
-    length_km = EXCLUDED.length_km,
-    geom = EXCLUDED.geom,
-    remark = EXCLUDED.remark,
-    updated_at = CURRENT_TIMESTAMP,
-    deleted = FALSE;
-
-WITH route_row AS (
-  SELECT id AS route_id, geom
-  FROM road_route
-  WHERE tenant_id = 'default' AND route_code = 'G210'
-),
-section_seed AS (
-  SELECT gs AS section_no,
-         (gs * 25)::numeric(12,3) AS start_stake,
-         ((gs + 1) * 25)::numeric(12,3) AS end_stake,
-         ST_MakeLine(
-           ST_LineInterpolatePoint(route_row.geom, gs / 4.0),
-           ST_LineInterpolatePoint(route_row.geom, (gs + 1) / 4.0)
-         ) AS geom,
-         route_row.route_id
-  FROM route_row
-  CROSS JOIN generate_series(0, 3) AS gs
-)
-INSERT INTO road_section(id, tenant_id, route_id, route_code, section_code, section_name, direction, start_stake, end_stake, length_km, pavement_type, technical_grade, geom, created_at, updated_at, deleted)
-SELECT 'demo-section-g210-' || section_no,
-       'default',
-       route_id,
-       'G210',
-       'G210_K' || start_stake::int || '_K' || end_stake::int,
-       'G210 K' || start_stake::int || '-K' || end_stake::int || ' 演示路段',
-       'BOTH',
-       start_stake,
-       end_stake,
-       25,
-       'ASPHALT',
-       'FIRST_CLASS',
-       geom,
-       CURRENT_TIMESTAMP,
-       CURRENT_TIMESTAMP,
-       FALSE
-FROM section_seed
-ON CONFLICT (tenant_id, section_code) DO UPDATE
-SET section_name = EXCLUDED.section_name,
-    start_stake = EXCLUDED.start_stake,
-    end_stake = EXCLUDED.end_stake,
-    length_km = EXCLUDED.length_km,
-    pavement_type = EXCLUDED.pavement_type,
-    technical_grade = EXCLUDED.technical_grade,
-    geom = EXCLUDED.geom,
-    updated_at = CURRENT_TIMESTAMP,
-    deleted = FALSE;
-
-WITH route_row AS (
-  SELECT id AS route_id, geom
-  FROM road_route
-  WHERE tenant_id = 'default' AND route_code = 'G210'
-),
-unit_seed AS (
-  SELECT gs AS unit_no,
-         (gs * 0.1)::numeric(12,3) AS start_stake,
-         ((gs + 1) * 0.1)::numeric(12,3) AS end_stake,
-         floor(gs / 250)::int AS section_no,
-         ST_MakeLine(
-           ST_LineInterpolatePoint(route_row.geom, gs / 1000.0),
-           ST_LineInterpolatePoint(route_row.geom, (gs + 1) / 1000.0)
-         ) AS geom,
-         route_row.route_id
-  FROM route_row
-  CROSS JOIN generate_series(0, 999) AS gs
-)
-INSERT INTO road_evaluation_unit(id, tenant_id, route_id, section_id, route_code, unit_code, direction, lane_no, start_stake, end_stake, length_m, geom, center_point, pavement_type, technical_grade, road_width, created_at, updated_at, deleted)
-SELECT 'demo-unit-g210-' || lpad(unit_no::text, 4, '0'),
-       'default',
-       unit_seed.route_id,
-       section.id,
-       'G210',
-       'G210_BOTH_U' || lpad(unit_no::text, 4, '0'),
-       'BOTH',
-       1,
-       unit_seed.start_stake,
-       unit_seed.end_stake,
-       100,
-       unit_seed.geom,
-       ST_LineInterpolatePoint(unit_seed.geom, 0.5),
-       'ASPHALT',
-       'FIRST_CLASS',
-       12.00,
-       CURRENT_TIMESTAMP,
-       CURRENT_TIMESTAMP,
-       FALSE
-FROM unit_seed
-JOIN road_section section
-  ON section.tenant_id = 'default'
- AND section.section_code = 'G210_K' || (unit_seed.section_no * 25) || '_K' || ((unit_seed.section_no + 1) * 25)
-ON CONFLICT (tenant_id, unit_code) DO UPDATE
-SET start_stake = EXCLUDED.start_stake,
-    end_stake = EXCLUDED.end_stake,
-    length_m = EXCLUDED.length_m,
-    geom = EXCLUDED.geom,
-    center_point = EXCLUDED.center_point,
-    updated_at = CURRENT_TIMESTAMP,
-    deleted = FALSE;
-
-WITH units AS (
-  SELECT id, route_id, section_id, route_code, direction, start_stake, end_stake,
-         substring(unit_code from '[0-9]{4}$')::int AS unit_no
-  FROM road_evaluation_unit
-  WHERE tenant_id = 'default'
-    AND route_code = 'G210'
-    AND unit_code ~ '^G210_BOTH_U[0-9]{4}$'
-    AND deleted = FALSE
-)
-INSERT INTO assessment_result(id, tenant_id, object_type, object_id, route_id, section_id, unit_id, route_code, direction, start_stake, end_stake, year, mqi, sci, pqi, bci, tci, pci, rqi, rdi, pbi, pwi, sri, pssi, grade, assessed_at, created_at, updated_at, deleted)
-SELECT 'demo-assess-g210-' || lpad(unit_no::text, 4, '0'),
-       'default',
-       'EVALUATION_UNIT',
-       id,
-       route_id,
-       section_id,
-       id,
-       route_code,
-       direction,
-       start_stake,
-       end_stake,
-       2026,
-       (72 + (unit_no % 27))::numeric,
-       (76 + (unit_no % 19))::numeric,
-       (70 + (unit_no % 25))::numeric,
-       (78 + (unit_no % 17))::numeric,
-       (74 + (unit_no % 21))::numeric,
-       (68 + (unit_no % 29))::numeric,
-       (73 + (unit_no % 22))::numeric,
-       (71 + (unit_no % 24))::numeric,
-       (75 + (unit_no % 20))::numeric,
-       (72 + (unit_no % 23))::numeric,
-       (70 + (unit_no % 26))::numeric,
-       (69 + (unit_no % 28))::numeric,
-       CASE
-         WHEN unit_no % 100 = 0 THEN 'BAD'
-         WHEN unit_no % 17 = 0 THEN 'POOR'
-         WHEN unit_no % 5 = 0 THEN 'MEDIUM'
-         WHEN unit_no % 3 = 0 THEN 'GOOD'
-         ELSE 'EXCELLENT'
-       END,
-       CURRENT_TIMESTAMP,
-       CURRENT_TIMESTAMP,
-       CURRENT_TIMESTAMP,
-       FALSE
-FROM units
-ON CONFLICT (id) DO UPDATE
-SET mqi = EXCLUDED.mqi,
-    pqi = EXCLUDED.pqi,
-    pci = EXCLUDED.pci,
-    grade = EXCLUDED.grade,
-    updated_at = CURRENT_TIMESTAMP,
-    deleted = FALSE;
-
-WITH units AS (
-  SELECT id, route_id, section_id, route_code, direction, start_stake, end_stake, center_point,
-         substring(unit_code from '[0-9]{4}$')::int AS unit_no
-  FROM road_evaluation_unit
-  WHERE tenant_id = 'default'
-    AND route_code = 'G210'
-    AND unit_code ~ '^G210_BOTH_U[0-9]{4}$'
-    AND deleted = FALSE
-),
-disease_seed AS (
-  SELECT units.*, slot,
-         CASE slot WHEN 1 THEN 'CRACK' WHEN 2 THEN 'POTHOLE' ELSE 'SUBSIDENCE' END AS disease_type,
-         CASE slot WHEN 1 THEN '裂缝' WHEN 2 THEN '坑槽' ELSE '沉陷' END AS disease_name,
-         CASE
-           WHEN units.unit_no % 11 = 0 THEN 'HEAVY'
-           WHEN units.unit_no % 3 = 0 THEN 'MEDIUM'
-           ELSE 'LIGHT'
-         END AS severity
-  FROM units
-  CROSS JOIN generate_series(1, 3) AS slot
-)
-INSERT INTO disease_record(id, tenant_id, route_id, section_id, unit_id, route_code, direction, lane_no, start_stake, end_stake, disease_category, disease_type, disease_name, severity, quantity, measure_unit, damage_area, damage_length, source, confidence, geom, status, verified, created_at, updated_at, deleted)
-SELECT 'demo-disease-g210-' || lpad(unit_no::text, 4, '0') || '-' || slot,
-       'default',
-       route_id,
-       section_id,
-       id,
-       route_code,
-       direction,
-       1,
-       start_stake,
-       end_stake,
-       'PAVEMENT',
-       disease_type,
-       disease_name,
-       severity,
-       CASE slot WHEN 1 THEN 8 + (unit_no % 40) WHEN 2 THEN 1 + (unit_no % 4) ELSE 2 + (unit_no % 9) END,
-       CASE slot WHEN 2 THEN '处' ELSE 'm' END,
-       CASE slot WHEN 2 THEN 1.5 + (unit_no % 7) ELSE NULL END,
-       CASE slot WHEN 2 THEN NULL ELSE 6 + (unit_no % 80) END,
-       'DEMO_DATA',
-       0.9500,
-       center_point,
-       'VERIFIED',
-       TRUE,
-       CURRENT_TIMESTAMP,
-       CURRENT_TIMESTAMP,
-       FALSE
-FROM disease_seed
-ON CONFLICT (id) DO UPDATE
-SET severity = EXCLUDED.severity,
-    quantity = EXCLUDED.quantity,
-    geom = EXCLUDED.geom,
-    updated_at = CURRENT_TIMESTAMP,
-    deleted = FALSE;
-
-INSERT INTO index_result(id, tenant_id, assessment_id, unit_id, route_id, section_id, route_code, direction, start_stake, end_stake, year, index_code, index_name, index_value, grade, created_at, updated_at, deleted)
-SELECT 'demo-index-mqi-' || unit_id,
-       tenant_id,
-       id,
-       unit_id,
-       route_id,
-       section_id,
-       route_code,
-       direction,
-       start_stake,
-       end_stake,
-       year,
-       'MQI',
-       '公路技术状况指数',
-       mqi,
-       grade,
-       CURRENT_TIMESTAMP,
-       CURRENT_TIMESTAMP,
-       FALSE
-FROM assessment_result
-WHERE tenant_id = 'default'
-  AND route_code = 'G210'
-  AND year = 2026
-  AND unit_id IN (
-      SELECT id
-      FROM road_evaluation_unit
-      WHERE tenant_id = 'default'
-        AND route_code = 'G210'
-        AND unit_code ~ '^G210_BOTH_U[0-9]{4}$'
-  )
-ON CONFLICT (id) DO UPDATE
-SET index_value = EXCLUDED.index_value,
-    grade = EXCLUDED.grade,
-    updated_at = CURRENT_TIMESTAMP,
-    deleted = FALSE;
-
+-- 原 G210 一键演示种子（路线/路段/台账/评定/病害/index 等）已移除；默认租户见 init_dict 段。
 -- <<< END: srmp-admin/src/main/resources/db/phase36_one_click_demo_seed.sql
+
+-- >>> BEGIN: data management（项目主档 + 导入流水 + 业务表 project_id 冗余）
+CREATE TABLE IF NOT EXISTS data_mgmt_project (
+    id              VARCHAR(64) PRIMARY KEY DEFAULT gen_random_uuid()::varchar,
+    tenant_id       VARCHAR(64) NOT NULL,
+    name            VARCHAR(200) NOT NULL,
+    remark          TEXT,
+    created_by      VARCHAR(64),
+    updated_by      VARCHAR(64),
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted         BOOLEAN DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS idx_data_mgmt_project_tenant_name ON data_mgmt_project(tenant_id, name);
+
+CREATE TABLE IF NOT EXISTS data_import_record (
+    id              VARCHAR(64) PRIMARY KEY DEFAULT gen_random_uuid()::varchar,
+    tenant_id       VARCHAR(64) NOT NULL,
+    project_id      VARCHAR(64) NOT NULL,
+    import_type     VARCHAR(32) NOT NULL,
+    file_name       VARCHAR(500),
+    started_at      TIMESTAMP NOT NULL,
+    finished_at     TIMESTAMP,
+    duration_ms     BIGINT,
+    status          VARCHAR(20) NOT NULL,
+    message         TEXT,
+    result_summary  TEXT,
+    created_by      VARCHAR(64),
+    updated_by      VARCHAR(64),
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted         BOOLEAN DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS idx_data_import_record_project_time ON data_import_record(tenant_id, project_id, started_at DESC);
+
+ALTER TABLE road_route ADD COLUMN IF NOT EXISTS project_id VARCHAR(64);
+ALTER TABLE disease_record ADD COLUMN IF NOT EXISTS project_id VARCHAR(64);
+CREATE INDEX IF NOT EXISTS idx_road_route_tenant_project ON road_route(tenant_id, project_id) WHERE deleted = false;
+CREATE INDEX IF NOT EXISTS idx_disease_record_tenant_project ON disease_record(tenant_id, project_id) WHERE deleted = false;
+-- <<< END: data management
 

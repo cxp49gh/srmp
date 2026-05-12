@@ -30,22 +30,13 @@
       </section>
 
       <section class="layer-group">
-        <div class="group-title">道路资产</div>
+        <div class="group-title">资产与业务</div>
         <label v-for="item in assetLayerItems" :key="item.key" class="layer-item">
           <el-checkbox v-model="localLayers[item.key]" @change="emitLayerChange">{{ item.label }}</el-checkbox>
           <span class="layer-count">{{ layerCount(item.key) }}</span>
         </label>
-      </section>
-
-      <section class="layer-group">
-        <div class="group-title">业务图层</div>
-        <div v-for="item in businessLayerItems" :key="item.key" class="layer-item-wrap">
-          <label class="layer-item">
-            <el-checkbox v-model="localLayers[item.key]" @change="emitLayerChange">{{ item.label }}</el-checkbox>
-            <span class="layer-count">{{ layerCount(item.key) }}</span>
-          </label>
-          <p v-if="item.hint" class="layer-hint">{{ item.hint }}</p>
-        </div>
+        <p class="tier-hint">「评定」用于开关地图上的指标专题图层；路段粒度仍由顶部工具栏「路段专题」与「查询」决定。</p>
+        <p class="disease-zoom-hint">病害图层需在地图缩放至 {{ ZOOM_MIN_DISEASE_LAYER }} 级及以上时，才按当前视野加载。</p>
       </section>
 
       <section class="stats-section">
@@ -64,7 +55,7 @@
       </div>
 
       <div class="layer-tip">
-        已启用 {{ enabledLayerCount }} 个图层；当前专题指标为 {{ metricMeta.code }}，统计随查询条件、等级过滤、地图视野与启用图层更新。
+        当前已勾选 {{ enabledLayerCount }} 个图层（路网 / 路段 / 病害 / 评定）。取消「评定」后地图不展示指标着色数据，左侧等级图例一并隐藏；指标均值与图层统计也会排除评定数据。
       </div>
     </template>
   </aside>
@@ -103,21 +94,13 @@ watch(
 )
 
 const assetLayerItems = [
-  { key: 'roadRoute' as keyof LayerState, label: '路线' },
+  { key: 'roadRoute' as keyof LayerState, label: '路网' },
   { key: 'roadSection' as keyof LayerState, label: '路段' },
-  { key: 'evaluationUnit' as keyof LayerState, label: '评定单元' }
+  { key: 'disease' as keyof LayerState, label: '病害' },
+  { key: 'assessment' as keyof LayerState, label: '评定' }
 ]
 
-const businessLayerItems = computed(() => [
-  {
-    key: 'disease' as keyof LayerState,
-    label: '病害',
-    hint: `地图需放大至 ${ZOOM_MIN_DISEASE_LAYER} 级及以上，才按当前视野查询并展示病害`
-  },
-  { key: 'assessment' as keyof LayerState, label: '评定专题' }
-])
-
-const allLayerItems = computed(() => [...assetLayerItems, ...businessLayerItems.value])
+const allLayerItems = computed(() => assetLayerItems)
 
 const layerErrorItems = computed(() => {
   const errors = props.layerErrors || {}
@@ -394,6 +377,18 @@ function formatPercent(value: any) {
 
 .layer-error-box p {
   margin: 2px 0;
+}
+
+.tier-hint,
+.disease-zoom-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #64748b;
+}
+
+.disease-zoom-hint {
+  margin-top: 4px;
 }
 
 .layer-tip {

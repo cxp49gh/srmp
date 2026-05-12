@@ -92,7 +92,11 @@ public class AgentChatServiceImpl implements com.smartroad.srmp.agent.service.Ag
                             analysis = agentAnalysisService.analyzeDisease(analysisRequest);
                         } else if (containsAny(message, "评定", "MQI", "PQI", "PCI", "优良", "次差")
                                 || "ASSESSMENT_RESULT".equals(objType)
-                                || "EVALUATION_UNIT".equals(objType)) {
+                                || "EVALUATION_UNIT".equals(objType)
+                                || "ROAD_SECTION_LEDGER".equals(objType)
+                                || "ROAD_SECTION_LINE".equals(objType)
+                                || "ROAD_SECTION_KM".equals(objType)
+                                || "ROAD_SECTION_HM".equals(objType)) {
                             analysis = agentAnalysisService.analyzeAssessment(analysisRequest);
                         } else {
                             analysis = agentAnalysisService.analyzeRoute(analysisRequest);

@@ -172,12 +172,15 @@ if payload.get('code') != 0:
 
 data = payload.get('data') or {}
 tables = data.get('tables') or {}
+# 全量初始化已不含 G210 演示种子：仅校验接口可用且表计数非负
 required = {
-    'road_route': 1,
-    'road_section': 4,
-    'road_evaluation_unit': 1000,
-    'assessment_result': 1000,
-    'disease_record': 3000,
+    'road_route': 0,
+    'road_section_line': 0,
+    'road_section_ledger': 0,
+    'road_section_km': 0,
+    'road_section_hm': 0,
+    'assessment_result': 0,
+    'disease_record': 0,
 }
 missing = []
 for name, minimum in required.items():
