@@ -89,3 +89,17 @@ test('summarizes object and region context', () => {
     true
   )
 })
+
+test('keeps plan data display-safe when fields are missing', () => {
+  const plan = normalizeMapAiPlanResponse({
+    intent: 'GENERAL_CHAT',
+    toolPlan: [{ toolName: 'unknown.tool', args: { routeCode: 'G210' } }],
+    steps: [{ name: 'intent_recognize', status: 'SUCCESS' }]
+  })
+
+  assert.equal(plan.status, 'SUCCESS')
+  assert.equal(plan.toolPlan[0].label, 'unknown.tool')
+  assert.equal(plan.toolPlan[0].readOnly, true)
+  assert.equal(plan.steps[0].label, 'intent_recognize')
+  assert.deepEqual(plan.sourceHints, [])
+})
