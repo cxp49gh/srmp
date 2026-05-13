@@ -10,6 +10,7 @@ from .intent import recognize_intent
 from .java_tools import JavaToolGateway, extract_knowledge_sources
 from .live_trace import LiveTraceStore
 from .llm_client import LlmClient, LlmResult
+from .plan_preview import build_plan_warnings, build_source_hints, enrich_tool_plan
 from .planner import plan_tools
 from .prompt import build_answer_prompt, build_compact_answer_prompt, fallback_answer
 from .schemas import MapAiAgentRequest, MapAiAgentResponse, MapAiContext, ToolCall, ToolResult
@@ -116,13 +117,18 @@ class LangGraphWorkflow:
         state: AgentState = self._new_state(request=request, tenant_id=tenant_id, trace_id=trace_id)
         self._live_start_trace(state)
         final_state = await self._run_sequential(state, PLAN_NODE_FLOW)
+        raw_tool_plan = final_state.get("tool_plan", [])
+        enriched_tool_plan = enrich_tool_plan(raw_tool_plan)
         return {
             "traceId": final_state.get("trace_id"),
             "strategy": strategy_metadata(),
+            "action": final_state["request"].action,
             "intent": final_state.get("intent"),
             "contextSummary": final_state.get("context_summary", {}),
             "normalizedRequest": final_state["request"].model_dump(exclude_none=True),
-            "toolPlan": [item.model_dump(exclude_none=True) for item in final_state.get("tool_plan", [])],
+            "toolPlan": enriched_tool_plan,
+            "sourceHints": build_source_hints(final_state["request"], enriched_tool_plan),
+            "warnings": build_plan_warnings(final_state["request"], enriched_tool_plan),
             "steps": final_state.get("steps", []),
         }
 

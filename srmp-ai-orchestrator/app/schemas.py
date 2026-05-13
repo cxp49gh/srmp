@@ -26,9 +26,11 @@ class MapAiAgentRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     message: Optional[str] = None
+    action: Optional[str] = None
     mapContext: Optional[MapAiContext] = None
     context: Optional[Dict[str, Any]] = None
     mapObject: Optional[Dict[str, Any]] = None
+    actionInput: Dict[str, Any] = Field(default_factory=dict)
     options: Dict[str, Any] = Field(default_factory=dict)
 
 
