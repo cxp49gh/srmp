@@ -9,8 +9,6 @@
         <button type="button" class="close-btn" @click="emit('update:visible', false)">×</button>
       </div>
 
-      <MapAiContextPanel :scope="contextMode" :context="props.context" :map-object="activeMapObject" />
-
       <section class="analysis-workbench" :class="contextMode.toLowerCase()">
         <div class="analysis-title-row">
           <div>
@@ -147,61 +145,23 @@
         </div>
       </div>
 
-      <div class="message-list">
-        <div v-for="(item, index) in messages" :key="index" :class="['message', item.role]">
-          <div class="role">{{ item.role === 'user' ? '我' : 'AI' }}</div>
-          <div class="content" v-html="renderMarkdown(item.content)" />
-          <div v-if="item.meta" class="message-meta">
-            <el-tag v-if="item.meta.mapObjectUsed" size="small" type="success">对象上下文</el-tag>
-            <el-tag v-if="item.meta.regionUsed || item.meta.mapRegionUsed" size="small" type="success">区域上下文</el-tag>
-            <el-tag v-if="item.meta.intent" size="small" type="info">{{ item.meta.intent }}</el-tag>
-            <el-tag v-if="item.meta.answerSourceLabel" size="small">{{ item.meta.answerSourceLabel }}</el-tag>
-            <el-tag
-              v-if="item.meta.planExecutionStatus && item.meta.planExecutionStatus !== 'NO_PLAN'"
-              size="small"
-              :type="planExecutionTagType(item.meta.planExecutionStatus)"
-            >计划 {{ item.meta.planExecutionStatus }}</el-tag>
-            <el-tag v-if="item.meta.runElapsed" size="small" type="info">耗时 {{ item.meta.runElapsed }}</el-tag>
-            <el-tag v-if="item.meta.llmStatus" size="small" :type="item.meta.llmStatus === 'SUCCESS' ? 'success' : 'warning'">LLM {{ item.meta.llmStatus }}</el-tag>
-            <el-tag v-if="item.meta.llmModel" size="small" type="info">{{ item.meta.llmModel }}</el-tag>
-            <el-tag v-if="item.toolResults?.length" size="small" type="info">工具 {{ successfulTools(item.toolResults) }}/{{ item.toolResults.length }}</el-tag>
-            <el-tag v-if="item.sources?.length" size="small" type="info">来源 {{ item.sources.length }}</el-tag>
-            <el-tag v-if="item.meta.retriedWithCompactPrompt" size="small" type="warning">压缩重试</el-tag>
-            <el-tag v-if="item.meta.fallback" size="small" type="warning">降级</el-tag>
-          </div>
-          <AiEvidencePanel
-            v-if="item.role === 'assistant'"
-            :message="item"
-            :map-context="props.context"
-            @locate-source="locateEvidenceSource"
-            @ask-with-source="askWithSource"
-          />
-          <div v-if="item.role === 'assistant' && contextMode === 'OBJECT' && activeMapObject" class="assistant-action-row">
-            <el-button
-              size="small"
-              type="success"
-              plain
-              :loading="solutionLoading"
-              :disabled="loading || solutionLoading"
-              @click="generateDefaultSolutionDraft"
-            >
-              生成结构化建议
-            </el-button>
-          </div>
-          <AiTraceButton
-            v-if="item.role === 'assistant'"
-            :trace="item.trace"
-            :execution="{ trace: item.trace, answerMeta: item.meta, toolResults: item.toolResults, sources: item.sources }"
-            class="trace-button"
-            @open="openTrace"
-          />
-        </div>
-      </div>
-
-      <MapAiActionResultPanel :result="latestActionResult" />
-      <MapAiSuggestedActions
-        :actions="latestSuggestedActions"
+      <MapAiWorkbench
+        v-model:input="input"
+        :context-scope="contextMode"
+        :context="props.context"
+        :map-object="activeMapObject"
+        :messages="messages"
+        :loading="loading"
+        :solution-loading="solutionLoading"
+        :latest-action-result="latestActionResult"
+        :latest-suggested-actions="latestSuggestedActions"
+        @send="sendText"
+        @open-trace="openTrace"
+        @locate-source="locateEvidenceSource"
+        @ask-with-source="askWithSource"
+        @generate-default-solution="generateDefaultSolutionDraft"
         @run-action="runSuggestedAction"
+        @preview-plan="previewSuggestedActionPlan"
       />
 
       <section v-if="aiBusy" class="ai-wait-panel" :class="{ slow: waitFeedback.longWait }">
@@ -231,16 +191,6 @@
         </div>
       </section>
 
-      <div class="input-row">
-        <el-input
-          v-model="input"
-          type="textarea"
-          :rows="2"
-          placeholder="例如：分析当前对象，给出养护建议"
-          @keydown.ctrl.enter="send"
-        />
-        <el-button type="primary" :loading="loading" @click="send">发送</el-button>
-      </div>
     </div>
   </transition>
   <SolutionPreviewDialog
@@ -276,13 +226,9 @@ import { mapAgentRun, type MapAgentAction, type MapAgentActionResult, type MapAg
 import { saveMapObjectSolutionDraft, updateSolutionTaskAiContext } from '../../../api/solution'
 import { getOrchestratorLiveTrace, getOrchestratorQuickDiagnostics, runOrchestratorPlan } from '../../../api/orchestrator'
 import SolutionPreviewDialog from './SolutionPreviewDialog.vue'
-import AiTraceButton from '../../agent/components/AiTraceButton.vue'
 import AiTraceDrawer from '../../agent/components/AiTraceDrawer.vue'
-import AiEvidencePanel from './AiEvidencePanel.vue'
 import MapAiPlanPreviewDrawer from './MapAiPlanPreviewDrawer.vue'
-import MapAiActionResultPanel from './map-ai/MapAiActionResultPanel.vue'
-import MapAiContextPanel from './map-ai/MapAiContextPanel.vue'
-import MapAiSuggestedActions from './map-ai/MapAiSuggestedActions.vue'
+import MapAiWorkbench from './map-ai/MapAiWorkbench.vue'
 import { copyText } from '../../../utils/clipboard'
 import { gisContextTypeLabel, sourceToMapTarget, type GisSourceMapTarget } from '../../../utils/gisUnifiedContext'
 import { formatMetricValue, getMetricGrade, getMetricMeta, getMetricValue, gradeLabel } from '../../../utils/roadConditionMetrics'
@@ -1286,6 +1232,11 @@ async function send() {
   await runMapAgentRequest(buildChatRunRequest(text, createWebTraceId()), text)
 }
 
+async function sendText(text: string) {
+  input.value = text
+  await send()
+}
+
 function runSuggestedAction(action: MapAgentSuggestedAction) {
   if (action.action === 'GENERATE_REGION_SOLUTION') {
     emit('generate-region')
@@ -1304,6 +1255,16 @@ function runSuggestedAction(action: MapAgentSuggestedAction) {
     return
   }
   input.value = action.label || action.action
+}
+
+function previewSuggestedActionPlan(action: MapAgentSuggestedAction) {
+  const message = action.label || action.action
+  openPlanPreview({
+    kind: 'SEND',
+    action: action.action,
+    message,
+    request: buildPlanRequest(action.action, message, action.payload || {})
+  })
 }
 
 function normalizeResponse(res: any) {
@@ -1347,47 +1308,12 @@ function buildSourceSummary(data: Record<string, any>) {
   return parts.join('｜')
 }
 
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-}
-
-function renderMarkdown(value: string) {
-  const escaped = escapeHtml(value || '')
-  return escaped
-    .replace(/^### (.*)$/gm, '<h4>$1</h4>')
-    .replace(/^## (.*)$/gm, '<h3>$1</h3>')
-    .replace(/^# (.*)$/gm, '<h2>$1</h2>')
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/^\- (.*)$/gm, '<div class="md-list">• $1</div>')
-    .replace(/\n/g, '<br />')
-}
-
-function formatScore(score: any) {
-  const num = Number(score)
-  return Number.isFinite(num) ? num.toFixed(3) : String(score)
-}
-
 function locateEvidenceSource(target: GisSourceMapTarget) {
   emit('locate-source', target)
 }
 
 function askWithSource(source: any) {
   emit('ask-with-source', source)
-}
-
-function successfulTools(tools: any[] = []) {
-  return tools.filter((item) => item?.success !== false && String(item?.status || '').toUpperCase() !== 'FAILED').length
-}
-
-function planExecutionTagType(status: string) {
-  if (status === 'MATCHED') return 'success'
-  if (status === 'DIVERGED') return 'danger'
-  if (status === 'PARTIAL') return 'warning'
-  return 'info'
 }
 
 function openTrace(execution: Record<string, any>) {

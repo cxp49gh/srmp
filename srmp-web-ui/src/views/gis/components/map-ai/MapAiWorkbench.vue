@@ -1,9 +1,27 @@
 <template>
   <section class="map-ai-workbench">
     <MapAiContextPanel :scope="contextScope" :context="context" :map-object="mapObject" />
-    <MapAiConversation :messages="messages" @send="$emit('send', $event)" @open-trace="$emit('open-trace', $event)" />
+    <MapAiConversation
+      :messages="messages"
+      :input="input"
+      :loading="loading"
+      :solution-loading="solutionLoading"
+      :context-scope="contextScope"
+      :map-context="context"
+      :map-object="mapObject"
+      @update:input="$emit('update:input', $event)"
+      @send="$emit('send', $event)"
+      @open-trace="$emit('open-trace', $event)"
+      @locate-source="$emit('locate-source', $event)"
+      @ask-with-source="$emit('ask-with-source', $event)"
+      @generate-default-solution="$emit('generate-default-solution')"
+    />
     <MapAiActionResultPanel :result="latestActionResult" />
-    <MapAiSuggestedActions :actions="latestSuggestedActions" @run-action="$emit('run-action', $event)" />
+    <MapAiSuggestedActions
+      :actions="latestSuggestedActions"
+      @run-action="$emit('run-action', $event)"
+      @preview-plan="$emit('preview-plan', $event)"
+    />
   </section>
 </template>
 
@@ -19,13 +37,21 @@ defineProps<{
   context?: Record<string, any>
   mapObject?: Record<string, any> | null
   messages: Array<Record<string, any>>
+  input: string
+  loading?: boolean
+  solutionLoading?: boolean
   latestActionResult?: MapAgentActionResult | null
   latestSuggestedActions?: MapAgentSuggestedAction[]
 }>()
 defineEmits<{
+  (e: 'update:input', value: string): void
   (e: 'send', text: string): void
   (e: 'open-trace', message: Record<string, any>): void
+  (e: 'locate-source', source: any): void
+  (e: 'ask-with-source', source: any): void
+  (e: 'generate-default-solution'): void
   (e: 'run-action', action: MapAgentSuggestedAction): void
+  (e: 'preview-plan', action: MapAgentSuggestedAction): void
 }>()
 </script>
 
