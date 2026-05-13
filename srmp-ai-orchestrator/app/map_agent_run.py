@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from .java_tools import JavaToolGateway
 from .live_trace import LiveTraceStore
+from .plan_execution import build_plan_execution, normalize_plan_preview
 from .schemas import (
     ActionResult,
     MapAgentRunRequest,
@@ -44,6 +45,7 @@ class MapAgentRunWorkflow:
         response.trace["graphName"] = response.data.get("graphName")
         response.trace["actionResultType"] = response.actionResult.type
         response.trace["suggestedActionCount"] = len(response.suggestedActions)
+        self._attach_plan_execution(response, request, action)
         return response
 
     async def _run_analysis(
@@ -243,6 +245,26 @@ class MapAgentRunWorkflow:
     def _trace_id(self, request: MapAgentRunRequest, trace_id: Optional[str]) -> str:
         option_trace_id = (request.options or {}).get("traceId")
         return str(trace_id or option_trace_id or "").strip()
+
+    def _attach_plan_execution(self, response: MapAgentRunResponse, request: MapAgentRunRequest, action: str) -> None:
+        plan_execution = build_plan_execution(
+            normalize_plan_preview((request.options or {}).get("planPreview")),
+            {
+                "runTraceId": self._trace_id(request, None),
+                "actualAction": action,
+                "actualIntent": response.intent,
+                "toolResults": response.toolResults or [],
+                "sources": response.sources or response.knowledgeSources or [],
+                "evidence": (response.data or {}).get("evidence") or {},
+            },
+        )
+        response.planExecution = plan_execution
+        response.data["planExecution"] = plan_execution
+        response.answerMeta = dict(response.answerMeta or {})
+        response.answerMeta["planExecutionStatus"] = plan_execution.get("status")
+        response.data["answerMeta"] = response.answerMeta
+        response.trace = dict(response.trace or {})
+        response.trace["planExecution"] = plan_execution
 
     def _start_live_trace(self, trace_id: str, action: str, graph_name: str) -> None:
         if self.live_trace_store and trace_id:

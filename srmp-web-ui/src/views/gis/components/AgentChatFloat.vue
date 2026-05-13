@@ -156,6 +156,11 @@
             <el-tag v-if="item.meta.regionUsed || item.meta.mapRegionUsed" size="small" type="success">区域上下文</el-tag>
             <el-tag v-if="item.meta.intent" size="small" type="info">{{ item.meta.intent }}</el-tag>
             <el-tag v-if="item.meta.answerSourceLabel" size="small">{{ item.meta.answerSourceLabel }}</el-tag>
+            <el-tag
+              v-if="item.meta.planExecutionStatus && item.meta.planExecutionStatus !== 'NO_PLAN'"
+              size="small"
+              :type="planExecutionTagType(item.meta.planExecutionStatus)"
+            >计划 {{ item.meta.planExecutionStatus }}</el-tag>
             <el-tag v-if="item.meta.runElapsed" size="small" type="info">耗时 {{ item.meta.runElapsed }}</el-tag>
             <el-tag v-if="item.meta.llmStatus" size="small" :type="item.meta.llmStatus === 'SUCCESS' ? 'success' : 'warning'">LLM {{ item.meta.llmStatus }}</el-tag>
             <el-tag v-if="item.meta.llmModel" size="small" type="info">{{ item.meta.llmModel }}</el-tag>
@@ -257,6 +262,7 @@
     v-model:visible="planDrawerVisible"
     :loading="planLoading"
     :plan="planPreview"
+    :plan-execution="lastPlanExecution"
     :error="planError"
     @refresh="refreshPlanPreview"
     @execute="executePlanPreview"
@@ -281,7 +287,7 @@ import { copyText } from '../../../utils/clipboard'
 import { gisContextTypeLabel, sourceToMapTarget, type GisSourceMapTarget } from '../../../utils/gisUnifiedContext'
 import { formatMetricValue, getMetricGrade, getMetricMeta, getMetricValue, gradeLabel } from '../../../utils/roadConditionMetrics'
 import { buildWaitFeedback, formatElapsedMs, normalizeLangGraphDiagnostics, summarizeRunTiming, type LangGraphDiagnostics } from '../../../utils/aiRunFeedback'
-import { normalizeMapAiPlanResponse, type MapAiPlanPreview } from '../../../utils/mapAiPlanPreview'
+import { buildPlanPreviewMeta, normalizeMapAiPlanResponse, normalizePlanExecution, type MapAiPlanExecution, type MapAiPlanPreview } from '../../../utils/mapAiPlanPreview'
 import {
   buildLiveTraceSummary,
   createWebTraceId,
@@ -386,6 +392,7 @@ const planLoading = ref(false)
 const planError = ref('')
 const planPreview = ref<MapAiPlanPreview | null>(null)
 const planExecutionSnapshot = ref<PlanExecutionSnapshot | null>(null)
+const lastPlanExecution = ref<MapAiPlanExecution | null>(null)
 
 const options = reactive({
   useBusinessData: true,
@@ -919,7 +926,13 @@ function buildPlanRequest(action: MapAgentAction, message: string, actionInput: 
 }
 
 function buildCurrentPlanSnapshot(): PlanExecutionSnapshot {
-  const action: MapAgentAction = contextMode.value === 'REGION' ? 'ANALYZE_REGION' : contextMode.value === 'OBJECT' ? 'ANALYZE_OBJECT' : 'CHAT'
+  const action: MapAgentAction = contextMode.value === 'REGION'
+    ? 'ANALYZE_REGION'
+    : contextMode.value === 'OBJECT'
+      ? 'ANALYZE_OBJECT'
+      : contextMode.value === 'ROUTE'
+        ? 'ANALYZE_ROUTE'
+        : 'CHAT'
   const message = defaultPlanMessage()
   return {
     kind: 'SEND',
@@ -957,9 +970,21 @@ async function executePlanPreview() {
   const snapshot = planExecutionSnapshot.value
   if (!snapshot) return
   planDrawerVisible.value = false
-  input.value = snapshot.message
-  await nextTick()
-  await send()
+  if (input.value.trim() === snapshot.message) input.value = ''
+  const traceId = createWebTraceId()
+  const request: MapAgentRunRequest = {
+    ...snapshot.request,
+    action: snapshot.request.action || snapshot.action,
+    message: snapshot.request.message || snapshot.message,
+    mapContext: snapshot.request.mapContext,
+    actionInput: { ...(snapshot.request.actionInput || {}) },
+    options: {
+      ...(snapshot.request.options || {}),
+      traceId,
+      planPreview: buildPlanPreviewMeta(planPreview.value)
+    }
+  }
+  await runMapAgentRequest(request, snapshot.message)
 }
 
 async function handleContextCommand(command: string) {
@@ -1168,34 +1193,47 @@ async function saveSolutionDraft() {
   }
 }
 
-async function send() {
-  const text = input.value.trim()
-  if (!text || loading.value) return
+function chatActionForCurrentContext(): MapAgentAction {
+  return contextMode.value === 'REGION'
+    ? 'ANALYZE_REGION'
+    : contextMode.value === 'OBJECT'
+      ? 'ANALYZE_OBJECT'
+      : contextMode.value === 'ROUTE'
+        ? 'ANALYZE_ROUTE'
+        : 'CHAT'
+}
 
+function buildChatRunRequest(message: string, traceId: string): MapAgentRunRequest {
+  return {
+    action: chatActionForCurrentContext(),
+    message,
+    mapContext: buildMapAiContext(message),
+    actionInput: {
+      mapObject: activeMapObject.value
+    },
+    options: { ...options, useTools: useAgentTools.value, traceId }
+  }
+}
+
+async function runMapAgentRequest(request: MapAgentRunRequest, userMessage: string) {
   const requestStartedAt = Date.now()
-  const traceId = createWebTraceId()
+  const traceId = String(request.options?.traceId || createWebTraceId())
+  request.options = { ...(request.options || {}), traceId }
   beginAiRun(requestStartedAt)
   beginLiveTrace(traceId)
-  messages.value.push({ role: 'user', content: text })
-  input.value = ''
+  messages.value.push({ role: 'user', content: userMessage })
   loading.value = true
 
   try {
-    const res: any = await mapAgentRun({
-      action: contextMode.value === 'REGION' ? 'ANALYZE_REGION' : contextMode.value === 'OBJECT' ? 'ANALYZE_OBJECT' : 'CHAT',
-      message: text,
-      mapContext: buildMapAiContext(text),
-      actionInput: {
-        mapObject: activeMapObject.value
-      },
-      options: { ...options, useTools: useAgentTools.value, traceId }
-    })
-
+    const res: any = await mapAgentRun(request)
     const payload = normalizeResponse(res)
     const answer = String(payload.answer || payload.data?.answer || '未返回内容')
     const timing = summarizeRunTiming(payload)
     const localElapsedMs = Date.now() - requestStartedAt
     const runElapsed = timing.costMs > 0 ? timing.elapsedLabel : formatElapsedMs(localElapsedMs)
+    const planExecution = normalizePlanExecution(payload)
+    const hasPlanExecution = planExecution.status !== 'NO_PLAN'
+    if (hasPlanExecution) lastPlanExecution.value = planExecution
     const meta = payload.data?.answerMeta || {
       answerSourceLabel: payload.data?.answerSourceLabel,
       fallback: payload.data?.fallback,
@@ -1218,6 +1256,8 @@ async function send() {
         regionUsed: payload.data?.regionUsed || payload.data?.mapRegionUsed || payload.mapRegionUsed || meta?.regionUsed,
         runElapsed,
         traceId: timing.traceId,
+        planExecutionStatus: hasPlanExecution ? planExecution.status : undefined,
+        planExecution: hasPlanExecution ? planExecution : undefined,
         llmStatus: timing.llmStatus || meta?.llmStatus || payload.data?.llmStatus,
         llmModel: timing.llmModel || meta?.llmModel || payload.data?.llmModel
       }
@@ -1237,6 +1277,13 @@ async function send() {
     stopLiveTracePolling()
     loading.value = false
   }
+}
+
+async function send() {
+  const text = input.value.trim()
+  if (!text || loading.value) return
+  input.value = ''
+  await runMapAgentRequest(buildChatRunRequest(text, createWebTraceId()), text)
 }
 
 function runSuggestedAction(action: MapAgentSuggestedAction) {
@@ -1334,6 +1381,13 @@ function askWithSource(source: any) {
 
 function successfulTools(tools: any[] = []) {
   return tools.filter((item) => item?.success !== false && String(item?.status || '').toUpperCase() !== 'FAILED').length
+}
+
+function planExecutionTagType(status: string) {
+  if (status === 'MATCHED') return 'success'
+  if (status === 'DIVERGED') return 'danger'
+  if (status === 'PARTIAL') return 'warning'
+  return 'info'
 }
 
 function openTrace(execution: Record<string, any>) {

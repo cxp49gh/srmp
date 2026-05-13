@@ -44,6 +44,36 @@ export interface MapAiPlanPreview {
   error?: string
 }
 
+export interface MapAiPlanPreviewMeta {
+  planTraceId?: string
+  action?: string
+  intent?: string
+  toolNames: string[]
+  sourceTypes: string[]
+  contextChips: string[]
+  warningCodes: string[]
+}
+
+export interface MapAiPlanExecution {
+  available: boolean
+  status: 'MATCHED' | 'PARTIAL' | 'DIVERGED' | 'NO_PLAN' | string
+  planTraceId?: string
+  runTraceId?: string
+  plannedAction?: string
+  actualAction?: string
+  plannedIntent?: string
+  actualIntent?: string
+  plannedToolNames: string[]
+  actualToolNames: string[]
+  missingToolNames: string[]
+  extraToolNames: string[]
+  plannedSourceTypes: string[]
+  actualSourceTypes: string[]
+  missingSourceTypes: string[]
+  warnings: MapAiPlanWarning[]
+  raw: Record<string, any>
+}
+
 const TOOL_LABELS: Record<string, string> = {
   'gis.queryNearbyObjects': '查询周边对象',
   'gis.queryRegionSummary': '查询区域统计',
@@ -83,6 +113,42 @@ export function normalizeMapAiPlanResponse(input: any): MapAiPlanPreview {
     normalizedRequest,
     raw,
     error: stringValue(raw.error || raw.errorMessage || raw.message)
+  }
+}
+
+export function buildPlanPreviewMeta(plan?: MapAiPlanPreview | null): MapAiPlanPreviewMeta | null {
+  if (!plan) return null
+  return {
+    planTraceId: plan.traceId,
+    action: plan.action,
+    intent: plan.intent,
+    toolNames: uniqueStrings(plan.toolPlan.map((item) => item.name).filter(Boolean)),
+    sourceTypes: uniqueStrings(plan.sourceHints.map((item) => item.sourceType).filter(Boolean)),
+    contextChips: uniqueStrings(plan.contextChips),
+    warningCodes: uniqueStrings(plan.warnings.map((item) => item.code).filter(Boolean))
+  }
+}
+
+export function normalizePlanExecution(input: any): MapAiPlanExecution {
+  const raw = objectValue(input?.planExecution || input?.data?.planExecution || input)
+  return {
+    available: raw.available === true,
+    status: stringValue(raw.status) || (raw.available === false ? 'NO_PLAN' : 'NO_PLAN'),
+    planTraceId: stringValue(raw.planTraceId),
+    runTraceId: stringValue(raw.runTraceId),
+    plannedAction: stringValue(raw.plannedAction),
+    actualAction: stringValue(raw.actualAction),
+    plannedIntent: stringValue(raw.plannedIntent),
+    actualIntent: stringValue(raw.actualIntent),
+    plannedToolNames: uniqueStrings(arrayValue(raw.plannedToolNames)),
+    actualToolNames: uniqueStrings(arrayValue(raw.actualToolNames)),
+    missingToolNames: uniqueStrings(arrayValue(raw.missingToolNames)),
+    extraToolNames: uniqueStrings(arrayValue(raw.extraToolNames)),
+    plannedSourceTypes: uniqueStrings(arrayValue(raw.plannedSourceTypes)),
+    actualSourceTypes: uniqueStrings(arrayValue(raw.actualSourceTypes)),
+    missingSourceTypes: uniqueStrings(arrayValue(raw.missingSourceTypes)),
+    warnings: normalizeWarnings(arrayValue(raw.warnings)),
+    raw
   }
 }
 
@@ -251,6 +317,19 @@ function isWriteTool(name: string): boolean {
 
 function objectValue(value: any): Record<string, any> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+}
+
+function arrayValue(value: any): any[] {
+  return Array.isArray(value) ? value : []
+}
+
+function uniqueStrings(values: any[]): string[] {
+  const result: string[] = []
+  values.forEach((value) => {
+    const text = stringValue(value)
+    if (text && !result.includes(text)) result.push(text)
+  })
+  return result
 }
 
 function stringValue(value: any): string | undefined {

@@ -37,6 +37,57 @@
           </div>
         </section>
 
+        <section v-if="planExecution" class="plan-section">
+          <div class="plan-section-head">
+            <strong>执行对比</strong>
+            <el-tag size="small" :type="planExecutionStatusType(planExecution.status)">
+              {{ planExecution.status }}
+            </el-tag>
+          </div>
+          <div class="compare-grid">
+            <span>
+              <em>Action</em>
+              <strong>{{ comparePair(planExecution.plannedAction, planExecution.actualAction) }}</strong>
+            </span>
+            <span>
+              <em>Intent</em>
+              <strong>{{ comparePair(planExecution.plannedIntent, planExecution.actualIntent) }}</strong>
+            </span>
+            <span>
+              <em>计划工具</em>
+              <strong>{{ planExecution.plannedToolNames.length }}</strong>
+            </span>
+            <span>
+              <em>实际工具</em>
+              <strong>{{ planExecution.actualToolNames.length }}</strong>
+            </span>
+          </div>
+          <div v-if="planExecution.missingToolNames.length || planExecution.extraToolNames.length" class="diff-list">
+            <div v-if="planExecution.missingToolNames.length" class="diff-item">
+              <el-tag size="small" type="danger" effect="plain">缺失工具</el-tag>
+              <span>{{ planExecution.missingToolNames.join('、') }}</span>
+            </div>
+            <div v-if="planExecution.extraToolNames.length" class="diff-item">
+              <el-tag size="small" type="warning" effect="plain">额外工具</el-tag>
+              <span>{{ planExecution.extraToolNames.join('、') }}</span>
+            </div>
+          </div>
+          <div v-if="planExecution.plannedSourceTypes.length || planExecution.actualSourceTypes.length" class="diff-list">
+            <div class="diff-item">
+              <el-tag size="small" effect="plain">计划来源</el-tag>
+              <span>{{ displayList(planExecution.plannedSourceTypes) }}</span>
+            </div>
+            <div class="diff-item">
+              <el-tag size="small" type="success" effect="plain">实际来源</el-tag>
+              <span>{{ displayList(planExecution.actualSourceTypes) }}</span>
+            </div>
+            <div v-if="planExecution.missingSourceTypes.length" class="diff-item">
+              <el-tag size="small" type="warning" effect="plain">未命中来源</el-tag>
+              <span>{{ planExecution.missingSourceTypes.join('、') }}</span>
+            </div>
+          </div>
+        </section>
+
         <section v-if="plan.warnings.length" class="plan-section">
           <div class="plan-section-head">
             <strong>风险提示</strong>
@@ -117,12 +168,13 @@
 </template>
 
 <script setup lang="ts">
-import type { MapAiPlanPreview } from '../../../utils/mapAiPlanPreview'
+import type { MapAiPlanExecution, MapAiPlanPreview } from '../../../utils/mapAiPlanPreview'
 
 defineProps<{
   visible: boolean
   loading?: boolean
   plan?: MapAiPlanPreview | null
+  planExecution?: MapAiPlanExecution | null
   error?: string
 }>()
 
@@ -139,6 +191,23 @@ function displayValue(value: any) {
   if (value === undefined || value === null || value === '') return '-'
   if (typeof value === 'object') return JSON.stringify(value)
   return String(value)
+}
+
+function displayList(values: string[]) {
+  return values?.length ? values.join('、') : '-'
+}
+
+function comparePair(planned?: string, actual?: string) {
+  const left = planned || '-'
+  const right = actual || '-'
+  return left === right ? left : `${left} / ${right}`
+}
+
+function planExecutionStatusType(status: string) {
+  if (status === 'MATCHED') return 'success'
+  if (status === 'DIVERGED') return 'danger'
+  if (status === 'PARTIAL') return 'warning'
+  return 'info'
 }
 </script>
 
@@ -169,7 +238,8 @@ function displayValue(value: any) {
 .plan-context,
 .source-list,
 .warning-list,
-.step-list {
+.step-list,
+.diff-list {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -235,13 +305,44 @@ function displayValue(value: any) {
 }
 
 .warning-item,
-.source-item {
+.source-item,
+.diff-item {
   display: flex;
   align-items: flex-start;
   gap: 6px;
   width: 100%;
   color: #4b5563;
   font-size: 12px;
+}
+
+.compare-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.compare-grid span {
+  min-width: 0;
+  border-radius: 6px;
+  background: #f9fafb;
+  padding: 8px;
+}
+
+.compare-grid em {
+  display: block;
+  color: #6b7280;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.compare-grid strong {
+  display: block;
+  overflow: hidden;
+  color: #111827;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .plan-footer {

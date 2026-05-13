@@ -10,6 +10,7 @@ from .intent import recognize_intent
 from .java_tools import JavaToolGateway, extract_knowledge_sources
 from .live_trace import LiveTraceStore
 from .llm_client import LlmClient, LlmResult
+from .plan_execution import build_plan_execution, normalize_plan_preview
 from .plan_preview import build_plan_warnings, build_source_hints, enrich_tool_plan
 from .planner import plan_tools
 from .prompt import build_answer_prompt, build_compact_answer_prompt, fallback_answer
@@ -539,12 +540,27 @@ class LangGraphWorkflow:
         has_map_object = bool(request.mapContext and request.mapContext.mapObject)
         has_region = bool(request.mapContext and (request.mapContext.regionSummary or request.mapContext.geometry or str(request.mapContext.mode or "").upper() in {"BOX", "POLYGON", "REGION", "SELECTION"}))
         answer_meta = state.get("answer_meta", {})
+        actual_action = str(request.action or (request.options or {}).get("action") or "CHAT").upper()
+        plan_execution = build_plan_execution(
+            normalize_plan_preview((request.options or {}).get("planPreview")),
+            {
+                "runTraceId": state.get("trace_id"),
+                "actualAction": actual_action,
+                "actualIntent": state.get("intent"),
+                "toolResults": [item.model_dump(exclude_none=True) for item in tool_results],
+                "sources": sources,
+                "evidence": state.get("evidence", {}),
+            },
+        )
+        answer_meta = dict(answer_meta)
+        answer_meta["planExecutionStatus"] = plan_execution.get("status")
         trace_payload = {
             "traceId": state.get("trace_id"),
             "orchestratorProvider": "langgraph",
             "strategyVersion": settings.strategy_version,
             "nodeFlow": NODE_FLOW,
             "steps": state.get("steps", []),
+            "planExecution": plan_execution,
             "costMs": int((time.perf_counter() - state.get("started_at", time.perf_counter())) * 1000),
         }
         if self.live_trace_store:
@@ -562,6 +578,8 @@ class LangGraphWorkflow:
             toolResults=[item.model_dump(exclude_none=True) for item in tool_results],
             knowledgeSources=sources,
             sources=sources,
+            answerMeta=answer_meta,
+            planExecution=plan_execution,
             trace=trace_payload,
             data={
                 "orchestratorProvider": "langgraph",
@@ -577,6 +595,7 @@ class LangGraphWorkflow:
                 "toolFailedCount": sum(1 for item in tool_results if not item.success),
                 "evidence": state.get("evidence", {}),
                 "answerMeta": answer_meta,
+                "planExecution": plan_execution,
                 "answerSource": answer_meta.get("answerSource"),
                 "llmSuccess": answer_meta.get("llmSuccess"),
                 "quality": state.get("quality", {}),

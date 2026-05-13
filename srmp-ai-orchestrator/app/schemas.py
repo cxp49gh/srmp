@@ -66,6 +66,8 @@ class MapAiAgentResponse(BaseModel):
     toolResults: List[Dict[str, Any]] = Field(default_factory=list)
     knowledgeSources: List[Dict[str, Any]] = Field(default_factory=list)
     sources: List[Dict[str, Any]] = Field(default_factory=list)
+    answerMeta: Dict[str, Any] = Field(default_factory=dict)
+    planExecution: Dict[str, Any] = Field(default_factory=dict)
     trace: Dict[str, Any] = Field(default_factory=dict)
     data: Dict[str, Any] = Field(default_factory=dict)
 
@@ -121,5 +123,6 @@ class MapAgentRunResponse(BaseModel):
     knowledgeSources: List[Dict[str, Any]] = Field(default_factory=list)
     sources: List[Dict[str, Any]] = Field(default_factory=list)
     answerMeta: Dict[str, Any] = Field(default_factory=dict)
+    planExecution: Dict[str, Any] = Field(default_factory=dict)
     trace: Dict[str, Any] = Field(default_factory=dict)
     data: Dict[str, Any] = Field(default_factory=dict)

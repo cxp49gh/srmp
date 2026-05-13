@@ -1,9 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  buildPlanPreviewMeta,
   buildPlanWarnings,
   deriveSourceHints,
   normalizeMapAiPlanResponse,
+  normalizePlanExecution,
   summarizePlanContext
 } from '../src/utils/mapAiPlanPreview.ts'
 
@@ -102,4 +104,63 @@ test('keeps plan data display-safe when fields are missing', () => {
   assert.equal(plan.toolPlan[0].readOnly, true)
   assert.equal(plan.steps[0].label, 'intent_recognize')
   assert.deepEqual(plan.sourceHints, [])
+})
+
+test('builds compact plan preview metadata for run requests', () => {
+  const plan = normalizeMapAiPlanResponse({
+    traceId: 'web-lg-plan-1',
+    action: 'ANALYZE_REGION',
+    intent: 'REGION_ANALYSIS',
+    contextSummary: { mode: 'REGION', routeCode: 'G210', year: 2026 },
+    toolPlan: [
+      { toolName: 'gis.queryRegionSummary', args: { routeCode: 'G210' } },
+      { toolName: 'knowledge.retrieve', args: { query: '区域养护' } }
+    ],
+    sourceHints: [
+      { sourceType: 'MAP_REGION', label: '框选区域' },
+      { sourceType: 'BUSINESS_DATA', label: '业务数据' },
+      { sourceType: 'KNOWLEDGE', label: '知识库' }
+    ],
+    warnings: [{ level: 'WARN', code: 'REGION_GEOMETRY_MISSING', message: '缺少几何' }]
+  })
+
+  assert.deepEqual(buildPlanPreviewMeta(plan), {
+    planTraceId: 'web-lg-plan-1',
+    action: 'ANALYZE_REGION',
+    intent: 'REGION_ANALYSIS',
+    toolNames: ['gis.queryRegionSummary', 'knowledge.retrieve'],
+    sourceTypes: ['MAP_REGION', 'BUSINESS_DATA', 'KNOWLEDGE'],
+    contextChips: ['区域模式', '路线 G210', '年度 2026'],
+    warningCodes: ['REGION_GEOMETRY_MISSING']
+  })
+})
+
+test('normalizes plan execution from top-level or data payloads', () => {
+  const topLevel = normalizePlanExecution({
+    planExecution: {
+      available: true,
+      status: 'PARTIAL',
+      plannedToolNames: ['gis.queryRegionSummary'],
+      actualToolNames: ['gis.queryRegionSummary', 'knowledge.retrieve'],
+      missingToolNames: [],
+      extraToolNames: ['knowledge.retrieve'],
+      plannedSourceTypes: ['BUSINESS_DATA'],
+      actualSourceTypes: ['BUSINESS_DATA', 'KNOWLEDGE'],
+      missingSourceTypes: []
+    }
+  })
+
+  const nested = normalizePlanExecution({
+    data: {
+      planExecution: {
+        available: false,
+        status: 'NO_PLAN'
+      }
+    }
+  })
+
+  assert.equal(topLevel.status, 'PARTIAL')
+  assert.equal(topLevel.extraToolNames[0], 'knowledge.retrieve')
+  assert.equal(nested.status, 'NO_PLAN')
+  assert.equal(nested.available, false)
 })
