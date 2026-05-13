@@ -4,8 +4,9 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
-from .config import settings
+from .adaptive_planner import plan_adaptive_tools
 from .answer_enhancers import enhance_answer
+from .config import settings
 from .intent import recognize_intent
 from .java_tools import JavaToolGateway, extract_knowledge_sources
 from .live_trace import LiveTraceStore
@@ -34,6 +35,9 @@ NODE_FLOW = [
     "tool_planning",
     "tool_execute",
     "evidence_fuse",
+    "adaptive_tool_planning",
+    "adaptive_tool_execute",
+    "adaptive_evidence_fuse",
     "answer_generate",
     "quality_guard",
 ]
@@ -55,6 +59,9 @@ NODE_LABELS = {
     "tool_plan": "规划工具",
     "tool_execute": "执行只读工具",
     "evidence_fuse": "融合证据",
+    "adaptive_tool_planning": "自适应补充规划",
+    "adaptive_tool_execute": "执行补充工具",
+    "adaptive_evidence_fuse": "融合补充证据",
     "answer_generate": "生成回答",
     "quality_guard": "质量保护",
     "llm_answer": "大模型回答",
@@ -73,6 +80,9 @@ class AgentState(TypedDict, total=False):
     tool_plan: List[ToolCall]
     toolPlan: List[ToolCall]
     tool_results: List[ToolResult]
+    adaptive_tool_plan: List[ToolCall]
+    adaptive_tool_results: List[ToolResult]
+    adaptive_planning: Dict[str, Any]
     evidence: Dict[str, Any]
     answer: str
     answer_meta: Dict[str, Any]
@@ -92,6 +102,8 @@ def strategy_metadata() -> Dict[str, Any]:
         "qualityGuard": settings.enable_quality_guard,
         "contextEnrich": settings.enable_context_enrich,
         "evidenceFusion": settings.enable_evidence_fusion,
+        "adaptivePlanning": settings.adaptive_planning_enabled,
+        "maxAdaptiveIterations": settings.max_adaptive_iterations,
         "runtimeReplay": True,
         "diagnosticExport": True,
     }
@@ -153,6 +165,9 @@ class LangGraphWorkflow:
         builder.add_node("tool_planning", self._wrap_node("tool_planning", self._tool_plan))
         builder.add_node("tool_execute", self._wrap_node("tool_execute", self._tool_execute))
         builder.add_node("evidence_fuse", self._wrap_node("evidence_fuse", self._evidence_fuse))
+        builder.add_node("adaptive_tool_planning", self._wrap_node("adaptive_tool_planning", self._adaptive_tool_planning))
+        builder.add_node("adaptive_tool_execute", self._wrap_node("adaptive_tool_execute", self._adaptive_tool_execute))
+        builder.add_node("adaptive_evidence_fuse", self._wrap_node("adaptive_evidence_fuse", self._adaptive_evidence_fuse))
         builder.add_node("answer_generate", self._wrap_node("answer_generate", self._answer_generate))
         builder.add_node("quality_guard", self._wrap_node("quality_guard", self._quality_guard))
         builder.set_entry_point("request_normalize")
@@ -349,7 +364,11 @@ class LangGraphWorkflow:
         )
 
     async def _evidence_fuse(self, state: AgentState) -> Dict[str, Any]:
-        results = state.get("tool_results", [])
+        evidence = self._build_evidence(state.get("tool_results", []))
+        self._step(state, "evidence_fuse", "融合 GIS 与知识库证据", evidence)
+        return {"evidence": evidence}
+
+    def _build_evidence(self, results: List[ToolResult]) -> Dict[str, Any]:
         success = [item for item in results if item.success]
         failed = [item for item in results if not item.success]
         business_hit_count = 0
@@ -362,7 +381,7 @@ class LangGraphWorkflow:
             else:
                 business_hit_count += count
 
-        evidence = {
+        return {
             "strategyVersion": settings.strategy_version,
             "toolSuccessCount": len(success),
             "toolFailedCount": len(failed),
@@ -381,8 +400,68 @@ class LangGraphWorkflow:
                 for item in results
             ],
         }
-        self._step(state, "evidence_fuse", "融合 GIS 与知识库证据", evidence)
-        return {"evidence": evidence}
+
+    async def _adaptive_tool_planning(self, state: AgentState) -> Dict[str, Any]:
+        decision = plan_adaptive_tools(
+            request=state["request"],
+            intent=state.get("intent", "KNOWLEDGE_QA"),
+            intent_detail=state.get("intent_detail", {}),
+            evidence=state.get("evidence", {}),
+            tool_results=state.get("tool_results", []),
+            existing_plan=state.get("tool_plan", []),
+        )
+        summary = decision.to_summary()
+        self._step(
+            state,
+            "adaptive_tool_planning",
+            decision.reason,
+            summary,
+            status="SUCCESS" if decision.should_replan else "SKIPPED",
+            count=len(decision.added_calls),
+        )
+        return {"adaptive_tool_plan": decision.added_calls, "adaptive_planning": summary}
+
+    async def _adaptive_tool_execute(self, state: AgentState) -> Dict[str, Any]:
+        calls = state.get("adaptive_tool_plan", [])
+        if not calls:
+            self._step(state, "adaptive_tool_execute", "无补充工具需要执行", state.get("adaptive_planning", {}), status="SKIPPED")
+            return {"adaptive_tool_results": []}
+
+        results: List[ToolResult] = []
+        for call in calls:
+            results.append(await self._execute_single_tool(state, call))
+        combined_results = list(state.get("tool_results", [])) + results
+        planning = dict(state.get("adaptive_planning") or {})
+        planning.update(
+            {
+                "status": "EXECUTED" if any(item.success for item in results) else "FAILED",
+                "addedToolNames": [item.toolName for item in calls],
+            }
+        )
+        self._step(
+            state,
+            "adaptive_tool_execute",
+            "执行自适应补充工具",
+            {
+                "success": sum(1 for item in results if item.success),
+                "failed": sum(1 for item in results if not item.success),
+                "tools": [item.toolName for item in results],
+            },
+            status="SUCCESS" if any(item.success for item in results) else "FAILED",
+            count=len(results),
+        )
+        return {"tool_results": combined_results, "adaptive_tool_results": results, "adaptive_planning": planning}
+
+    async def _adaptive_evidence_fuse(self, state: AgentState) -> Dict[str, Any]:
+        results = state.get("adaptive_tool_results", [])
+        if not results:
+            self._step(state, "adaptive_evidence_fuse", "无补充证据需要融合", state.get("adaptive_planning", {}), status="SKIPPED")
+            return {}
+        evidence = self._build_evidence(state.get("tool_results", []))
+        planning = dict(state.get("adaptive_planning") or {})
+        planning["evidenceSufficientAfter"] = bool(evidence.get("sufficient"))
+        self._step(state, "adaptive_evidence_fuse", "融合自适应补充证据", {"adaptivePlanning": planning, "evidence": evidence})
+        return {"evidence": evidence, "adaptive_planning": planning}
 
     async def _call_llm(self, prompt: str) -> LlmResult:
         if not settings.use_llm:
@@ -541,6 +620,17 @@ class LangGraphWorkflow:
         has_region = bool(request.mapContext and (request.mapContext.regionSummary or request.mapContext.geometry or str(request.mapContext.mode or "").upper() in {"BOX", "POLYGON", "REGION", "SELECTION"}))
         answer_meta = state.get("answer_meta", {})
         actual_action = str(request.action or (request.options or {}).get("action") or "CHAT").upper()
+        adaptive_planning = state.get("adaptive_planning") or {
+            "enabled": settings.adaptive_planning_enabled,
+            "status": "SKIPPED_NO_CANDIDATE",
+            "iterations": 0,
+            "maxIterations": settings.max_adaptive_iterations,
+            "reason": "自适应规划未产生补充工具。",
+            "addedToolNames": [],
+            "skippedToolNames": [],
+            "evidenceSufficientBefore": bool((state.get("evidence") or {}).get("sufficient")),
+            "evidenceSufficientAfter": bool((state.get("evidence") or {}).get("sufficient")),
+        }
         plan_execution = build_plan_execution(
             normalize_plan_preview((request.options or {}).get("planPreview")),
             {
@@ -550,10 +640,12 @@ class LangGraphWorkflow:
                 "toolResults": [item.model_dump(exclude_none=True) for item in tool_results],
                 "sources": sources,
                 "evidence": state.get("evidence", {}),
+                "adaptivePlanning": adaptive_planning,
             },
         )
         answer_meta = dict(answer_meta)
         answer_meta["planExecutionStatus"] = plan_execution.get("status")
+        answer_meta["adaptivePlanningStatus"] = adaptive_planning.get("status")
         trace_payload = {
             "traceId": state.get("trace_id"),
             "orchestratorProvider": "langgraph",
@@ -561,6 +653,7 @@ class LangGraphWorkflow:
             "nodeFlow": NODE_FLOW,
             "steps": state.get("steps", []),
             "planExecution": plan_execution,
+            "adaptivePlanning": adaptive_planning,
             "costMs": int((time.perf_counter() - state.get("started_at", time.perf_counter())) * 1000),
         }
         if self.live_trace_store:
@@ -594,6 +687,7 @@ class LangGraphWorkflow:
                 "toolSuccessCount": sum(1 for item in tool_results if item.success),
                 "toolFailedCount": sum(1 for item in tool_results if not item.success),
                 "evidence": state.get("evidence", {}),
+                "adaptivePlanning": adaptive_planning,
                 "answerMeta": answer_meta,
                 "planExecution": plan_execution,
                 "answerSource": answer_meta.get("answerSource"),
