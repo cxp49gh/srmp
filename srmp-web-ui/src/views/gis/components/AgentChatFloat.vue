@@ -55,14 +55,6 @@
               :loading="solutionLoading && activeSolutionType === primarySolutionAction.type"
               @click="generateSolutionDraft(primarySolutionAction.type)"
             >{{ primarySolutionAction.label }}</el-button>
-            <el-button
-              v-if="primarySolutionAction"
-              size="small"
-              plain
-              :disabled="!activeMapObject || solutionLoading || loading"
-              :loading="planLoading && planExecutionSnapshot?.action === 'GENERATE_OBJECT_SOLUTION'"
-              @click="previewObjectSolutionPlan(primarySolutionAction.type)"
-            >方案计划</el-button>
           </template>
 
           <template v-else-if="contextMode === 'REGION'">
@@ -81,13 +73,6 @@
               :loading="props.regionLoading"
               @click="emit('generate-region')"
             >生成区域建议</el-button>
-            <el-button
-              size="small"
-              plain
-              :disabled="!activeRegionContext || regionBusy"
-              :loading="planLoading && planExecutionSnapshot?.action === 'GENERATE_REGION_SOLUTION'"
-              @click="previewRegionSolutionPlan"
-            >方案计划</el-button>
             <el-button v-if="hasRegionTrace" size="small" plain @click="emit('trace')">Trace</el-button>
           </template>
 
@@ -212,7 +197,6 @@
       <MapAiSuggestedActions
         :actions="latestSuggestedActions"
         @run-action="runSuggestedAction"
-        @preview-plan="previewSuggestedActionPlan"
       />
 
       <section v-if="aiBusy" class="ai-wait-panel" :class="{ slow: waitFeedback.longWait }">
@@ -388,15 +372,13 @@ const liveTraceError = ref('')
 const liveTraceFailureCount = ref(0)
 let liveTraceTimer: ReturnType<typeof window.setInterval> | null = null
 
-type PlanExecutionKind = 'SEND' | 'OBJECT_SOLUTION' | 'REGION_SOLUTION' | 'ROUTE_REPORT' | 'SUGGESTED_ACTION'
+type PlanExecutionKind = 'SEND'
 
 interface PlanExecutionSnapshot {
   kind: PlanExecutionKind
   action: MapAgentAction
   message: string
   request: MapAgentRunRequest
-  solutionType?: MapObjectSolutionType
-  suggestedAction?: MapAgentSuggestedAction
 }
 
 const planDrawerVisible = ref(false)
@@ -947,39 +929,6 @@ function buildCurrentPlanSnapshot(): PlanExecutionSnapshot {
   }
 }
 
-function buildObjectSolutionPlanSnapshot(solutionType: MapObjectSolutionType): PlanExecutionSnapshot {
-  const obj: any = activeMapObject.value
-  const query = props.context?.query || {}
-  const message = '生成当前对象的结构化养护建议'
-  const action: MapAgentAction = solutionType === 'ROUTE_REPORT' ? 'GENERATE_ROUTE_REPORT' : 'GENERATE_OBJECT_SOLUTION'
-  return {
-    kind: solutionType === 'ROUTE_REPORT' ? 'ROUTE_REPORT' : 'OBJECT_SOLUTION',
-    action,
-    message,
-    solutionType,
-    request: buildPlanRequest(action, message, {
-      objectType: normalizeObjectType(obj),
-      objectId: String(obj?.objectId || obj?.object_id || obj?.id || obj?.featureId || ''),
-      routeCode: String(obj?.routeCode || obj?.route_code || query.routeCode || ''),
-      year: normalizeYear(obj?.year || query.year),
-      solutionType,
-      mapObject: obj
-    })
-  }
-}
-
-function buildRegionSolutionPlanSnapshot(): PlanExecutionSnapshot {
-  const message = '生成框选区域养护建议'
-  return {
-    kind: 'REGION_SOLUTION',
-    action: 'GENERATE_REGION_SOLUTION',
-    message,
-    request: buildPlanRequest('GENERATE_REGION_SOLUTION', message, {
-      solutionType: 'REGION_MAINTENANCE_SUGGESTION'
-    })
-  }
-}
-
 async function openPlanPreview(snapshot: PlanExecutionSnapshot) {
   planExecutionSnapshot.value = snapshot
   planDrawerVisible.value = true
@@ -1000,46 +949,6 @@ function previewCurrentPlan() {
   openPlanPreview(buildCurrentPlanSnapshot())
 }
 
-function previewObjectSolutionPlan(solutionType: MapObjectSolutionType) {
-  if (!activeMapObject.value) {
-    ElMessage.warning('请先在地图上选择一个对象')
-    return
-  }
-  openPlanPreview(buildObjectSolutionPlanSnapshot(solutionType))
-}
-
-function previewRegionSolutionPlan() {
-  if (!activeRegionContext.value) {
-    ElMessage.warning('请先框选一个区域')
-    return
-  }
-  openPlanPreview(buildRegionSolutionPlanSnapshot())
-}
-
-function previewSuggestedActionPlan(action: MapAgentSuggestedAction) {
-  if (action.action === 'GENERATE_REGION_SOLUTION') {
-    previewRegionSolutionPlan()
-    return
-  }
-  if (action.action === 'GENERATE_ROUTE_REPORT') {
-    openPlanPreview(buildObjectSolutionPlanSnapshot('ROUTE_REPORT'))
-    return
-  }
-  if (action.action === 'GENERATE_OBJECT_SOLUTION') {
-    const primary = solutionActions.value.find((it: any) => it.primary) || solutionActions.value[0]
-    if (primary) previewObjectSolutionPlan(primary.type)
-    return
-  }
-  const message = action.label || action.action
-  openPlanPreview({
-    kind: 'SUGGESTED_ACTION',
-    action: action.action,
-    message,
-    suggestedAction: action,
-    request: buildPlanRequest(action.action, message, action.payload || {})
-  })
-}
-
 function refreshPlanPreview() {
   if (planExecutionSnapshot.value) openPlanPreview(planExecutionSnapshot.value)
 }
@@ -1048,18 +957,6 @@ async function executePlanPreview() {
   const snapshot = planExecutionSnapshot.value
   if (!snapshot) return
   planDrawerVisible.value = false
-  if (snapshot.kind === 'REGION_SOLUTION') {
-    emit('generate-region')
-    return
-  }
-  if (snapshot.kind === 'OBJECT_SOLUTION' || snapshot.kind === 'ROUTE_REPORT') {
-    if (snapshot.solutionType) generateSolutionDraft(snapshot.solutionType)
-    return
-  }
-  if (snapshot.suggestedAction) {
-    runSuggestedAction(snapshot.suggestedAction)
-    return
-  }
   input.value = snapshot.message
   await nextTick()
   await send()
