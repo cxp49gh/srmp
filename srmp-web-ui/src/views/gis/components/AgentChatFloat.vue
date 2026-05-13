@@ -20,6 +20,7 @@
           <div class="analysis-title-actions">
             <el-tag size="small" effect="plain">{{ activeMetricMeta.shortName }}</el-tag>
             <el-button size="small" text :loading="diagnosticsLoading" @click="loadQuickDiagnostics">状态诊断</el-button>
+            <el-button size="small" text :loading="planLoading" @click="previewCurrentPlan()">执行计划</el-button>
           </div>
         </div>
 
@@ -193,7 +194,10 @@
       </div>
 
       <MapAiActionResultPanel :result="latestActionResult" />
-      <MapAiSuggestedActions :actions="latestSuggestedActions" @run-action="runSuggestedAction" />
+      <MapAiSuggestedActions
+        :actions="latestSuggestedActions"
+        @run-action="runSuggestedAction"
+      />
 
       <section v-if="aiBusy" class="ai-wait-panel" :class="{ slow: waitFeedback.longWait }">
         <div class="wait-head">
@@ -249,18 +253,27 @@
     :tool-results="activeExecution?.toolResults || []"
     :sources="activeExecution?.sources || []"
   />
+  <MapAiPlanPreviewDrawer
+    v-model:visible="planDrawerVisible"
+    :loading="planLoading"
+    :plan="planPreview"
+    :error="planError"
+    @refresh="refreshPlanPreview"
+    @execute="executePlanPreview"
+  />
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { mapAgentRun, type MapAgentActionResult, type MapAgentRunResponse, type MapAgentSuggestedAction } from '../../../api/agent'
+import { mapAgentRun, type MapAgentAction, type MapAgentActionResult, type MapAgentRunRequest, type MapAgentRunResponse, type MapAgentSuggestedAction } from '../../../api/agent'
 import { saveMapObjectSolutionDraft, updateSolutionTaskAiContext } from '../../../api/solution'
-import { getOrchestratorLiveTrace, getOrchestratorQuickDiagnostics } from '../../../api/orchestrator'
+import { getOrchestratorLiveTrace, getOrchestratorQuickDiagnostics, runOrchestratorPlan } from '../../../api/orchestrator'
 import SolutionPreviewDialog from './SolutionPreviewDialog.vue'
 import AiTraceButton from '../../agent/components/AiTraceButton.vue'
 import AiTraceDrawer from '../../agent/components/AiTraceDrawer.vue'
 import AiEvidencePanel from './AiEvidencePanel.vue'
+import MapAiPlanPreviewDrawer from './MapAiPlanPreviewDrawer.vue'
 import MapAiActionResultPanel from './map-ai/MapAiActionResultPanel.vue'
 import MapAiContextPanel from './map-ai/MapAiContextPanel.vue'
 import MapAiSuggestedActions from './map-ai/MapAiSuggestedActions.vue'
@@ -268,6 +281,7 @@ import { copyText } from '../../../utils/clipboard'
 import { gisContextTypeLabel, sourceToMapTarget, type GisSourceMapTarget } from '../../../utils/gisUnifiedContext'
 import { formatMetricValue, getMetricGrade, getMetricMeta, getMetricValue, gradeLabel } from '../../../utils/roadConditionMetrics'
 import { buildWaitFeedback, formatElapsedMs, normalizeLangGraphDiagnostics, summarizeRunTiming, type LangGraphDiagnostics } from '../../../utils/aiRunFeedback'
+import { normalizeMapAiPlanResponse, type MapAiPlanPreview } from '../../../utils/mapAiPlanPreview'
 import {
   buildLiveTraceSummary,
   createWebTraceId,
@@ -357,6 +371,21 @@ const liveTrace = ref<LiveTraceSnapshot | null>(null)
 const liveTraceError = ref('')
 const liveTraceFailureCount = ref(0)
 let liveTraceTimer: ReturnType<typeof window.setInterval> | null = null
+
+type PlanExecutionKind = 'SEND'
+
+interface PlanExecutionSnapshot {
+  kind: PlanExecutionKind
+  action: MapAgentAction
+  message: string
+  request: MapAgentRunRequest
+}
+
+const planDrawerVisible = ref(false)
+const planLoading = ref(false)
+const planError = ref('')
+const planPreview = ref<MapAiPlanPreview | null>(null)
+const planExecutionSnapshot = ref<PlanExecutionSnapshot | null>(null)
 
 const options = reactive({
   useBusinessData: true,
@@ -864,6 +893,73 @@ function analyzeCurrentRoute() {
 
 function findWeakSections() {
   quickAsk('结合当前查询条件、地图视野和启用图层，找出次差路段、低分单元或病害集中区域，并说明排序依据')
+}
+
+function defaultPlanMessage() {
+  const text = input.value.trim()
+  if (text) return text
+  if (contextMode.value === 'REGION') return '综合分析当前区域内线路、路段、评定单元、病害和评定结果'
+  if (contextMode.value === 'OBJECT') return '分析当前地图选中对象，说明主要问题、成因判断和养护建议'
+  if (contextMode.value === 'ROUTE') return '分析当前路线整体路况和养护重点'
+  return '基于当前地图上下文回答问题'
+}
+
+function buildPlanRequest(action: MapAgentAction, message: string, actionInput: Record<string, any> = {}): MapAgentRunRequest {
+  const mapContext: any = buildMapAiContext(message)
+  if (mapContext.mode === 'REGION') {
+    mapContext.geometry = mapContext.geometry || mapContext.regionGeometry || mapContext.region?.geometry || props.context?.regionGeometry || null
+  }
+  return {
+    action,
+    message,
+    mapContext,
+    actionInput,
+    options: { ...options, useTools: useAgentTools.value, traceId: createWebTraceId() }
+  }
+}
+
+function buildCurrentPlanSnapshot(): PlanExecutionSnapshot {
+  const action: MapAgentAction = contextMode.value === 'REGION' ? 'ANALYZE_REGION' : contextMode.value === 'OBJECT' ? 'ANALYZE_OBJECT' : 'CHAT'
+  const message = defaultPlanMessage()
+  return {
+    kind: 'SEND',
+    action,
+    message,
+    request: buildPlanRequest(action, message, { mapObject: activeMapObject.value })
+  }
+}
+
+async function openPlanPreview(snapshot: PlanExecutionSnapshot) {
+  planExecutionSnapshot.value = snapshot
+  planDrawerVisible.value = true
+  planLoading.value = true
+  planError.value = ''
+  try {
+    const result = await runOrchestratorPlan(snapshot.request as any)
+    planPreview.value = normalizeMapAiPlanResponse(result)
+  } catch (error: any) {
+    planPreview.value = null
+    planError.value = error?.message || '执行计划生成失败'
+  } finally {
+    planLoading.value = false
+  }
+}
+
+function previewCurrentPlan() {
+  openPlanPreview(buildCurrentPlanSnapshot())
+}
+
+function refreshPlanPreview() {
+  if (planExecutionSnapshot.value) openPlanPreview(planExecutionSnapshot.value)
+}
+
+async function executePlanPreview() {
+  const snapshot = planExecutionSnapshot.value
+  if (!snapshot) return
+  planDrawerVisible.value = false
+  input.value = snapshot.message
+  await nextTick()
+  await send()
 }
 
 async function handleContextCommand(command: string) {
