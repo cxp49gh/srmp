@@ -256,6 +256,7 @@ class MapAgentRunWorkflow:
                 "toolResults": response.toolResults or [],
                 "sources": response.sources or response.knowledgeSources or [],
                 "evidence": (response.data or {}).get("evidence") or {},
+                "adaptivePlanning": (response.data or {}).get("adaptivePlanning") or {},
             },
         )
         response.planExecution = plan_execution

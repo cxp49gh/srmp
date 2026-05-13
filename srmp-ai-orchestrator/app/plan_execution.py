@@ -46,6 +46,8 @@ def build_plan_execution(plan: Optional[Dict[str, Any]], response_state: Dict[st
             "actualToolNames": _actual_tool_names(response_state.get("toolResults") or []),
             "missingToolNames": [],
             "extraToolNames": [],
+            "adaptiveExtraToolNames": [],
+            "adaptiveReason": None,
             "plannedSourceTypes": [],
             "actualSourceTypes": derive_actual_source_types(
                 response_state.get("toolResults") or [],
@@ -70,6 +72,10 @@ def build_plan_execution(plan: Optional[Dict[str, Any]], response_state: Dict[st
     )
     missing_tools = [item for item in planned_tools if item not in actual_tools]
     extra_tools = [item for item in actual_tools if item not in planned_tools]
+    adaptive_planning = response_state.get("adaptivePlanning") if isinstance(response_state.get("adaptivePlanning"), dict) else {}
+    adaptive_added_tools = _unique_strings(adaptive_planning.get("addedToolNames") or [])
+    adaptive_extra_tools = [item for item in extra_tools if item in adaptive_added_tools]
+    adaptive_reason = _string_or_none(adaptive_planning.get("reason"))
     missing_sources = [item for item in planned_sources if item not in actual_sources]
     warnings: List[Dict[str, str]] = []
 
@@ -82,7 +88,10 @@ def build_plan_execution(plan: Optional[Dict[str, Any]], response_state: Dict[st
     if missing_tools:
         warnings.append({"level": "WARN", "code": "PLANNED_TOOL_MISSING", "message": "实际执行缺少计划中的工具。"})
     if extra_tools:
-        warnings.append({"level": "INFO", "code": "EXTRA_TOOL_EXECUTED", "message": "实际执行调用了计划外工具。"})
+        if adaptive_extra_tools and len(adaptive_extra_tools) == len(extra_tools):
+            warnings.append({"level": "INFO", "code": "ADAPTIVE_EXTRA_TOOL_EXECUTED", "message": "实际执行追加了自适应规划工具。"})
+        else:
+            warnings.append({"level": "INFO", "code": "EXTRA_TOOL_EXECUTED", "message": "实际执行调用了计划外工具。"})
     if missing_sources:
         warnings.append({"level": "INFO", "code": "PLANNED_SOURCE_MISSING", "message": "实际来源未命中部分计划来源。"})
 
@@ -106,6 +115,8 @@ def build_plan_execution(plan: Optional[Dict[str, Any]], response_state: Dict[st
         "actualToolNames": actual_tools,
         "missingToolNames": missing_tools,
         "extraToolNames": extra_tools,
+        "adaptiveExtraToolNames": adaptive_extra_tools,
+        "adaptiveReason": adaptive_reason,
         "plannedSourceTypes": planned_sources,
         "actualSourceTypes": actual_sources,
         "missingSourceTypes": missing_sources,

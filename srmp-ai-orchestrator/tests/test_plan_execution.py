@@ -111,6 +111,43 @@ class PlanExecutionHelpersTest(unittest.TestCase):
         self.assertEqual("PARTIAL", result["status"])
         self.assertEqual(["knowledge.retrieve"], result["extraToolNames"])
 
+    def test_adaptive_extra_tool_is_explained_as_partial(self):
+        plan = normalize_plan_preview(
+            {
+                "planTraceId": "plan-adaptive-1",
+                "action": "ANALYZE_REGION",
+                "intent": "REGION_ANALYSIS",
+                "toolNames": ["gis.queryRegionSummary"],
+                "sourceTypes": ["BUSINESS_DATA"],
+            }
+        )
+
+        result = build_plan_execution(
+            plan,
+            {
+                "runTraceId": "run-adaptive-1",
+                "actualAction": "ANALYZE_REGION",
+                "actualIntent": "REGION_ANALYSIS",
+                "toolResults": [
+                    {"toolName": "gis.queryRegionSummary", "success": True},
+                    {"toolName": "knowledge.retrieve", "success": True},
+                ],
+                "sources": [],
+                "evidence": {"businessHitCount": 0, "knowledgeHitCount": 2},
+                "adaptivePlanning": {
+                    "status": "EXECUTED",
+                    "reason": "业务工具未命中，追加知识检索补充解释依据。",
+                    "addedToolNames": ["knowledge.retrieve"],
+                },
+            },
+        )
+
+        self.assertEqual("PARTIAL", result["status"])
+        self.assertEqual(["knowledge.retrieve"], result["extraToolNames"])
+        self.assertEqual(["knowledge.retrieve"], result["adaptiveExtraToolNames"])
+        self.assertEqual("业务工具未命中，追加知识检索补充解释依据。", result["adaptiveReason"])
+        self.assertTrue(any(item["code"] == "ADAPTIVE_EXTRA_TOOL_EXECUTED" for item in result["warnings"]))
+
     def test_derives_actual_source_types_from_tools_sources_and_evidence(self):
         result = derive_actual_source_types(
             tool_results=[
