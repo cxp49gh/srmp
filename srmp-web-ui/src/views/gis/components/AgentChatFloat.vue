@@ -20,6 +20,7 @@
           <div class="analysis-title-actions">
             <el-tag size="small" effect="plain">{{ activeMetricMeta.shortName }}</el-tag>
             <el-button size="small" text :loading="diagnosticsLoading" @click="loadQuickDiagnostics">状态诊断</el-button>
+            <el-button size="small" text :loading="planLoading" @click="previewCurrentPlan()">执行计划</el-button>
           </div>
         </div>
 
@@ -54,6 +55,14 @@
               :loading="solutionLoading && activeSolutionType === primarySolutionAction.type"
               @click="generateSolutionDraft(primarySolutionAction.type)"
             >{{ primarySolutionAction.label }}</el-button>
+            <el-button
+              v-if="primarySolutionAction"
+              size="small"
+              plain
+              :disabled="!activeMapObject || solutionLoading || loading"
+              :loading="planLoading && planExecutionSnapshot?.action === 'GENERATE_OBJECT_SOLUTION'"
+              @click="previewObjectSolutionPlan(primarySolutionAction.type)"
+            >方案计划</el-button>
           </template>
 
           <template v-else-if="contextMode === 'REGION'">
@@ -72,6 +81,13 @@
               :loading="props.regionLoading"
               @click="emit('generate-region')"
             >生成区域建议</el-button>
+            <el-button
+              size="small"
+              plain
+              :disabled="!activeRegionContext || regionBusy"
+              :loading="planLoading && planExecutionSnapshot?.action === 'GENERATE_REGION_SOLUTION'"
+              @click="previewRegionSolutionPlan"
+            >方案计划</el-button>
             <el-button v-if="hasRegionTrace" size="small" plain @click="emit('trace')">Trace</el-button>
           </template>
 
@@ -193,7 +209,11 @@
       </div>
 
       <MapAiActionResultPanel :result="latestActionResult" />
-      <MapAiSuggestedActions :actions="latestSuggestedActions" @run-action="runSuggestedAction" />
+      <MapAiSuggestedActions
+        :actions="latestSuggestedActions"
+        @run-action="runSuggestedAction"
+        @preview-plan="previewSuggestedActionPlan"
+      />
 
       <section v-if="aiBusy" class="ai-wait-panel" :class="{ slow: waitFeedback.longWait }">
         <div class="wait-head">
@@ -249,18 +269,27 @@
     :tool-results="activeExecution?.toolResults || []"
     :sources="activeExecution?.sources || []"
   />
+  <MapAiPlanPreviewDrawer
+    v-model:visible="planDrawerVisible"
+    :loading="planLoading"
+    :plan="planPreview"
+    :error="planError"
+    @refresh="refreshPlanPreview"
+    @execute="executePlanPreview"
+  />
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { mapAgentRun, type MapAgentActionResult, type MapAgentRunResponse, type MapAgentSuggestedAction } from '../../../api/agent'
+import { mapAgentRun, type MapAgentAction, type MapAgentActionResult, type MapAgentRunRequest, type MapAgentRunResponse, type MapAgentSuggestedAction } from '../../../api/agent'
 import { saveMapObjectSolutionDraft, updateSolutionTaskAiContext } from '../../../api/solution'
-import { getOrchestratorLiveTrace, getOrchestratorQuickDiagnostics } from '../../../api/orchestrator'
+import { getOrchestratorLiveTrace, getOrchestratorQuickDiagnostics, runOrchestratorPlan } from '../../../api/orchestrator'
 import SolutionPreviewDialog from './SolutionPreviewDialog.vue'
 import AiTraceButton from '../../agent/components/AiTraceButton.vue'
 import AiTraceDrawer from '../../agent/components/AiTraceDrawer.vue'
 import AiEvidencePanel from './AiEvidencePanel.vue'
+import MapAiPlanPreviewDrawer from './MapAiPlanPreviewDrawer.vue'
 import MapAiActionResultPanel from './map-ai/MapAiActionResultPanel.vue'
 import MapAiContextPanel from './map-ai/MapAiContextPanel.vue'
 import MapAiSuggestedActions from './map-ai/MapAiSuggestedActions.vue'
@@ -268,6 +297,7 @@ import { copyText } from '../../../utils/clipboard'
 import { gisContextTypeLabel, sourceToMapTarget, type GisSourceMapTarget } from '../../../utils/gisUnifiedContext'
 import { formatMetricValue, getMetricGrade, getMetricMeta, getMetricValue, gradeLabel } from '../../../utils/roadConditionMetrics'
 import { buildWaitFeedback, formatElapsedMs, normalizeLangGraphDiagnostics, summarizeRunTiming, type LangGraphDiagnostics } from '../../../utils/aiRunFeedback'
+import { normalizeMapAiPlanResponse, type MapAiPlanPreview } from '../../../utils/mapAiPlanPreview'
 import {
   buildLiveTraceSummary,
   createWebTraceId,
@@ -357,6 +387,23 @@ const liveTrace = ref<LiveTraceSnapshot | null>(null)
 const liveTraceError = ref('')
 const liveTraceFailureCount = ref(0)
 let liveTraceTimer: ReturnType<typeof window.setInterval> | null = null
+
+type PlanExecutionKind = 'SEND' | 'OBJECT_SOLUTION' | 'REGION_SOLUTION' | 'ROUTE_REPORT' | 'SUGGESTED_ACTION'
+
+interface PlanExecutionSnapshot {
+  kind: PlanExecutionKind
+  action: MapAgentAction
+  message: string
+  request: MapAgentRunRequest
+  solutionType?: MapObjectSolutionType
+  suggestedAction?: MapAgentSuggestedAction
+}
+
+const planDrawerVisible = ref(false)
+const planLoading = ref(false)
+const planError = ref('')
+const planPreview = ref<MapAiPlanPreview | null>(null)
+const planExecutionSnapshot = ref<PlanExecutionSnapshot | null>(null)
 
 const options = reactive({
   useBusinessData: true,
@@ -864,6 +911,158 @@ function analyzeCurrentRoute() {
 
 function findWeakSections() {
   quickAsk('结合当前查询条件、地图视野和启用图层，找出次差路段、低分单元或病害集中区域，并说明排序依据')
+}
+
+function defaultPlanMessage() {
+  const text = input.value.trim()
+  if (text) return text
+  if (contextMode.value === 'REGION') return '综合分析当前区域内线路、路段、评定单元、病害和评定结果'
+  if (contextMode.value === 'OBJECT') return '分析当前地图选中对象，说明主要问题、成因判断和养护建议'
+  if (contextMode.value === 'ROUTE') return '分析当前路线整体路况和养护重点'
+  return '基于当前地图上下文回答问题'
+}
+
+function buildPlanRequest(action: MapAgentAction, message: string, actionInput: Record<string, any> = {}): MapAgentRunRequest {
+  const mapContext: any = buildMapAiContext(message)
+  if (mapContext.mode === 'REGION') {
+    mapContext.geometry = mapContext.geometry || mapContext.regionGeometry || mapContext.region?.geometry || props.context?.regionGeometry || null
+  }
+  return {
+    action,
+    message,
+    mapContext,
+    actionInput,
+    options: { ...options, useTools: useAgentTools.value, traceId: createWebTraceId() }
+  }
+}
+
+function buildCurrentPlanSnapshot(): PlanExecutionSnapshot {
+  const action: MapAgentAction = contextMode.value === 'REGION' ? 'ANALYZE_REGION' : contextMode.value === 'OBJECT' ? 'ANALYZE_OBJECT' : 'CHAT'
+  const message = defaultPlanMessage()
+  return {
+    kind: 'SEND',
+    action,
+    message,
+    request: buildPlanRequest(action, message, { mapObject: activeMapObject.value })
+  }
+}
+
+function buildObjectSolutionPlanSnapshot(solutionType: MapObjectSolutionType): PlanExecutionSnapshot {
+  const obj: any = activeMapObject.value
+  const query = props.context?.query || {}
+  const message = '生成当前对象的结构化养护建议'
+  const action: MapAgentAction = solutionType === 'ROUTE_REPORT' ? 'GENERATE_ROUTE_REPORT' : 'GENERATE_OBJECT_SOLUTION'
+  return {
+    kind: solutionType === 'ROUTE_REPORT' ? 'ROUTE_REPORT' : 'OBJECT_SOLUTION',
+    action,
+    message,
+    solutionType,
+    request: buildPlanRequest(action, message, {
+      objectType: normalizeObjectType(obj),
+      objectId: String(obj?.objectId || obj?.object_id || obj?.id || obj?.featureId || ''),
+      routeCode: String(obj?.routeCode || obj?.route_code || query.routeCode || ''),
+      year: normalizeYear(obj?.year || query.year),
+      solutionType,
+      mapObject: obj
+    })
+  }
+}
+
+function buildRegionSolutionPlanSnapshot(): PlanExecutionSnapshot {
+  const message = '生成框选区域养护建议'
+  return {
+    kind: 'REGION_SOLUTION',
+    action: 'GENERATE_REGION_SOLUTION',
+    message,
+    request: buildPlanRequest('GENERATE_REGION_SOLUTION', message, {
+      solutionType: 'REGION_MAINTENANCE_SUGGESTION'
+    })
+  }
+}
+
+async function openPlanPreview(snapshot: PlanExecutionSnapshot) {
+  planExecutionSnapshot.value = snapshot
+  planDrawerVisible.value = true
+  planLoading.value = true
+  planError.value = ''
+  try {
+    const result = await runOrchestratorPlan(snapshot.request as any)
+    planPreview.value = normalizeMapAiPlanResponse(result)
+  } catch (error: any) {
+    planPreview.value = null
+    planError.value = error?.message || '执行计划生成失败'
+  } finally {
+    planLoading.value = false
+  }
+}
+
+function previewCurrentPlan() {
+  openPlanPreview(buildCurrentPlanSnapshot())
+}
+
+function previewObjectSolutionPlan(solutionType: MapObjectSolutionType) {
+  if (!activeMapObject.value) {
+    ElMessage.warning('请先在地图上选择一个对象')
+    return
+  }
+  openPlanPreview(buildObjectSolutionPlanSnapshot(solutionType))
+}
+
+function previewRegionSolutionPlan() {
+  if (!activeRegionContext.value) {
+    ElMessage.warning('请先框选一个区域')
+    return
+  }
+  openPlanPreview(buildRegionSolutionPlanSnapshot())
+}
+
+function previewSuggestedActionPlan(action: MapAgentSuggestedAction) {
+  if (action.action === 'GENERATE_REGION_SOLUTION') {
+    previewRegionSolutionPlan()
+    return
+  }
+  if (action.action === 'GENERATE_ROUTE_REPORT') {
+    openPlanPreview(buildObjectSolutionPlanSnapshot('ROUTE_REPORT'))
+    return
+  }
+  if (action.action === 'GENERATE_OBJECT_SOLUTION') {
+    const primary = solutionActions.value.find((it: any) => it.primary) || solutionActions.value[0]
+    if (primary) previewObjectSolutionPlan(primary.type)
+    return
+  }
+  const message = action.label || action.action
+  openPlanPreview({
+    kind: 'SUGGESTED_ACTION',
+    action: action.action,
+    message,
+    suggestedAction: action,
+    request: buildPlanRequest(action.action, message, action.payload || {})
+  })
+}
+
+function refreshPlanPreview() {
+  if (planExecutionSnapshot.value) openPlanPreview(planExecutionSnapshot.value)
+}
+
+async function executePlanPreview() {
+  const snapshot = planExecutionSnapshot.value
+  if (!snapshot) return
+  planDrawerVisible.value = false
+  if (snapshot.kind === 'REGION_SOLUTION') {
+    emit('generate-region')
+    return
+  }
+  if (snapshot.kind === 'OBJECT_SOLUTION' || snapshot.kind === 'ROUTE_REPORT') {
+    if (snapshot.solutionType) generateSolutionDraft(snapshot.solutionType)
+    return
+  }
+  if (snapshot.suggestedAction) {
+    runSuggestedAction(snapshot.suggestedAction)
+    return
+  }
+  input.value = snapshot.message
+  await nextTick()
+  await send()
 }
 
 async function handleContextCommand(command: string) {
