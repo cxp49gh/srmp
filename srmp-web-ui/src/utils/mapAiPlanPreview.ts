@@ -67,6 +67,8 @@ export interface MapAiPlanExecution {
   actualToolNames: string[]
   missingToolNames: string[]
   extraToolNames: string[]
+  adaptiveExtraToolNames: string[]
+  adaptiveReason?: string
   plannedSourceTypes: string[]
   actualSourceTypes: string[]
   missingSourceTypes: string[]
@@ -144,6 +146,8 @@ export function normalizePlanExecution(input: any): MapAiPlanExecution {
     actualToolNames: uniqueStrings(arrayValue(raw.actualToolNames)),
     missingToolNames: uniqueStrings(arrayValue(raw.missingToolNames)),
     extraToolNames: uniqueStrings(arrayValue(raw.extraToolNames)),
+    adaptiveExtraToolNames: uniqueStrings(arrayValue(raw.adaptiveExtraToolNames)),
+    adaptiveReason: stringValue(raw.adaptiveReason),
     plannedSourceTypes: uniqueStrings(arrayValue(raw.plannedSourceTypes)),
     actualSourceTypes: uniqueStrings(arrayValue(raw.actualSourceTypes)),
     missingSourceTypes: uniqueStrings(arrayValue(raw.missingSourceTypes)),

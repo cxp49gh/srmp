@@ -164,3 +164,24 @@ test('normalizes plan execution from top-level or data payloads', () => {
   assert.equal(nested.status, 'NO_PLAN')
   assert.equal(nested.available, false)
 })
+
+test('normalizes adaptive extra tools in plan execution', () => {
+  const execution = normalizePlanExecution({
+    planExecution: {
+      available: true,
+      status: 'PARTIAL',
+      plannedToolNames: ['gis.queryRegionSummary'],
+      actualToolNames: ['gis.queryRegionSummary', 'knowledge.retrieve'],
+      missingToolNames: [],
+      extraToolNames: ['knowledge.retrieve'],
+      adaptiveExtraToolNames: ['knowledge.retrieve'],
+      adaptiveReason: '业务工具未命中，追加知识检索补充解释依据。',
+      plannedSourceTypes: ['BUSINESS_DATA'],
+      actualSourceTypes: ['KNOWLEDGE'],
+      missingSourceTypes: ['BUSINESS_DATA']
+    }
+  })
+
+  assert.deepEqual(execution.adaptiveExtraToolNames, ['knowledge.retrieve'])
+  assert.equal(execution.adaptiveReason, '业务工具未命中，追加知识检索补充解释依据。')
+})

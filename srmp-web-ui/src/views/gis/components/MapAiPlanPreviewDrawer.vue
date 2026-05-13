@@ -67,9 +67,17 @@
               <el-tag size="small" type="danger" effect="plain">缺失工具</el-tag>
               <span>{{ planExecution.missingToolNames.join('、') }}</span>
             </div>
-            <div v-if="planExecution.extraToolNames.length" class="diff-item">
+            <div v-if="planExecution.adaptiveExtraToolNames.length" class="diff-item">
+              <el-tag size="small" type="success" effect="plain">自适应追加</el-tag>
+              <span>{{ planExecution.adaptiveExtraToolNames.join('、') }}</span>
+            </div>
+            <div v-if="unexplainedExtraTools(planExecution).length" class="diff-item">
               <el-tag size="small" type="warning" effect="plain">额外工具</el-tag>
-              <span>{{ planExecution.extraToolNames.join('、') }}</span>
+              <span>{{ unexplainedExtraTools(planExecution).join('、') }}</span>
+            </div>
+            <div v-if="planExecution.adaptiveReason" class="diff-item">
+              <el-tag size="small" type="info" effect="plain">追加原因</el-tag>
+              <span>{{ planExecution.adaptiveReason }}</span>
             </div>
           </div>
           <div v-if="planExecution.plannedSourceTypes.length || planExecution.actualSourceTypes.length" class="diff-list">
@@ -208,6 +216,10 @@ function planExecutionStatusType(status: string) {
   if (status === 'DIVERGED') return 'danger'
   if (status === 'PARTIAL') return 'warning'
   return 'info'
+}
+
+function unexplainedExtraTools(planExecution: MapAiPlanExecution) {
+  return planExecution.extraToolNames.filter((item) => !planExecution.adaptiveExtraToolNames.includes(item))
 }
 </script>
 
