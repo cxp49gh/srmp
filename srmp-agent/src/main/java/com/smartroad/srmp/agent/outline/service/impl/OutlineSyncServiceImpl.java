@@ -50,16 +50,21 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
     @Override
     public List<OutlineDocumentDTO> documents(String collectionId, Integer limit, Integer offset) {
         if (!properties.usable()) return Collections.emptyList();
+        String resolvedCollectionId = resolveCollectionId(collectionId);
         int size = normalizeLimit(limit);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("limit", size);
         body.put("offset", offset == null ? 0 : offset);
-        if (notBlank(collectionId)) body.put("collectionId", collectionId);
+        if (notBlank(resolvedCollectionId)) body.put("collectionId", resolvedCollectionId);
         JsonNode root = post("/api/documents.list", body);
         JsonNode data = root == null ? null : root.path("data");
         List<OutlineDocumentDTO> result = new ArrayList<>();
         if (data != null && data.isArray()) {
-            for (JsonNode item : data) result.add(toDocumentDTO(item));
+            for (JsonNode item : data) {
+                OutlineDocumentDTO dto = toDocumentDTO(item);
+                if (!notBlank(dto.getCollectionId())) dto.setCollectionId(resolvedCollectionId);
+                result.add(dto);
+            }
         }
         return result;
     }
@@ -69,7 +74,7 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
         OutlineSyncRequest req = request == null ? new OutlineSyncRequest() : request;
         String tenantId = TenantContextHolder.getTenantId();
         String taskId = uuid();
-        String collectionId = req.getCollectionId();
+        String collectionId = resolveCollectionId(req.getCollectionId());
         boolean force = Boolean.TRUE.equals(req.getForce());
         int limit = normalizeMaxDocuments(req.getLimit());
         boolean dryRun = Boolean.TRUE.equals(req.getDryRun());
@@ -379,6 +384,14 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
             return result;
         }
         return documents(collectionId, limit, 0);
+    }
+
+    private String resolveCollectionId(String collectionId) {
+        if (notBlank(collectionId)) {
+            return collectionId.trim();
+        }
+        String defaultCollectionId = properties == null ? null : properties.getDefaultCollectionId();
+        return notBlank(defaultCollectionId) ? defaultCollectionId.trim() : null;
     }
 
     private RestTemplate restTemplate() {

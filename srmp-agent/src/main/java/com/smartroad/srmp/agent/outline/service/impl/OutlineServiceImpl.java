@@ -26,6 +26,7 @@ public class OutlineServiceImpl implements OutlineService {
         result.put("usable", properties.usable());
         result.put("baseUrl", properties.getBaseUrl());
         result.put("syncEnabled", properties.getSyncEnabled());
+        result.put("defaultCollectionId", properties.getDefaultCollectionId());
         return result;
     }
 
