@@ -10,3 +10,6 @@ dist/
 .env.local
 .env
 .venv_win/
+.codex-backups/
+deploy/outline/data/
+deploy/outline/outline.env
