@@ -91,6 +91,8 @@ class RuntimeAuditStore:
         tool_results = response.toolResults or []
         tool_total = data.get("toolTotalCount") if isinstance(data, dict) else len(tool_results)
         tool_success = data.get("toolSuccessCount") if isinstance(data, dict) else sum(1 for item in tool_results if item.get("success"))
+        adaptive_planning = _adaptive_planning_from_response(response)
+        adaptive_added_tools = _adaptive_added_tools(adaptive_planning)
         record = {
             "id": str(uuid.uuid4()),
             "ts": _now_ms(),
@@ -117,6 +119,11 @@ class RuntimeAuditStore:
             "toolSuccessCount": tool_success,
             "toolFailedCount": data.get("toolFailedCount") if isinstance(data, dict) else sum(1 for item in tool_results if not item.get("success")),
             "sourceCount": data.get("sourceCount") if isinstance(data, dict) else len(response.sources or []),
+            "adaptivePlanningStatus": adaptive_planning.get("status"),
+            "adaptivePlanningEnabled": adaptive_planning.get("enabled"),
+            "adaptiveAddedToolCount": len(adaptive_added_tools),
+            "adaptiveAddedToolNames": adaptive_added_tools,
+            "adaptivePlanningReason": adaptive_planning.get("reason"),
             "stepCount": len(steps) if isinstance(steps, list) else 0,
             "steps": _compact_value(steps if isinstance(steps, list) else []),
             "toolResults": _compact_tool_results(tool_results),
@@ -178,6 +185,7 @@ class RuntimeAuditStore:
                 "needsConfirmationCount": sum(1 for item in records if item.get("needsConfirmation")),
                 "routeBuckets": _bucket(records, "routeCode", max_items=8),
                 "toolBuckets": _tool_buckets(records),
+                "adaptivePlanning": _adaptive_summary(records),
                 "persistence": self.persistence_status(compact=True),
             }
 
@@ -427,6 +435,62 @@ def _compact_response(response: MapAiAgentResponse) -> Dict[str, Any]:
         "sourceCount": len(response.sources or []),
         "toolResultCount": len(response.toolResults or []),
         "data": _compact_value(response.data or {}, depth=0),
+    }
+
+
+def _adaptive_planning_from_response(response: MapAiAgentResponse) -> Dict[str, Any]:
+    data = response.data or {}
+    trace = response.trace or {}
+    adaptive = data.get("adaptivePlanning") if isinstance(data, dict) else None
+    if not isinstance(adaptive, dict) and isinstance(trace, dict):
+        adaptive = trace.get("adaptivePlanning")
+    return adaptive if isinstance(adaptive, dict) else {}
+
+
+def _adaptive_added_tools(adaptive: Dict[str, Any]) -> List[str]:
+    values = adaptive.get("addedToolNames")
+    if not isinstance(values, list):
+        return []
+    result: List[str] = []
+    for item in values:
+        text = str(item or "").strip()
+        if text and text not in result:
+            result.append(text)
+    return result
+
+
+def _adaptive_summary(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    status_buckets: Dict[str, int] = {}
+    tool_buckets: Dict[str, int] = {}
+    executed = 0
+    skipped = 0
+    disabled = 0
+    added_tool_count = 0
+    for record in records or []:
+        status = str(record.get("adaptivePlanningStatus") or "").strip()
+        if status:
+            status_buckets[status] = status_buckets.get(status, 0) + 1
+            if status == "EXECUTED":
+                executed += 1
+            elif status.startswith("SKIPPED_"):
+                skipped += 1
+            elif status == "DISABLED":
+                disabled += 1
+        tools = record.get("adaptiveAddedToolNames")
+        if not isinstance(tools, list):
+            tools = []
+        added_tool_count += len(tools)
+        for tool_name in tools:
+            name = str(tool_name or "").strip()
+            if name:
+                tool_buckets[name] = tool_buckets.get(name, 0) + 1
+    return {
+        "executedCount": executed,
+        "skippedCount": skipped,
+        "disabledCount": disabled,
+        "addedToolCount": added_tool_count,
+        "statusBuckets": dict(sorted(status_buckets.items(), key=lambda item: item[1], reverse=True)),
+        "addedToolBuckets": dict(sorted(tool_buckets.items(), key=lambda item: item[1], reverse=True)),
     }
 
 

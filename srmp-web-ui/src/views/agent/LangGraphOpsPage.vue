@@ -56,6 +56,15 @@
 
         <el-card shadow="never" class="metric-card">
           <div class="metric-head">
+            <span>自适应规划</span>
+            <el-tag :type="adaptivePlanningTagType">{{ adaptivePlanningEnabled ? '启用' : '关闭' }}</el-tag>
+          </div>
+          <div class="metric-value">{{ adaptiveExecutedCount }}</div>
+          <div class="metric-desc">跳过 {{ adaptiveSkippedCount }}；禁用 {{ adaptiveDisabledCount }}；追加工具 {{ adaptiveAddedToolCount }}；max {{ maxAdaptiveIterationsText }}</div>
+        </el-card>
+
+        <el-card shadow="never" class="metric-card">
+          <div class="metric-head">
             <span>工具契约</span>
             <el-tag :type="contractOk ? 'success' : 'danger'">{{ contractOk ? '闭合' : '异常' }}</el-tag>
           </div>
@@ -115,6 +124,10 @@
             <div class="diag-row">
               <span>配置指纹</span>
               <strong>{{ configFingerprint }}</strong>
+            </div>
+            <div class="diag-row">
+              <span>自适应规划</span>
+              <strong>enabled={{ adaptivePlanningEnabled ? 'true' : 'false' }}；max={{ maxAdaptiveIterationsText }}</strong>
             </div>
             <div class="diag-row">
               <span>配置告警</span>
@@ -388,6 +401,11 @@
           <el-table-column label="工具" width="110">
             <template #default="scope">{{ scope.row.toolSuccessCount || 0 }}/{{ scope.row.toolTotalCount || 0 }}</template>
           </el-table-column>
+          <el-table-column label="自适应" width="140">
+            <template #default="scope">
+              <span :title="displayList(scope.row.adaptiveAddedToolNames || [])">{{ formatAdaptiveStatus(scope.row) }}</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="messagePreview" label="问题" min-width="220" show-overflow-tooltip />
           <el-table-column label="操作" width="190" fixed="right">
             <template #default="scope">
@@ -505,6 +523,11 @@ const availableProviders = computed(() => Array.isArray(summary.availableProvide
 const langgraphUrl = computed(() => String(summary.langgraphUrl || ''))
 const langgraphReady = computed(() => value(summary, ['langgraphReady']) || {})
 const runtimeSummary = computed(() => value(summary, ['runtimeSummary', 'body']) || {})
+const adaptivePlanningSummary = computed(() => value(runtimeSummary.value, ['adaptivePlanning']) || {})
+const adaptiveExecutedCount = computed(() => Number(value(adaptivePlanningSummary.value, ['executedCount']) || 0))
+const adaptiveSkippedCount = computed(() => Number(value(adaptivePlanningSummary.value, ['skippedCount']) || 0))
+const adaptiveDisabledCount = computed(() => Number(value(adaptivePlanningSummary.value, ['disabledCount']) || 0))
+const adaptiveAddedToolCount = computed(() => Number(value(adaptivePlanningSummary.value, ['addedToolCount']) || 0))
 const toolGatewayDebug = computed(() => value(summary, ['toolGatewayDebug']) || {})
 const contractDebug = computed(() => value(summary, ['contractDebug']) || {})
 const contractBody = computed(() => value(contractDebug.value, ['body']) || contractDebug.value || {})
@@ -518,6 +541,9 @@ const writeBlockedTools = computed(() => asStringArray(value(contractBody.value,
 const missingToolCount = computed(() => missingTools.value.length)
 const configBody = computed(() => value(configResult, ['body']) || configResult)
 const healthBody = computed(() => value(healthDetail, ['body']) || healthDetail)
+const adaptivePlanningEnabled = computed(() => Boolean(value(configBody.value, ['safeConfig', 'adaptivePlanningEnabled']) ?? value(healthBody.value, ['strategy', 'adaptivePlanning'])))
+const maxAdaptiveIterationsText = computed(() => String(value(configBody.value, ['safeConfig', 'maxAdaptiveIterations']) ?? value(healthBody.value, ['strategy', 'maxAdaptiveIterations']) ?? '-'))
+const adaptivePlanningTagType = computed(() => adaptivePlanningEnabled.value ? (adaptiveExecutedCount.value > 0 ? 'warning' : 'info') : 'info')
 const persistenceBody = computed(() => value(persistenceResult, ['body']) || persistenceResult)
 const configWarnings = computed(() => {
   const warnings = value(configBody.value, ['warnings'])
@@ -858,6 +884,17 @@ function parseOptionalJson(text: string) {
 
 function asStringArray(value: any) {
   return Array.isArray(value) ? value.map((item) => String(item)) : []
+}
+
+function displayList(values: any[]) {
+  return Array.isArray(values) && values.length ? values.join('、') : '-'
+}
+
+function formatAdaptiveStatus(row: Record<string, any>) {
+  const status = String(row.adaptivePlanningStatus || '')
+  if (!status) return '-'
+  const count = Number(row.adaptiveAddedToolCount || 0)
+  return count > 0 ? `${status} +${count}` : status
 }
 
 function value(obj: any, keys: string[]) {

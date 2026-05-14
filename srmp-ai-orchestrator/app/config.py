@@ -65,6 +65,8 @@ class Settings:
     max_tool_calls: int = _int_env("SRMP_LANGGRAPH_MAX_TOOL_CALLS", 6)
     min_answer_chars: int = _int_env("SRMP_LANGGRAPH_MIN_ANSWER_CHARS", 80)
     require_evidence_prefix: bool = _bool_env("SRMP_LANGGRAPH_REQUIRE_EVIDENCE_PREFIX", True)
+    adaptive_planning_enabled: bool = _bool_env("SRMP_ADAPTIVE_PLANNING_ENABLED", True)
+    max_adaptive_iterations: int = max(0, min(_int_env("SRMP_MAX_ADAPTIVE_ITERATIONS", 1), 1))
 
     audit_max_records: int = _int_env("SRMP_LANGGRAPH_AUDIT_MAX_RECORDS", 200)
     audit_persist_enabled: bool = _bool_env("SRMP_LANGGRAPH_AUDIT_PERSIST_ENABLED", False)

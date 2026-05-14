@@ -23,6 +23,6 @@ enablePasswordDB: true
 # docker run --rm httpd:2.4-alpine htpasswd -bnBC 10 "" password | tr -d ':\n'
 staticPasswords:
   - email: "admin@example.com"
-    hash: "$2a$10$2b2K7H8TkgDBZx7A6X2CBukYo05DWolbswKK9l1hULICwhGQ/8mDe"
+    hash: "$2y$10$Ig1Q5ZJQetLJnScRWc6H7ODHpnO8U9.eDbcQC74A.CP37p4c.Xh62"
     username: "admin"
     userID: "11111111-1111-1111-1111-111111111111"

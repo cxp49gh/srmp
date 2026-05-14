@@ -1,0 +1,31 @@
+# docker-compose.dev.yml
+# 开发环境覆盖配置：使用外部服务（postgresql、redis、minio）
+#
+# 使用方式：
+#   docker compose -f docker-compose.yml -f docker-compose.app.yml -f docker-compose.langgraph.yml -f docker-compose.dev.yml up -d --build backend frontend [srmp-ai-orchestrator]
+#
+# 或通过 scripts/srmp-one-click-start-dev.sh 脚本启动
+services:
+  backend:
+    depends_on: []
+    environment:
+      DB_HOST: ${DEV_DB_HOST:-127.0.0.1}
+      DB_PORT: ${DEV_DB_PORT:-5432}
+      DB_NAME: ${DEV_DB_NAME:-srmp}
+      DB_USER: ${DEV_DB_USER:-srmp}
+      DB_PASSWORD: ${DEV_DB_PASSWORD:-srmp123}
+      REDIS_HOST: ${DEV_REDIS_HOST:-127.0.0.1}
+      REDIS_PORT: ${DEV_REDIS_PORT:-6379}
+      MINIO_ENDPOINT: ${DEV_MINIO_ENDPOINT:-http://127.0.0.1:9000}
+      MINIO_ACCESS_KEY: ${DEV_MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${DEV_MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${DEV_MINIO_BUCKET:-srmp}
+      SRMP_LLM_API_KEY: ${SRMP_LLM_API_KEY:-}
+      SRMP_LLM_BASE_URL: ${SRMP_LLM_BASE_URL:-}
+      SRMP_LLM_MODEL: ${SRMP_LLM_MODEL:-}
+      SRMP_EMBEDDING_ENDPOINT: ${SRMP_EMBEDDING_ENDPOINT:-}
+      SRMP_EMBEDDING_MODEL: ${SRMP_EMBEDDING_MODEL:-}
+      OUTLINE_ENABLED: ${OUTLINE_ENABLED:-false}
+      OUTLINE_BASE_URL: ${OUTLINE_BASE_URL:-}
+      OUTLINE_API_TOKEN: ${OUTLINE_API_TOKEN:-}
+      OUTLINE_DEFAULT_COLLECTION_ID: ${OUTLINE_DEFAULT_COLLECTION_ID:-}

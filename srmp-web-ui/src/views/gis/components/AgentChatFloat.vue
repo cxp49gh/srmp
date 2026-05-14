@@ -9,8 +9,6 @@
         <button type="button" class="close-btn" @click="emit('update:visible', false)">×</button>
       </div>
 
-      <MapAiContextPanel :scope="contextMode" :context="props.context" :map-object="activeMapObject" />
-
       <section class="analysis-workbench" :class="contextMode.toLowerCase()">
         <div class="analysis-title-row">
           <div>
@@ -20,6 +18,7 @@
           <div class="analysis-title-actions">
             <el-tag size="small" effect="plain">{{ activeMetricMeta.shortName }}</el-tag>
             <el-button size="small" text :loading="diagnosticsLoading" @click="loadQuickDiagnostics">状态诊断</el-button>
+            <el-button size="small" text :loading="planLoading" @click="previewCurrentPlan()">执行计划</el-button>
           </div>
         </div>
 
@@ -146,54 +145,24 @@
         </div>
       </div>
 
-      <div class="message-list">
-        <div v-for="(item, index) in messages" :key="index" :class="['message', item.role]">
-          <div class="role">{{ item.role === 'user' ? '我' : 'AI' }}</div>
-          <div class="content" v-html="renderMarkdown(item.content)" />
-          <div v-if="item.meta" class="message-meta">
-            <el-tag v-if="item.meta.mapObjectUsed" size="small" type="success">对象上下文</el-tag>
-            <el-tag v-if="item.meta.regionUsed || item.meta.mapRegionUsed" size="small" type="success">区域上下文</el-tag>
-            <el-tag v-if="item.meta.intent" size="small" type="info">{{ item.meta.intent }}</el-tag>
-            <el-tag v-if="item.meta.answerSourceLabel" size="small">{{ item.meta.answerSourceLabel }}</el-tag>
-            <el-tag v-if="item.meta.runElapsed" size="small" type="info">耗时 {{ item.meta.runElapsed }}</el-tag>
-            <el-tag v-if="item.meta.llmStatus" size="small" :type="item.meta.llmStatus === 'SUCCESS' ? 'success' : 'warning'">LLM {{ item.meta.llmStatus }}</el-tag>
-            <el-tag v-if="item.meta.llmModel" size="small" type="info">{{ item.meta.llmModel }}</el-tag>
-            <el-tag v-if="item.toolResults?.length" size="small" type="info">工具 {{ successfulTools(item.toolResults) }}/{{ item.toolResults.length }}</el-tag>
-            <el-tag v-if="item.sources?.length" size="small" type="info">来源 {{ item.sources.length }}</el-tag>
-            <el-tag v-if="item.meta.retriedWithCompactPrompt" size="small" type="warning">压缩重试</el-tag>
-            <el-tag v-if="item.meta.fallback" size="small" type="warning">降级</el-tag>
-          </div>
-          <AiEvidencePanel
-            v-if="item.role === 'assistant'"
-            :message="item"
-            :map-context="props.context"
-            @locate-source="locateEvidenceSource"
-            @ask-with-source="askWithSource"
-          />
-          <div v-if="item.role === 'assistant' && contextMode === 'OBJECT' && activeMapObject" class="assistant-action-row">
-            <el-button
-              size="small"
-              type="success"
-              plain
-              :loading="solutionLoading"
-              :disabled="loading || solutionLoading"
-              @click="generateDefaultSolutionDraft"
-            >
-              生成结构化建议
-            </el-button>
-          </div>
-          <AiTraceButton
-            v-if="item.role === 'assistant'"
-            :trace="item.trace"
-            :execution="{ trace: item.trace, answerMeta: item.meta, toolResults: item.toolResults, sources: item.sources }"
-            class="trace-button"
-            @open="openTrace"
-          />
-        </div>
-      </div>
-
-      <MapAiActionResultPanel :result="latestActionResult" />
-      <MapAiSuggestedActions :actions="latestSuggestedActions" @run-action="runSuggestedAction" />
+      <MapAiWorkbench
+        v-model:input="input"
+        :context-scope="contextMode"
+        :context="props.context"
+        :map-object="activeMapObject"
+        :messages="messages"
+        :loading="loading"
+        :solution-loading="solutionLoading"
+        :latest-action-result="latestActionResult"
+        :latest-suggested-actions="latestSuggestedActions"
+        @send="sendText"
+        @open-trace="openTrace"
+        @locate-source="locateEvidenceSource"
+        @ask-with-source="askWithSource"
+        @generate-default-solution="generateDefaultSolutionDraft"
+        @run-action="runSuggestedAction"
+        @preview-plan="previewSuggestedActionPlan"
+      />
 
       <section v-if="aiBusy" class="ai-wait-panel" :class="{ slow: waitFeedback.longWait }">
         <div class="wait-head">
@@ -222,16 +191,6 @@
         </div>
       </section>
 
-      <div class="input-row">
-        <el-input
-          v-model="input"
-          type="textarea"
-          :rows="2"
-          placeholder="例如：分析当前对象，给出养护建议"
-          @keydown.ctrl.enter="send"
-        />
-        <el-button type="primary" :loading="loading" @click="send">发送</el-button>
-      </div>
     </div>
   </transition>
   <SolutionPreviewDialog
@@ -249,25 +208,32 @@
     :tool-results="activeExecution?.toolResults || []"
     :sources="activeExecution?.sources || []"
   />
+  <MapAiPlanPreviewDrawer
+    v-model:visible="planDrawerVisible"
+    :loading="planLoading"
+    :plan="planPreview"
+    :plan-execution="lastPlanExecution"
+    :error="planError"
+    @refresh="refreshPlanPreview"
+    @execute="executePlanPreview"
+  />
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { mapAgentRun, type MapAgentActionResult, type MapAgentRunResponse, type MapAgentSuggestedAction } from '../../../api/agent'
+import { mapAgentRun, type MapAgentAction, type MapAgentActionResult, type MapAgentRunRequest, type MapAgentRunResponse, type MapAgentSuggestedAction } from '../../../api/agent'
 import { saveMapObjectSolutionDraft, updateSolutionTaskAiContext } from '../../../api/solution'
-import { getOrchestratorLiveTrace, getOrchestratorQuickDiagnostics } from '../../../api/orchestrator'
+import { getOrchestratorLiveTrace, getOrchestratorQuickDiagnostics, runOrchestratorPlan } from '../../../api/orchestrator'
 import SolutionPreviewDialog from './SolutionPreviewDialog.vue'
-import AiTraceButton from '../../agent/components/AiTraceButton.vue'
 import AiTraceDrawer from '../../agent/components/AiTraceDrawer.vue'
-import AiEvidencePanel from './AiEvidencePanel.vue'
-import MapAiActionResultPanel from './map-ai/MapAiActionResultPanel.vue'
-import MapAiContextPanel from './map-ai/MapAiContextPanel.vue'
-import MapAiSuggestedActions from './map-ai/MapAiSuggestedActions.vue'
+import MapAiPlanPreviewDrawer from './MapAiPlanPreviewDrawer.vue'
+import MapAiWorkbench from './map-ai/MapAiWorkbench.vue'
 import { copyText } from '../../../utils/clipboard'
 import { gisContextTypeLabel, sourceToMapTarget, type GisSourceMapTarget } from '../../../utils/gisUnifiedContext'
 import { formatMetricValue, getMetricGrade, getMetricMeta, getMetricValue, gradeLabel } from '../../../utils/roadConditionMetrics'
 import { buildWaitFeedback, formatElapsedMs, normalizeLangGraphDiagnostics, summarizeRunTiming, type LangGraphDiagnostics } from '../../../utils/aiRunFeedback'
+import { buildPlanPreviewMeta, normalizeMapAiPlanResponse, normalizePlanExecution, type MapAiPlanExecution, type MapAiPlanPreview } from '../../../utils/mapAiPlanPreview'
 import {
   buildLiveTraceSummary,
   createWebTraceId,
@@ -357,6 +323,22 @@ const liveTrace = ref<LiveTraceSnapshot | null>(null)
 const liveTraceError = ref('')
 const liveTraceFailureCount = ref(0)
 let liveTraceTimer: ReturnType<typeof window.setInterval> | null = null
+
+type PlanExecutionKind = 'SEND'
+
+interface PlanExecutionSnapshot {
+  kind: PlanExecutionKind
+  action: MapAgentAction
+  message: string
+  request: MapAgentRunRequest
+}
+
+const planDrawerVisible = ref(false)
+const planLoading = ref(false)
+const planError = ref('')
+const planPreview = ref<MapAiPlanPreview | null>(null)
+const planExecutionSnapshot = ref<PlanExecutionSnapshot | null>(null)
+const lastPlanExecution = ref<MapAiPlanExecution | null>(null)
 
 const options = reactive({
   useBusinessData: true,
@@ -866,6 +848,91 @@ function findWeakSections() {
   quickAsk('结合当前查询条件、地图视野和启用图层，找出次差路段、低分单元或病害集中区域，并说明排序依据')
 }
 
+function defaultPlanMessage() {
+  const text = input.value.trim()
+  if (text) return text
+  if (contextMode.value === 'REGION') return '综合分析当前区域内线路、路段、评定单元、病害和评定结果'
+  if (contextMode.value === 'OBJECT') return '分析当前地图选中对象，说明主要问题、成因判断和养护建议'
+  if (contextMode.value === 'ROUTE') return '分析当前路线整体路况和养护重点'
+  return '基于当前地图上下文回答问题'
+}
+
+function buildPlanRequest(action: MapAgentAction, message: string, actionInput: Record<string, any> = {}): MapAgentRunRequest {
+  const mapContext: any = buildMapAiContext(message)
+  if (mapContext.mode === 'REGION') {
+    mapContext.geometry = mapContext.geometry || mapContext.regionGeometry || mapContext.region?.geometry || props.context?.regionGeometry || null
+  }
+  return {
+    action,
+    message,
+    mapContext,
+    actionInput,
+    options: { ...options, useTools: useAgentTools.value, traceId: createWebTraceId() }
+  }
+}
+
+function buildCurrentPlanSnapshot(): PlanExecutionSnapshot {
+  const action: MapAgentAction = contextMode.value === 'REGION'
+    ? 'ANALYZE_REGION'
+    : contextMode.value === 'OBJECT'
+      ? 'ANALYZE_OBJECT'
+      : contextMode.value === 'ROUTE'
+        ? 'ANALYZE_ROUTE'
+        : 'CHAT'
+  const message = defaultPlanMessage()
+  return {
+    kind: 'SEND',
+    action,
+    message,
+    request: buildPlanRequest(action, message, { mapObject: activeMapObject.value })
+  }
+}
+
+async function openPlanPreview(snapshot: PlanExecutionSnapshot) {
+  planExecutionSnapshot.value = snapshot
+  planDrawerVisible.value = true
+  planLoading.value = true
+  planError.value = ''
+  try {
+    const result = await runOrchestratorPlan(snapshot.request as any)
+    planPreview.value = normalizeMapAiPlanResponse(result)
+  } catch (error: any) {
+    planPreview.value = null
+    planError.value = error?.message || '执行计划生成失败'
+  } finally {
+    planLoading.value = false
+  }
+}
+
+function previewCurrentPlan() {
+  openPlanPreview(buildCurrentPlanSnapshot())
+}
+
+function refreshPlanPreview() {
+  if (planExecutionSnapshot.value) openPlanPreview(planExecutionSnapshot.value)
+}
+
+async function executePlanPreview() {
+  const snapshot = planExecutionSnapshot.value
+  if (!snapshot) return
+  planDrawerVisible.value = false
+  if (input.value.trim() === snapshot.message) input.value = ''
+  const traceId = createWebTraceId()
+  const request: MapAgentRunRequest = {
+    ...snapshot.request,
+    action: snapshot.request.action || snapshot.action,
+    message: snapshot.request.message || snapshot.message,
+    mapContext: snapshot.request.mapContext,
+    actionInput: { ...(snapshot.request.actionInput || {}) },
+    options: {
+      ...(snapshot.request.options || {}),
+      traceId,
+      planPreview: buildPlanPreviewMeta(planPreview.value)
+    }
+  }
+  await runMapAgentRequest(request, snapshot.message)
+}
+
 async function handleContextCommand(command: string) {
   if (command === 'suggest-region') {
     suggestForCurrentRegion()
@@ -1072,34 +1139,47 @@ async function saveSolutionDraft() {
   }
 }
 
-async function send() {
-  const text = input.value.trim()
-  if (!text || loading.value) return
+function chatActionForCurrentContext(): MapAgentAction {
+  return contextMode.value === 'REGION'
+    ? 'ANALYZE_REGION'
+    : contextMode.value === 'OBJECT'
+      ? 'ANALYZE_OBJECT'
+      : contextMode.value === 'ROUTE'
+        ? 'ANALYZE_ROUTE'
+        : 'CHAT'
+}
 
+function buildChatRunRequest(message: string, traceId: string): MapAgentRunRequest {
+  return {
+    action: chatActionForCurrentContext(),
+    message,
+    mapContext: buildMapAiContext(message),
+    actionInput: {
+      mapObject: activeMapObject.value
+    },
+    options: { ...options, useTools: useAgentTools.value, traceId }
+  }
+}
+
+async function runMapAgentRequest(request: MapAgentRunRequest, userMessage: string) {
   const requestStartedAt = Date.now()
-  const traceId = createWebTraceId()
+  const traceId = String(request.options?.traceId || createWebTraceId())
+  request.options = { ...(request.options || {}), traceId }
   beginAiRun(requestStartedAt)
   beginLiveTrace(traceId)
-  messages.value.push({ role: 'user', content: text })
-  input.value = ''
+  messages.value.push({ role: 'user', content: userMessage })
   loading.value = true
 
   try {
-    const res: any = await mapAgentRun({
-      action: contextMode.value === 'REGION' ? 'ANALYZE_REGION' : contextMode.value === 'OBJECT' ? 'ANALYZE_OBJECT' : 'CHAT',
-      message: text,
-      mapContext: buildMapAiContext(text),
-      actionInput: {
-        mapObject: activeMapObject.value
-      },
-      options: { ...options, useTools: useAgentTools.value, traceId }
-    })
-
+    const res: any = await mapAgentRun(request)
     const payload = normalizeResponse(res)
     const answer = String(payload.answer || payload.data?.answer || '未返回内容')
     const timing = summarizeRunTiming(payload)
     const localElapsedMs = Date.now() - requestStartedAt
     const runElapsed = timing.costMs > 0 ? timing.elapsedLabel : formatElapsedMs(localElapsedMs)
+    const planExecution = normalizePlanExecution(payload)
+    const hasPlanExecution = planExecution.status !== 'NO_PLAN'
+    if (hasPlanExecution) lastPlanExecution.value = planExecution
     const meta = payload.data?.answerMeta || {
       answerSourceLabel: payload.data?.answerSourceLabel,
       fallback: payload.data?.fallback,
@@ -1122,6 +1202,8 @@ async function send() {
         regionUsed: payload.data?.regionUsed || payload.data?.mapRegionUsed || payload.mapRegionUsed || meta?.regionUsed,
         runElapsed,
         traceId: timing.traceId,
+        planExecutionStatus: hasPlanExecution ? planExecution.status : undefined,
+        planExecution: hasPlanExecution ? planExecution : undefined,
         llmStatus: timing.llmStatus || meta?.llmStatus || payload.data?.llmStatus,
         llmModel: timing.llmModel || meta?.llmModel || payload.data?.llmModel
       }
@@ -1143,6 +1225,18 @@ async function send() {
   }
 }
 
+async function send() {
+  const text = input.value.trim()
+  if (!text || loading.value) return
+  input.value = ''
+  await runMapAgentRequest(buildChatRunRequest(text, createWebTraceId()), text)
+}
+
+async function sendText(text: string) {
+  input.value = text
+  await send()
+}
+
 function runSuggestedAction(action: MapAgentSuggestedAction) {
   if (action.action === 'GENERATE_REGION_SOLUTION') {
     emit('generate-region')
@@ -1161,6 +1255,16 @@ function runSuggestedAction(action: MapAgentSuggestedAction) {
     return
   }
   input.value = action.label || action.action
+}
+
+function previewSuggestedActionPlan(action: MapAgentSuggestedAction) {
+  const message = action.label || action.action
+  openPlanPreview({
+    kind: 'SEND',
+    action: action.action,
+    message,
+    request: buildPlanRequest(action.action, message, action.payload || {})
+  })
 }
 
 function normalizeResponse(res: any) {
@@ -1204,40 +1308,12 @@ function buildSourceSummary(data: Record<string, any>) {
   return parts.join('｜')
 }
 
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-}
-
-function renderMarkdown(value: string) {
-  const escaped = escapeHtml(value || '')
-  return escaped
-    .replace(/^### (.*)$/gm, '<h4>$1</h4>')
-    .replace(/^## (.*)$/gm, '<h3>$1</h3>')
-    .replace(/^# (.*)$/gm, '<h2>$1</h2>')
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/^\- (.*)$/gm, '<div class="md-list">• $1</div>')
-    .replace(/\n/g, '<br />')
-}
-
-function formatScore(score: any) {
-  const num = Number(score)
-  return Number.isFinite(num) ? num.toFixed(3) : String(score)
-}
-
 function locateEvidenceSource(target: GisSourceMapTarget) {
   emit('locate-source', target)
 }
 
 function askWithSource(source: any) {
   emit('ask-with-source', source)
-}
-
-function successfulTools(tools: any[] = []) {
-  return tools.filter((item) => item?.success !== false && String(item?.status || '').toUpperCase() !== 'FAILED').length
 }
 
 function openTrace(execution: Record<string, any>) {

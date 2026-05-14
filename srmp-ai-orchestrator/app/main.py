@@ -52,6 +52,8 @@ def _safe_runtime_config() -> dict:
         "enableQualityGuard": settings.enable_quality_guard,
         "minAnswerChars": settings.min_answer_chars,
         "requireEvidencePrefix": settings.require_evidence_prefix,
+        "adaptivePlanningEnabled": settings.adaptive_planning_enabled,
+        "maxAdaptiveIterations": settings.max_adaptive_iterations,
         "auditMaxRecords": settings.audit_max_records,
         "auditPersistEnabled": settings.audit_persist_enabled,
         "auditPersistPath": settings.audit_persist_path,
@@ -82,6 +84,10 @@ def _config_warnings(config: Dict[str, Any]) -> List[Dict[str, str]]:
         warnings.append({"level": "WARN", "code": "LLM_API_KEY_MISSING", "message": "已开启 Runtime LLM，但未配置 SRMP_LLM_API_KEY；如经 Java Gateway 统一调用 LLM 可忽略。"})
     if int(config.get("maxToolCalls") or 0) <= 0:
         warnings.append({"level": "ERROR", "code": "MAX_TOOL_CALLS_INVALID", "message": "SRMP_LANGGRAPH_MAX_TOOL_CALLS 必须大于 0。"})
+    if bool(config.get("adaptivePlanningEnabled")) and int(config.get("maxToolCalls") or 0) < 2:
+        warnings.append({"level": "WARN", "code": "ADAPTIVE_WITH_LOW_TOOL_LIMIT", "message": "自适应规划已开启，但 maxToolCalls 小于 2，几乎没有追加工具空间。"})
+    if bool(config.get("adaptivePlanningEnabled")) and int(config.get("maxAdaptiveIterations") or 0) <= 0:
+        warnings.append({"level": "WARN", "code": "ADAPTIVE_ITERATIONS_DISABLED", "message": "自适应规划已开启，但 maxAdaptiveIterations 为 0。"})
     if bool(config.get("parallelToolExecution")) and int(config.get("maxParallelTools") or 0) <= 0:
         warnings.append({"level": "ERROR", "code": "MAX_PARALLEL_TOOLS_INVALID", "message": "开启并行工具执行时 SRMP_LANGGRAPH_MAX_PARALLEL_TOOLS 必须大于 0。"})
     if bool(config.get("auditPersistEnabled")) and not config.get("auditPersistPath"):
