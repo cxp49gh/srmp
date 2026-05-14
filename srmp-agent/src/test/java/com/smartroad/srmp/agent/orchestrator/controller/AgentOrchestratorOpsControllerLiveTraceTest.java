@@ -15,4 +15,14 @@ public class AgentOrchestratorOpsControllerLiveTraceTest {
                 controller.liveTraceRuntimePath("web-lg-1-a b")
         );
     }
+
+    @Test
+    public void replayRuntimePathEncodesAdaptiveMode() {
+        AgentOrchestratorOpsController controller = new AgentOrchestratorOpsController();
+
+        assertEquals(
+                "/api/srmp/langgraph/debug/replay/record%201?execute=true&adaptiveMode=compare",
+                controller.replayRuntimePath("record 1", true, "compare")
+        );
+    }
 }

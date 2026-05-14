@@ -15,8 +15,10 @@ class RuntimeConfigAdaptiveTest(unittest.TestCase):
         safe_config = response.json()["safeConfig"]
         self.assertIn("adaptivePlanningEnabled", safe_config)
         self.assertIn("maxAdaptiveIterations", safe_config)
+        self.assertIn("maxAdaptiveAddedTools", safe_config)
         self.assertIsInstance(safe_config["adaptivePlanningEnabled"], bool)
         self.assertGreaterEqual(safe_config["maxAdaptiveIterations"], 0)
+        self.assertGreaterEqual(safe_config["maxAdaptiveAddedTools"], 0)
 
 
 if __name__ == "__main__":

@@ -19,4 +19,20 @@ test('LangGraph ops recent table exposes adaptive planning column', () => {
 test('LangGraph ops config panel shows adaptive planning settings', () => {
   assert.match(source, /adaptivePlanningEnabled/)
   assert.match(source, /maxAdaptiveIterations/)
+  assert.match(source, /maxAdaptiveAddedTools/)
+})
+
+test('LangGraph ops page can trigger adaptive replay compare', () => {
+  assert.match(source, /自适应对比/)
+  assert.match(source, /adaptiveMode/)
+  assert.match(source, /evidenceImproved/)
+  assert.match(source, /toolDelta/)
+  assert.match(source, /costDeltaMs/)
+})
+
+const apiSource = readFileSync(new URL('../src/api/orchestrator.ts', import.meta.url), 'utf8')
+
+test('orchestrator replay API accepts adaptive mode parameter', () => {
+  assert.match(apiSource, /adaptiveMode/)
+  assert.match(apiSource, /params: \{ execute, adaptiveMode \}/)
 })

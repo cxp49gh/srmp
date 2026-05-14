@@ -4,7 +4,7 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
-from .adaptive_planner import plan_adaptive_tools
+from .adaptive_planner import plan_adaptive_tools, summarize_evidence
 from .answer_enhancers import enhance_answer
 from .config import settings
 from .intent import recognize_intent
@@ -104,6 +104,7 @@ def strategy_metadata() -> Dict[str, Any]:
         "evidenceFusion": settings.enable_evidence_fusion,
         "adaptivePlanning": settings.adaptive_planning_enabled,
         "maxAdaptiveIterations": settings.max_adaptive_iterations,
+        "maxAdaptiveAddedTools": settings.max_adaptive_added_tools,
         "runtimeReplay": True,
         "diagnosticExport": True,
     }
@@ -455,11 +456,16 @@ class LangGraphWorkflow:
     async def _adaptive_evidence_fuse(self, state: AgentState) -> Dict[str, Any]:
         results = state.get("adaptive_tool_results", [])
         if not results:
-            self._step(state, "adaptive_evidence_fuse", "无补充证据需要融合", state.get("adaptive_planning", {}), status="SKIPPED")
-            return {}
+            evidence = state.get("evidence", {})
+            planning = dict(state.get("adaptive_planning") or {})
+            planning["evidenceSufficientAfter"] = bool((evidence or {}).get("sufficient"))
+            planning["evidenceAfter"] = summarize_evidence(evidence)
+            self._step(state, "adaptive_evidence_fuse", "无补充证据需要融合", planning, status="SKIPPED")
+            return {"adaptive_planning": planning}
         evidence = self._build_evidence(state.get("tool_results", []))
         planning = dict(state.get("adaptive_planning") or {})
         planning["evidenceSufficientAfter"] = bool(evidence.get("sufficient"))
+        planning["evidenceAfter"] = summarize_evidence(evidence)
         self._step(state, "adaptive_evidence_fuse", "融合自适应补充证据", {"adaptivePlanning": planning, "evidence": evidence})
         return {"evidence": evidence, "adaptive_planning": planning}
 
@@ -625,12 +631,19 @@ class LangGraphWorkflow:
             "status": "SKIPPED_NO_CANDIDATE",
             "iterations": 0,
             "maxIterations": settings.max_adaptive_iterations,
+            "maxAddedTools": settings.max_adaptive_added_tools,
             "reason": "自适应规划未产生补充工具。",
             "addedToolNames": [],
             "skippedToolNames": [],
             "evidenceSufficientBefore": bool((state.get("evidence") or {}).get("sufficient")),
             "evidenceSufficientAfter": bool((state.get("evidence") or {}).get("sufficient")),
+            "evidenceBefore": summarize_evidence(state.get("evidence", {})),
+            "evidenceAfter": summarize_evidence(state.get("evidence", {})),
         }
+        if not adaptive_planning.get("evidenceBefore"):
+            adaptive_planning["evidenceBefore"] = summarize_evidence(state.get("evidence", {}))
+        if not adaptive_planning.get("evidenceAfter"):
+            adaptive_planning["evidenceAfter"] = summarize_evidence(state.get("evidence", {}))
         plan_execution = build_plan_execution(
             normalize_plan_preview((request.options or {}).get("planPreview")),
             {

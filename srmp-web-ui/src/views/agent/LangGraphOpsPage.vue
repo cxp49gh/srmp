@@ -60,7 +60,7 @@
             <el-tag :type="adaptivePlanningTagType">{{ adaptivePlanningEnabled ? '启用' : '关闭' }}</el-tag>
           </div>
           <div class="metric-value">{{ adaptiveExecutedCount }}</div>
-          <div class="metric-desc">跳过 {{ adaptiveSkippedCount }}；禁用 {{ adaptiveDisabledCount }}；追加工具 {{ adaptiveAddedToolCount }}；max {{ maxAdaptiveIterationsText }}</div>
+          <div class="metric-desc">跳过 {{ adaptiveSkippedCount }}；禁用 {{ adaptiveDisabledCount }}；追加工具 {{ adaptiveAddedToolCount }}；轮次 {{ maxAdaptiveIterationsText }}；每轮追加 {{ maxAdaptiveAddedToolsText }}</div>
         </el-card>
 
         <el-card shadow="never" class="metric-card">
@@ -127,7 +127,7 @@
             </div>
             <div class="diag-row">
               <span>自适应规划</span>
-              <strong>enabled={{ adaptivePlanningEnabled ? 'true' : 'false' }}；max={{ maxAdaptiveIterationsText }}</strong>
+              <strong>enabled={{ adaptivePlanningEnabled ? 'true' : 'false' }}；iterations={{ maxAdaptiveIterationsText }}；added={{ maxAdaptiveAddedToolsText }}</strong>
             </div>
             <div class="diag-row">
               <span>配置告警</span>
@@ -407,11 +407,12 @@
             </template>
           </el-table-column>
           <el-table-column prop="messagePreview" label="问题" min-width="220" show-overflow-tooltip />
-          <el-table-column label="操作" width="190" fixed="right">
+          <el-table-column label="操作" width="260" fixed="right">
             <template #default="scope">
               <el-button size="small" text @click="openRecord(scope.row)">执行过程</el-button>
               <el-button size="small" text :loading="replaying" @click="replayRecord(scope.row, false)">Plan回放</el-button>
               <el-button size="small" text type="warning" :loading="replaying" @click="replayRecord(scope.row, true)">执行回放</el-button>
+              <el-button size="small" text type="primary" :loading="replaying" @click="replayRecord(scope.row, true, 'compare')">自适应对比</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -426,6 +427,12 @@
           <el-descriptions-item label="原始意图">{{ replayCompare.originalIntent || '-' }}</el-descriptions-item>
           <el-descriptions-item label="回放意图">{{ replayCompare.replayIntent || '-' }}</el-descriptions-item>
           <el-descriptions-item label="工具">{{ replayCompare.toolText || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Baseline 自适应">{{ replayCompare.baselineAdaptiveStatus || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Adaptive 自适应">{{ replayCompare.adaptiveStatus || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="证据改善">{{ replayCompare.evidenceImprovedText || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="工具差值">{{ replayCompare.toolDeltaText || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="耗时差值">{{ replayCompare.costDeltaText || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="命中差异">{{ replayCompare.hitDeltaText || '-' }}</el-descriptions-item>
         </el-descriptions>
       </el-card>
 
@@ -543,6 +550,7 @@ const configBody = computed(() => value(configResult, ['body']) || configResult)
 const healthBody = computed(() => value(healthDetail, ['body']) || healthDetail)
 const adaptivePlanningEnabled = computed(() => Boolean(value(configBody.value, ['safeConfig', 'adaptivePlanningEnabled']) ?? value(healthBody.value, ['strategy', 'adaptivePlanning'])))
 const maxAdaptiveIterationsText = computed(() => String(value(configBody.value, ['safeConfig', 'maxAdaptiveIterations']) ?? value(healthBody.value, ['strategy', 'maxAdaptiveIterations']) ?? '-'))
+const maxAdaptiveAddedToolsText = computed(() => String(value(configBody.value, ['safeConfig', 'maxAdaptiveAddedTools']) ?? value(healthBody.value, ['strategy', 'maxAdaptiveAddedTools']) ?? '-'))
 const adaptivePlanningTagType = computed(() => adaptivePlanningEnabled.value ? (adaptiveExecutedCount.value > 0 ? 'warning' : 'info') : 'info')
 const persistenceBody = computed(() => value(persistenceResult, ['body']) || persistenceResult)
 const configWarnings = computed(() => {
@@ -749,7 +757,7 @@ async function openRecord(row: Record<string, any>) {
   }
 }
 
-async function replayRecord(row: Record<string, any>, execute: boolean) {
+async function replayRecord(row: Record<string, any>, execute: boolean, adaptiveMode = 'default') {
   const id = row?.id || row?.traceId
   if (!id) {
     ElMessage.warning('该记录缺少 id / traceId，无法回放')
@@ -757,15 +765,15 @@ async function replayRecord(row: Record<string, any>, execute: boolean) {
   }
   replaying.value = true
   try {
-    const res = await replayOrchestratorRecord(String(id), execute)
+    const res = await replayOrchestratorRecord(String(id), execute, adaptiveMode)
     const body = value(res, ['body']) || value(res, ['data']) || res
     planResultText.value = JSON.stringify(res, null, 2)
     selectedRecordText.value = JSON.stringify(res, null, 2)
-    selectedReplayResult.value = body
+    selectedReplayResult.value = value(body, ['adaptive']) || body
     selectedExecutionRecord.value = row
     executionDrawerVisible.value = true
-    replayCompare.value = buildReplayCompare(row, body, execute)
-    ElMessage.success(execute ? '执行回放已完成' : 'Plan 回放已完成')
+    replayCompare.value = buildReplayCompare(row, body, execute, adaptiveMode)
+    ElMessage.success(adaptiveMode === 'compare' ? '自适应对比已完成' : (execute ? '执行回放已完成' : 'Plan 回放已完成'))
     if (execute) {
       await loadSummary()
     }
@@ -779,16 +787,33 @@ async function replayRecord(row: Record<string, any>, execute: boolean) {
   }
 }
 
-function buildReplayCompare(original: Record<string, any>, replay: Record<string, any>, execute: boolean) {
+function buildReplayCompare(original: Record<string, any>, replay: Record<string, any>, execute: boolean, adaptiveMode = 'default') {
   const response = value(replay, ['response']) || replay
   const data = value(response, ['data']) || {}
+  const compare = value(replay, ['compare']) || {}
+  const baselineKnowledge = Number(compare.baselineKnowledgeHitCount ?? 0)
+  const adaptiveKnowledge = Number(compare.adaptiveKnowledgeHitCount ?? 0)
+  const baselineBusiness = Number(compare.baselineBusinessHitCount ?? 0)
+  const adaptiveBusiness = Number(compare.adaptiveBusinessHitCount ?? 0)
   return {
     execute,
+    adaptiveMode,
     originalStatus: original.status,
     replayStatus: value(replay, ['status']) || value(response, ['status']) || 'SUCCESS',
     originalIntent: original.intent,
     replayIntent: data.intent || value(response, ['intent']) || value(replay, ['intent']),
-    toolText: `${data.toolSuccessCount ?? original.toolSuccessCount ?? 0}/${data.toolTotalCount ?? original.toolTotalCount ?? 0}`
+    toolText: `${data.toolSuccessCount ?? original.toolSuccessCount ?? 0}/${data.toolTotalCount ?? original.toolTotalCount ?? 0}`,
+    baselineAdaptiveStatus: compare.baselineAdaptiveStatus,
+    adaptiveStatus: compare.adaptiveStatus,
+    evidenceImproved: compare.evidenceImproved,
+    evidenceImprovedText: compare.evidenceImproved === undefined ? undefined : (compare.evidenceImproved ? '是' : '否'),
+    toolDelta: compare.toolDelta,
+    costDeltaMs: compare.costDeltaMs,
+    toolDeltaText: compare.toolDelta === undefined ? undefined : `${compare.toolDelta >= 0 ? '+' : ''}${compare.toolDelta}`,
+    costDeltaText: compare.costDeltaMs === undefined ? undefined : `${compare.costDeltaMs >= 0 ? '+' : ''}${compare.costDeltaMs}ms`,
+    hitDeltaText: compare.evidenceImproved === undefined
+      ? undefined
+      : `知识 ${baselineKnowledge}->${adaptiveKnowledge}；业务 ${baselineBusiness}->${adaptiveBusiness}`
   }
 }
 

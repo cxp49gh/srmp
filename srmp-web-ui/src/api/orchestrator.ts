@@ -51,9 +51,9 @@ export function getOrchestratorRecord(recordId: string): Promise<Record<string, 
   return aiRequest.get(`/api/agent/orchestrator/ops/record/${encodeURIComponent(recordId)}`)
 }
 
-export function replayOrchestratorRecord(recordId: string, execute = false): Promise<Record<string, any>> {
+export function replayOrchestratorRecord(recordId: string, execute = false, adaptiveMode = 'default'): Promise<Record<string, any>> {
   return aiRequest.post(`/api/agent/orchestrator/ops/replay/${encodeURIComponent(recordId)}`, {}, {
-    params: { execute }
+    params: { execute, adaptiveMode }
   })
 }
 

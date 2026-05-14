@@ -170,8 +170,9 @@ public class AgentOrchestratorOpsController {
      */
     @PostMapping("/replay/{recordId}")
     public R<Object> replay(@PathVariable("recordId") String recordId,
-                            @RequestParam(value = "execute", required = false, defaultValue = "false") Boolean execute) {
-        return R.ok(remotePost("/api/srmp/langgraph/debug/replay/" + recordId + "?execute=" + Boolean.TRUE.equals(execute), new LinkedHashMap<String, Object>()));
+                            @RequestParam(value = "execute", required = false, defaultValue = "false") Boolean execute,
+                            @RequestParam(value = "adaptiveMode", required = false, defaultValue = "default") String adaptiveMode) {
+        return R.ok(remotePost(replayRuntimePath(recordId, Boolean.TRUE.equals(execute), adaptiveMode), new LinkedHashMap<String, Object>()));
     }
 
     @GetMapping("/config")
@@ -195,6 +196,14 @@ public class AgentOrchestratorOpsController {
     String liveTraceRuntimePath(String traceId) {
         String safeTraceId = traceId == null ? "" : traceId;
         return "/api/srmp/langgraph/trace/live/" + UriUtils.encodePathSegment(safeTraceId, StandardCharsets.UTF_8);
+    }
+
+    String replayRuntimePath(String recordId, boolean execute, String adaptiveMode) {
+        String safeRecordId = recordId == null ? "" : recordId;
+        String mode = isBlank(adaptiveMode) ? "default" : adaptiveMode.trim();
+        return "/api/srmp/langgraph/debug/replay/" + UriUtils.encodePathSegment(safeRecordId, StandardCharsets.UTF_8)
+                + "?execute=" + execute
+                + "&adaptiveMode=" + UriUtils.encodeQueryParam(mode, StandardCharsets.UTF_8);
     }
 
     @GetMapping("/persistence")

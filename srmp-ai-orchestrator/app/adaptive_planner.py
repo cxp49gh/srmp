@@ -27,7 +27,9 @@ class AdaptivePlanningDecision:
     skipped_tool_names: List[str] = field(default_factory=list)
     iteration: int = 1
     max_iterations: int = 1
+    max_added_tools: int = 1
     evidence_sufficient_before: bool = False
+    evidence_before: Dict[str, Any] = field(default_factory=dict)
 
     def to_summary(
         self,
@@ -39,16 +41,21 @@ class AdaptivePlanningDecision:
         if self.should_replan and executed_results is not None:
             results = list(executed_results or [])
             status = "EXECUTED" if any(item.success for item in results) else "FAILED"
+        evidence_before_summary = summarize_evidence(self.evidence_before, self.evidence_sufficient_before)
+        evidence_after_summary = summarize_evidence(evidence_after, evidence_sufficient_after) if evidence_after is not None else None
         return {
             "enabled": self.enabled,
             "status": status,
             "iterations": 1 if self.should_replan else 0,
             "maxIterations": self.max_iterations,
+            "maxAddedTools": self.max_added_tools,
             "reason": self.reason,
             "addedToolNames": [item.toolName for item in self.added_calls],
             "skippedToolNames": self.skipped_tool_names,
             "evidenceSufficientBefore": self.evidence_sufficient_before,
             "evidenceSufficientAfter": evidence_sufficient_after,
+            "evidenceBefore": evidence_before_summary,
+            "evidenceAfter": evidence_after_summary,
         }
 
 
@@ -63,41 +70,49 @@ def plan_adaptive_tools(
 ) -> AdaptivePlanningDecision:
     options = request.options or {}
     max_iterations = _effective_max_iterations(options)
+    max_added_tools = _effective_max_added_tools(options)
     evidence_sufficient = bool((evidence or {}).get("sufficient"))
     if not getattr(settings, "adaptive_planning_enabled", True) or _bool_option(options, "disableAdaptivePlanning", False):
-        return _decision(False, False, "DISABLED", "自适应工具规划已关闭。", max_iterations, evidence_sufficient)
+        return _decision(False, False, "DISABLED", "自适应工具规划已关闭。", max_iterations, max_added_tools, evidence or {}, evidence_sufficient)
     if max_iterations <= 0:
-        return _decision(True, False, "DISABLED", "本次请求不允许自适应追加工具。", max_iterations, evidence_sufficient)
+        return _decision(True, False, "DISABLED", "本次请求不允许自适应追加工具。", max_iterations, max_added_tools, evidence or {}, evidence_sufficient)
     if iteration > max_iterations:
-        return _decision(True, False, "SKIPPED_LIMIT", "已达到自适应规划轮次上限。", max_iterations, evidence_sufficient)
+        return _decision(True, False, "SKIPPED_LIMIT", "已达到自适应规划轮次上限。", max_iterations, max_added_tools, evidence or {}, evidence_sufficient)
     if evidence_sufficient:
-        return _decision(True, False, "SKIPPED_SUFFICIENT", "第一轮证据已足够。", max_iterations, evidence_sufficient)
+        return _decision(True, False, "SKIPPED_SUFFICIENT", "第一轮证据已足够。", max_iterations, max_added_tools, evidence or {}, evidence_sufficient)
     if len(tool_results or []) >= settings.max_tool_calls:
-        return _decision(True, False, "SKIPPED_LIMIT", "已达到工具调用数量上限。", max_iterations, evidence_sufficient)
+        return _decision(True, False, "SKIPPED_LIMIT", "已达到工具调用数量上限。", max_iterations, max_added_tools, evidence or {}, evidence_sufficient)
 
     executed_tool_names = {item.toolName for item in tool_results or [] if item.toolName}
     candidates = build_adaptive_tool_calls(request, intent, intent_detail or {}, evidence or {}, executed_tool_names)
-    added_calls, skipped = _filter_candidates(candidates, executed_tool_names, existing_plan or [], settings.max_tool_calls - len(tool_results or []))
+    remaining_slots = settings.max_tool_calls - len(tool_results or [])
+    added_calls, skipped = _filter_candidates(candidates, executed_tool_names, existing_plan or [], remaining_slots, max_added_tools)
     if not added_calls:
+        status = "SKIPPED_LIMIT" if candidates and (remaining_slots <= 0 or max_added_tools <= 0) else "SKIPPED_NO_CANDIDATE"
+        reason = "已达到自适应追加工具预算上限。" if status == "SKIPPED_LIMIT" else "证据不足，但没有未执行过的安全只读候选工具。"
         return AdaptivePlanningDecision(
             enabled=True,
             should_replan=False,
-            status="SKIPPED_NO_CANDIDATE",
-            reason="证据不足，但没有未执行过的安全只读候选工具。",
+            status=status,
+            reason=reason,
             skipped_tool_names=skipped,
             max_iterations=max_iterations,
+            max_added_tools=max_added_tools,
             evidence_sufficient_before=evidence_sufficient,
+            evidence_before=evidence or {},
         )
     return AdaptivePlanningDecision(
         enabled=True,
         should_replan=True,
         status="PLANNED",
-        reason=_reason_for_calls(added_calls, evidence or {}),
+        reason=_reason_for_calls(added_calls, evidence or {}, max_added_tools, skipped),
         added_calls=added_calls,
         skipped_tool_names=skipped,
         iteration=iteration,
         max_iterations=max_iterations,
+        max_added_tools=max_added_tools,
         evidence_sufficient_before=evidence_sufficient,
+        evidence_before=evidence or {},
     )
 
 
@@ -137,6 +152,7 @@ def _filter_candidates(
     executed_tool_names: Set[str],
     existing_plan: List[ToolCall],
     remaining_slots: int,
+    max_added_tools: int,
 ) -> Tuple[List[ToolCall], List[str]]:
     added: List[ToolCall] = []
     skipped: List[str] = []
@@ -151,7 +167,7 @@ def _filter_candidates(
         if call.toolName in existing_tool_names:
             skipped.append(call.toolName)
             continue
-        if remaining_slots <= 0:
+        if remaining_slots <= 0 or len(added) >= max_added_tools:
             skipped.append(call.toolName)
             continue
         added.append(call)
@@ -160,14 +176,25 @@ def _filter_candidates(
     return added, _unique(skipped)
 
 
-def _decision(enabled: bool, should_replan: bool, status: str, reason: str, max_iterations: int, evidence_sufficient: bool) -> AdaptivePlanningDecision:
+def _decision(
+    enabled: bool,
+    should_replan: bool,
+    status: str,
+    reason: str,
+    max_iterations: int,
+    max_added_tools: int,
+    evidence: Dict[str, Any],
+    evidence_sufficient: bool,
+) -> AdaptivePlanningDecision:
     return AdaptivePlanningDecision(
         enabled=enabled,
         should_replan=should_replan,
         status=status,
         reason=reason,
         max_iterations=max_iterations,
+        max_added_tools=max_added_tools,
         evidence_sufficient_before=evidence_sufficient,
+        evidence_before=evidence,
     )
 
 
@@ -175,6 +202,22 @@ def _effective_max_iterations(options: Dict[str, Any]) -> int:
     setting_limit = getattr(settings, "max_adaptive_iterations", 1)
     requested = _option_int_from_dict(options, "maxAdaptiveIterations", setting_limit)
     return max(0, min(requested, setting_limit, 1))
+
+
+def _effective_max_added_tools(options: Dict[str, Any]) -> int:
+    requested = _option_int_from_dict(options, "maxAdaptiveAddedTools", getattr(settings, "max_adaptive_added_tools", 1))
+    return max(0, min(requested, int(settings.max_tool_calls or 0)))
+
+
+def summarize_evidence(evidence: Optional[Dict[str, Any]], fallback_sufficient: Optional[bool] = None) -> Dict[str, Any]:
+    data = evidence or {}
+    return {
+        "sufficient": bool(data.get("sufficient")) if data.get("sufficient") is not None else bool(fallback_sufficient),
+        "businessHitCount": int(_number(data.get("businessHitCount"))),
+        "knowledgeHitCount": int(_number(data.get("knowledgeHitCount"))),
+        "toolSuccessCount": int(_number(data.get("toolSuccessCount"))),
+        "toolFailedCount": int(_number(data.get("toolFailedCount"))),
+    }
 
 
 def _option_int(request: MapAiAgentRequest, key: str, default: int) -> int:
@@ -201,13 +244,14 @@ def _is_region_request(intent: str, mode: str) -> bool:
     return intent == "REGION_ANALYSIS" or mode in {"REGION", "BOX", "POLYGON", "SELECTION"}
 
 
-def _reason_for_calls(calls: List[ToolCall], evidence: Dict[str, Any]) -> str:
+def _reason_for_calls(calls: List[ToolCall], evidence: Dict[str, Any], max_added_tools: int, skipped: List[str]) -> str:
     names = [item.toolName for item in calls]
+    budget_suffix = " 本轮预算最多追加 " + str(max_added_tools) + " 个工具。" if skipped else ""
     if names == ["knowledge.retrieve"]:
-        return "业务工具未命中，追加知识检索补充解释依据。"
+        return "业务工具未命中，追加知识检索补充解释依据。" + budget_suffix
     if "gis.queryRegionSummary" in names:
-        return "第一轮证据不足，追加区域统计摘要补充业务依据。"
-    return "第一轮证据不足，追加安全只读工具补充依据。"
+        return "第一轮证据不足，追加区域统计摘要补充业务依据。" + budget_suffix
+    return "第一轮证据不足，追加安全只读工具补充依据。" + budget_suffix
 
 
 def _number(value: Any) -> float:

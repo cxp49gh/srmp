@@ -123,6 +123,47 @@ class AdaptivePlannerTest(unittest.TestCase):
         self.assertEqual("gis.queryRegionSummary", calls[0].toolName)
         self.assertEqual("G210", calls[0].args["routeCode"])
 
+    def test_max_adaptive_added_tools_limits_added_candidates(self):
+        request = MapAiAgentRequest(
+            message="分析当前病害并生成建议",
+            mapContext=MapAiContext(mode="OBJECT", routeCode="G210", year=2026),
+            options={"maxAdaptiveAddedTools": 1},
+        )
+
+        decision = plan_adaptive_tools(
+            request=request,
+            intent="OBJECT_ANALYSIS",
+            intent_detail={},
+            evidence={"sufficient": False, "businessHitCount": 0, "knowledgeHitCount": 0},
+            tool_results=[ToolResult(toolName="gis.queryNearbyObjects", success=True, count=0)],
+            existing_plan=[ToolCall(toolName="gis.queryNearbyObjects", args={}, reason="first pass")],
+        )
+
+        self.assertTrue(decision.should_replan)
+        self.assertEqual(["knowledge.retrieve"], [item.toolName for item in decision.added_calls])
+        self.assertIn("gis.queryAssessmentResults", decision.skipped_tool_names)
+
+    def test_zero_max_adaptive_added_tools_skips_with_limit_status(self):
+        request = MapAiAgentRequest(
+            message="分析当前病害并生成建议",
+            mapContext=MapAiContext(mode="OBJECT", routeCode="G210", year=2026),
+            options={"maxAdaptiveAddedTools": 0},
+        )
+
+        decision = plan_adaptive_tools(
+            request=request,
+            intent="OBJECT_ANALYSIS",
+            intent_detail={},
+            evidence={"sufficient": False, "businessHitCount": 0, "knowledgeHitCount": 0},
+            tool_results=[ToolResult(toolName="gis.queryNearbyObjects", success=True, count=0)],
+            existing_plan=[ToolCall(toolName="gis.queryNearbyObjects", args={}, reason="first pass")],
+        )
+
+        self.assertFalse(decision.should_replan)
+        self.assertEqual("SKIPPED_LIMIT", decision.status)
+        self.assertEqual([], decision.added_calls)
+        self.assertIn("knowledge.retrieve", decision.skipped_tool_names)
+
 
 if __name__ == "__main__":
     unittest.main()

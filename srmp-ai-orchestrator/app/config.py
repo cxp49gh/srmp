@@ -67,6 +67,7 @@ class Settings:
     require_evidence_prefix: bool = _bool_env("SRMP_LANGGRAPH_REQUIRE_EVIDENCE_PREFIX", True)
     adaptive_planning_enabled: bool = _bool_env("SRMP_ADAPTIVE_PLANNING_ENABLED", True)
     max_adaptive_iterations: int = max(0, min(_int_env("SRMP_MAX_ADAPTIVE_ITERATIONS", 1), 1))
+    max_adaptive_added_tools: int = _int_env("SRMP_MAX_ADAPTIVE_ADDED_TOOLS", 1)
 
     audit_max_records: int = _int_env("SRMP_LANGGRAPH_AUDIT_MAX_RECORDS", 200)
     audit_persist_enabled: bool = _bool_env("SRMP_LANGGRAPH_AUDIT_PERSIST_ENABLED", False)
@@ -97,6 +98,11 @@ class Settings:
                 "SRMP_LANGGRAPH_AUDIT_REDACT_KEYS",
                 "authorization,token,api_key,apikey,password,secret,cookie,set-cookie,access_key,accesskey,private_key",
             ),
+        )
+        object.__setattr__(
+            self,
+            "max_adaptive_added_tools",
+            max(0, min(int(self.max_adaptive_added_tools or 0), int(self.max_tool_calls or 0))),
         )
 
 

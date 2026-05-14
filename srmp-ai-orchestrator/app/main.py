@@ -54,6 +54,7 @@ def _safe_runtime_config() -> dict:
         "requireEvidencePrefix": settings.require_evidence_prefix,
         "adaptivePlanningEnabled": settings.adaptive_planning_enabled,
         "maxAdaptiveIterations": settings.max_adaptive_iterations,
+        "maxAdaptiveAddedTools": settings.max_adaptive_added_tools,
         "auditMaxRecords": settings.audit_max_records,
         "auditPersistEnabled": settings.audit_persist_enabled,
         "auditPersistPath": settings.audit_persist_path,
@@ -388,6 +389,7 @@ async def debug_plan(
 async def debug_replay(
     record_id: str,
     execute: bool = Query(default=False),
+    adaptive_mode: str = Query(default="default", alias="adaptiveMode"),
     x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id"),
     x_ai_trace_id: Optional[str] = Header(default=None, alias="X-AI-Trace-Id"),
 ) -> dict:
@@ -403,14 +405,44 @@ async def debug_replay(
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="Runtime audit record has no replayable requestPayload")
 
+    mode = (adaptive_mode or "default").strip().lower()
+    if mode not in {"default", "off", "compare"}:
+        raise HTTPException(status_code=400, detail="adaptiveMode must be default, off, or compare")
+    if mode == "compare" and not execute:
+        raise HTTPException(status_code=400, detail="adaptiveMode=compare requires execute=true replay")
+
     request = MapAiAgentRequest(**payload)
     replay_trace_id = x_ai_trace_id or "replay-" + str(record.get("traceId") or record.get("id") or record_id)
     tenant_id = x_tenant_id or record.get("tenantId")
     if execute:
+        if mode == "compare":
+            baseline = await _run_replay_once(
+                request=_request_with_adaptive_off(request),
+                tenant_id=tenant_id,
+                trace_id=replay_trace_id + "-baseline",
+            )
+            adaptive = await _run_replay_once(
+                request=_request_without_adaptive_override(request),
+                tenant_id=tenant_id,
+                trace_id=replay_trace_id + "-adaptive",
+            )
+            return {
+                "execute": True,
+                "adaptiveMode": "compare",
+                "sourceRecordId": record.get("id"),
+                "sourceTraceId": record.get("traceId"),
+                "baseline": baseline,
+                "adaptive": adaptive,
+                "response": adaptive.get("response"),
+                "compare": _build_adaptive_compare(baseline, adaptive),
+            }
+
+        replay_request = _request_with_adaptive_off(request) if mode == "off" else request
         started_at = time.perf_counter()
-        response = await workflow.run(request=request, tenant_id=tenant_id, trace_id=replay_trace_id)
+        response = await workflow.run(request=replay_request, tenant_id=tenant_id, trace_id=replay_trace_id)
         return {
             "execute": True,
+            "adaptiveMode": mode,
             "costMs": int((time.perf_counter() - started_at) * 1000),
             "sourceRecordId": record.get("id"),
             "sourceTraceId": record.get("traceId"),
@@ -419,9 +451,93 @@ async def debug_replay(
 
     plan = await workflow.plan(request=request, tenant_id=tenant_id, trace_id=replay_trace_id)
     plan["execute"] = False
+    plan["adaptiveMode"] = mode
     plan["sourceRecordId"] = record.get("id")
     plan["sourceTraceId"] = record.get("traceId")
     return plan
+
+
+async def _run_replay_once(request: MapAiAgentRequest, tenant_id: Optional[str], trace_id: str) -> Dict[str, Any]:
+    started_at = time.perf_counter()
+    response = await workflow.run(request=request, tenant_id=tenant_id, trace_id=trace_id)
+    return {
+        "costMs": int((time.perf_counter() - started_at) * 1000),
+        "traceId": trace_id,
+        "response": response.model_dump(exclude_none=True),
+    }
+
+
+def _request_with_adaptive_off(request: MapAiAgentRequest) -> MapAiAgentRequest:
+    cloned = request.model_copy(deep=True)
+    options = dict(cloned.options or {})
+    options["disableAdaptivePlanning"] = True
+    cloned.options = options
+    return cloned
+
+
+def _request_without_adaptive_override(request: MapAiAgentRequest) -> MapAiAgentRequest:
+    cloned = request.model_copy(deep=True)
+    options = dict(cloned.options or {})
+    options.pop("disableAdaptivePlanning", None)
+    cloned.options = options
+    return cloned
+
+
+def _build_adaptive_compare(baseline: Dict[str, Any], adaptive: Dict[str, Any]) -> Dict[str, Any]:
+    baseline_response = baseline.get("response") if isinstance(baseline, dict) else {}
+    adaptive_response = adaptive.get("response") if isinstance(adaptive, dict) else {}
+    baseline_data = baseline_response.get("data") if isinstance(baseline_response, dict) else {}
+    adaptive_data = adaptive_response.get("data") if isinstance(adaptive_response, dict) else {}
+    baseline_planning = _adaptive_planning_from_response_dict(baseline_response)
+    adaptive_planning = _adaptive_planning_from_response_dict(adaptive_response)
+    baseline_evidence = _evidence_from_response_dict(baseline_response)
+    adaptive_evidence = _evidence_from_response_dict(adaptive_response)
+    baseline_tool_total = int((baseline_data or {}).get("toolTotalCount") or len((baseline_response or {}).get("toolResults") or []))
+    adaptive_tool_total = int((adaptive_data or {}).get("toolTotalCount") or len((adaptive_response or {}).get("toolResults") or []))
+    baseline_business = int(baseline_evidence.get("businessHitCount") or 0)
+    adaptive_business = int(adaptive_evidence.get("businessHitCount") or 0)
+    baseline_knowledge = int(baseline_evidence.get("knowledgeHitCount") or 0)
+    adaptive_knowledge = int(adaptive_evidence.get("knowledgeHitCount") or 0)
+    return {
+        "toolDelta": adaptive_tool_total - baseline_tool_total,
+        "costDeltaMs": int((adaptive or {}).get("costMs") or 0) - int((baseline or {}).get("costMs") or 0),
+        "baselineAdaptiveStatus": baseline_planning.get("status"),
+        "adaptiveStatus": adaptive_planning.get("status"),
+        "evidenceImproved": _evidence_improved(baseline_evidence, adaptive_evidence),
+        "baselineEvidenceSufficient": bool(baseline_evidence.get("sufficient")),
+        "adaptiveEvidenceSufficient": bool(adaptive_evidence.get("sufficient")),
+        "baselineBusinessHitCount": baseline_business,
+        "adaptiveBusinessHitCount": adaptive_business,
+        "baselineKnowledgeHitCount": baseline_knowledge,
+        "adaptiveKnowledgeHitCount": adaptive_knowledge,
+    }
+
+
+def _adaptive_planning_from_response_dict(response: Dict[str, Any]) -> Dict[str, Any]:
+    data = response.get("data") if isinstance(response, dict) else {}
+    trace = response.get("trace") if isinstance(response, dict) else {}
+    planning = data.get("adaptivePlanning") if isinstance(data, dict) else None
+    if not isinstance(planning, dict) and isinstance(trace, dict):
+        planning = trace.get("adaptivePlanning")
+    return planning if isinstance(planning, dict) else {}
+
+
+def _evidence_from_response_dict(response: Dict[str, Any]) -> Dict[str, Any]:
+    data = response.get("data") if isinstance(response, dict) else {}
+    evidence = data.get("evidence") if isinstance(data, dict) else None
+    if isinstance(evidence, dict):
+        return evidence
+    planning = _adaptive_planning_from_response_dict(response)
+    evidence = planning.get("evidenceAfter") or planning.get("evidenceBefore")
+    return evidence if isinstance(evidence, dict) else {}
+
+
+def _evidence_improved(baseline: Dict[str, Any], adaptive: Dict[str, Any]) -> bool:
+    if not bool(baseline.get("sufficient")) and bool(adaptive.get("sufficient")):
+        return True
+    baseline_hits = int(baseline.get("businessHitCount") or 0) + int(baseline.get("knowledgeHitCount") or 0)
+    adaptive_hits = int(adaptive.get("businessHitCount") or 0) + int(adaptive.get("knowledgeHitCount") or 0)
+    return adaptive_hits > baseline_hits
 
 
 @app.get("/api/srmp/langgraph/tools")
