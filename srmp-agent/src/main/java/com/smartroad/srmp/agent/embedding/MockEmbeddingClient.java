@@ -48,7 +48,7 @@ public class MockEmbeddingClient implements EmbeddingClient {
 
     @Override
     public int dimensions() {
-        return properties == null ? 1536 : properties.safeDimensions();
+        return properties == null ? 1024 : properties.safeDimensions();
     }
 
     private int hash(String text) {

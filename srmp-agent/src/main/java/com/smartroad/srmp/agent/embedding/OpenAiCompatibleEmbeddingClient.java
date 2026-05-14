@@ -66,6 +66,9 @@ public class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", model());
         body.put("input", texts == null ? Collections.emptyList() : texts);
+        if (dimensions() > 0) {
+            body.put("dimensions", dimensions());
+        }
         String json = objectMapper.writeValueAsString(body);
         conn.getOutputStream().write(json.getBytes(StandardCharsets.UTF_8));
 
@@ -77,6 +80,9 @@ public class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
             while ((line = br.readLine()) != null) sb.append(line);
         }
         conn.disconnect();
+        if (code >= 400) {
+            throw new IllegalStateException("embedding http " + code + ": " + responseMessage(sb.toString()));
+        }
         return parseOpenAiResponse(sb.toString());
     }
 
@@ -87,6 +93,9 @@ public class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", model());
         body.put("input", texts == null ? Collections.emptyList() : texts);
+        if (dimensions() > 0) {
+            body.put("dimensions", dimensions());
+        }
         String json = objectMapper.writeValueAsString(body);
 
         List<String> cmd = new ArrayList<>();
@@ -128,7 +137,7 @@ public class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
 
     @Override
     public int dimensions() {
-        return properties == null ? 1536 : properties.safeDimensions();
+        return properties == null ? 1024 : properties.safeDimensions();
     }
 
     private String endpoint() {
@@ -137,6 +146,7 @@ public class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
         }
         String endpoint = properties.getEndpoint().trim();
         if (endpoint.endsWith("/embeddings")) return endpoint;
+        if (endpoint.endsWith("/api/embed") || endpoint.endsWith("/api/embeddings")) return endpoint;
         if (endpoint.endsWith("/")) endpoint = endpoint.substring(0, endpoint.length() - 1);
         if (endpoint.endsWith("/v1")) return endpoint + "/embeddings";
         return endpoint + "/v1/embeddings";
@@ -147,8 +157,11 @@ public class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
             JsonNode root = objectMapper.readTree(json == null ? "{}" : json);
             JsonNode data = root.get("data");
             if (data == null || !data.isArray()) {
-                String msg = root.has("error") ? root.get("error").toString() : "embedding response missing data array";
-                throw new IllegalStateException(msg);
+                List<List<Float>> compatible = parseCompatibleEmbeddingArrays(root);
+                if (!compatible.isEmpty()) {
+                    return compatible;
+                }
+                throw new IllegalStateException(responseMessage(json));
             }
             List<List<Float>> result = new ArrayList<>();
             for (JsonNode item : data) result.add(toFloatList(item.get("embedding")));
@@ -163,5 +176,48 @@ public class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
         if (node == null || !node.isArray()) return result;
         for (JsonNode n : node) result.add((float) n.asDouble());
         return result;
+    }
+
+    private List<List<Float>> parseCompatibleEmbeddingArrays(JsonNode root) {
+        JsonNode arr = firstArray(root, "embeddings", "embedding", "vectors");
+        if (arr == null) {
+            return Collections.emptyList();
+        }
+        if (arr.size() > 0 && arr.get(0).isNumber()) {
+            return Collections.singletonList(toFloatList(arr));
+        }
+        List<List<Float>> result = new ArrayList<>();
+        for (JsonNode item : arr) {
+            result.add(toFloatList(item));
+        }
+        return result;
+    }
+
+    private JsonNode firstArray(JsonNode root, String... names) {
+        for (String name : names) {
+            if (root.has(name) && root.get(name).isArray()) {
+                return root.get(name);
+            }
+        }
+        return null;
+    }
+
+    private String responseMessage(String json) {
+        try {
+            JsonNode root = objectMapper.readTree(json == null ? "{}" : json);
+            if (root.has("error")) return root.get("error").toString();
+            if (root.has("message")) return root.get("message").asText();
+            if (root.has("msg")) return root.get("msg").asText();
+            if (root.has("code")) return "code=" + root.get("code").asText() + ", raw=" + preview(json);
+            return "embedding response missing data array, raw=" + preview(json);
+        } catch (Exception e) {
+            return "embedding response parse failed, raw=" + preview(json);
+        }
+    }
+
+    private String preview(String text) {
+        if (text == null) return "";
+        String compact = text.replaceAll("\\s+", " ").trim();
+        return compact.length() <= 500 ? compact : compact.substring(0, 500);
     }
 }

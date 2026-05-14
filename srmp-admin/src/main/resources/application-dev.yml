@@ -69,10 +69,10 @@ srmp:
       read-timeout-ms: ${SRMP_LANGGRAPH_READ_TIMEOUT_MS:300000}
       allow-write-tools: ${SRMP_AI_TOOL_ALLOW_WRITE:false}
     embedding:
-      provider: openai-compatible
-      endpoint: ${SRMP_EMBEDDING_ENDPOINT:https://dashscope.aliyuncs.com/compatible-mode/v1}
-      api-key: ${SRMP_LLM_API_KEY:sk-f39cf265c5ad4c378dc052d01db084e3}
-      model: ${SRMP_EMBEDDING_MODEL:text-embedding-v4}
+      provider: local
+      endpoint: ${SRMP_EMBEDDING_ENDPOINT:http://bge-m3.kuandeng.com:11434/api/embed}
+      api-key: ${SRMP_LLM_API_KEY:}
+      model: ${SRMP_EMBEDDING_MODEL:bge-m3}
       dimensions: ${SRMP_EMBEDDING_DIMENSIONS:1024}
 
   outline:

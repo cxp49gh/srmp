@@ -556,7 +556,7 @@ CREATE TABLE IF NOT EXISTS ai_knowledge_chunk (
     chunk_index     INTEGER,
     content         TEXT NOT NULL,
     metadata        JSONB DEFAULT '{}'::jsonb,
-    embedding       VECTOR(1536),
+    embedding       VECTOR(1024),
     embedding_model VARCHAR(100),
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -596,7 +596,7 @@ ON ai_knowledge_chunk(tenant_id, embedding_provider, embedding_model, embedding_
 -- 注意：这只是历史标记，不代表这些向量一定由当前 provider 生成。
 UPDATE ai_knowledge_chunk
 SET embedding_provider = COALESCE(embedding_provider, 'UNKNOWN'),
-    embedding_dimensions = COALESCE(embedding_dimensions, 1536),
+    embedding_dimensions = COALESCE(embedding_dimensions, 1024),
     embedded_at = COALESCE(embedded_at, updated_at)
 WHERE embedding IS NOT NULL
   AND (embedding_provider IS NULL OR embedding_dimensions IS NULL OR embedded_at IS NULL);
@@ -1747,4 +1747,3 @@ ALTER TABLE disease_record ADD COLUMN IF NOT EXISTS project_id VARCHAR(64);
 CREATE INDEX IF NOT EXISTS idx_road_route_tenant_project ON road_route(tenant_id, project_id) WHERE deleted = false;
 CREATE INDEX IF NOT EXISTS idx_disease_record_tenant_project ON disease_record(tenant_id, project_id) WHERE deleted = false;
 -- <<< END: data management
-

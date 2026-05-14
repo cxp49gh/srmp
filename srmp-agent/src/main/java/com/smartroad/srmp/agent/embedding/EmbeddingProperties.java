@@ -15,10 +15,10 @@ public class EmbeddingProperties {
     private String endpoint;
     private String apiKey;
     private String model = "mock-hash-embedding";
-    private Integer dimensions = 1536;
+    private Integer dimensions = 1024;
     private Integer batchSize = 16;
 
     public int safeDimensions() {
-        return dimensions == null || dimensions <= 0 ? 1536 : dimensions;
+        return dimensions == null || dimensions <= 0 ? 1024 : dimensions;
     }
 }
