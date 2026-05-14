@@ -25,9 +25,10 @@
           <el-descriptions-item label="enabled">{{ value(status, 'enabled') }}</el-descriptions-item>
           <el-descriptions-item label="usable">{{ value(status, 'usable') }}</el-descriptions-item>
           <el-descriptions-item label="baseUrl">{{ value(status, 'baseUrl', 'base_url') }}</el-descriptions-item>
+          <el-descriptions-item label="defaultCollection">{{ defaultCollectionId || '-' }}</el-descriptions-item>
         </el-descriptions>
         <el-form label-width="100px">
-          <el-form-item label="Collection"><el-select v-model="form.collectionId" clearable filterable placeholder="为空时同步默认文档列表" style="width: 100%" @change="loadDocuments"><el-option v-for="item in collections" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item>
+          <el-form-item label="Collection"><el-select v-model="form.collectionId" disabled filterable placeholder="使用后端配置的 Collection" style="width: 100%"><el-option v-for="item in fixedCollectionOptions" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item>
           <el-form-item label="同步数量"><el-input-number v-model="form.limit" :min="1" :max="2000" /></el-form-item>
           <el-form-item label="强制更新"><el-switch v-model="form.force" /></el-form-item>
           <el-form-item label="清理过期"><el-switch v-model="form.cleanupMissing" /></el-form-item>
@@ -37,13 +38,13 @@
       </el-card>
 
       <el-card class="middle-card">
-        <template #header><div class="card-header"><span>文档预览</span><el-button size="small" @click="loadDocuments">刷新</el-button></div></template>
+        <template #header><div class="card-header"><span>文档预览</span><div class="header-actions"><el-tag size="small" type="info">已选 {{ selectedDocumentIds.length }}</el-tag><el-button size="small" :disabled="selectedDocumentIds.length === 0" @click="clearSelectedDocuments">清空选择</el-button><el-button size="small" @click="loadDocuments">刷新</el-button></div></div></template>
         <el-empty v-if="documents.length === 0" description="暂无文档" />
-        <div v-for="item in documents" :key="item.id" class="doc-item">
-          <div class="doc-title"><strong>{{ value(item, 'title') || '未命名文档' }}</strong><el-link v-if="value(item, 'url')" :href="value(item, 'url')" target="_blank" type="primary">打开</el-link></div>
-          <p>{{ value(item, 'id') }}</p>
-          <div v-if="value(item, 'updatedAt', 'updated_at')">更新时间：{{ value(item, 'updatedAt', 'updated_at') }}</div>
-        </div>
+        <el-table v-else ref="docTableRef" :data="documents" border height="calc(100vh - 300px)" row-key="id" size="small" @selection-change="handleDocumentSelection">
+          <el-table-column type="selection" width="44" />
+          <el-table-column label="文档标题" min-width="220" show-overflow-tooltip><template #default="{ row }"><div class="doc-title"><strong>{{ value(row, 'title') || '未命名文档' }}</strong><el-link v-if="value(row, 'url')" :href="value(row, 'url')" target="_blank" type="primary">打开</el-link></div><small>{{ value(row, 'id') }}</small></template></el-table-column>
+          <el-table-column label="更新时间" width="180" show-overflow-tooltip><template #default="{ row }">{{ value(row, 'updatedAt', 'updated_at') || '-' }}</template></el-table-column>
+        </el-table>
       </el-card>
 
       <el-card class="right-card">
@@ -94,6 +95,8 @@ const status = ref<Record<string, any>>({})
 const stats = ref<Record<string, any>>({})
 const collections = ref<OutlineCollection[]>([])
 const documents = ref<OutlineDocument[]>([])
+const selectedDocuments = ref<OutlineDocument[]>([])
+const docTableRef = ref<any>()
 const tasks = ref<Record<string, any>[]>([])
 const details = ref<Record<string, any>[]>([])
 const selectedTask = ref<Record<string, any> | null>(null)
@@ -104,21 +107,30 @@ const detailVisible = ref(false)
 const detailStatus = ref('')
 const vectorizeLimit = ref(500)
 const form = reactive({ collectionId: '', limit: 500, force: false, cleanupMissing: false })
+const defaultCollectionId = computed(() => String(value(status.value, 'defaultCollectionId', 'default_collection_id') || ''))
+const fixedCollectionOptions = computed(() => {
+  if (!defaultCollectionId.value) return collections.value
+  const exists = collections.value.some((item) => item.id === defaultCollectionId.value)
+  return exists ? collections.value : [{ id: defaultCollectionId.value, name: defaultCollectionId.value }, ...collections.value]
+})
+const selectedDocumentIds = computed(() => selectedDocuments.value.map((item) => item.id).filter(Boolean))
 const statusCount = computed(() => { const stat: Record<string, number> = { SUCCESS: 0, SKIPPED: 0, FAILED: 0 }; details.value.forEach((item) => { const s = String(value(item, 'status') || ''); stat[s] = (stat[s] || 0) + 1 }); return stat })
 onMounted(loadAll)
-async function loadAll() { await Promise.allSettled([loadStatus(), loadStats(), loadCollections(), loadDocuments(), loadTasks()]) }
-async function loadStatus() { status.value = await getOutlineStatus() }
+async function loadAll() { await loadStatus(); await Promise.allSettled([loadStats(), loadCollections(), loadDocuments(), loadTasks()]) }
+async function loadStatus() { status.value = await getOutlineStatus(); form.collectionId = defaultCollectionId.value }
 async function loadStats() { stats.value = await getOutlineKnowledgeStats() }
 async function loadCollections() { collections.value = await getOutlineCollections() }
-async function loadDocuments() { documents.value = await listOutlineDocuments({ collectionId: form.collectionId || undefined, limit: Math.min(form.limit, 100), offset: 0 }) }
+async function loadDocuments() { documents.value = await listOutlineDocuments({ collectionId: form.collectionId || undefined, limit: Math.min(form.limit, 100), offset: 0 }); clearSelectedDocuments() }
 async function loadTasks() { tasks.value = await getOutlineSyncTasks(30) }
 async function doSync() { await runSync(false) }
 async function doDryRun() { await runSync(true) }
-async function runSync(dryRun: boolean) { syncing.value = true; try { const result = await syncOutline({ collectionId: form.collectionId || undefined, limit: form.limit, force: form.force, dryRun, cleanupMissing: form.cleanupMissing }); ElMessage.success(`${dryRun ? '预演' : '同步'}完成：状态 ${value(result, 'status')}，成功 ${value(result, 'successCount', 'success_count') || 0}，跳过 ${value(result, 'skipCount', 'skip_count') || 0}，失败 ${value(result, 'failCount', 'fail_count') || 0}`); await Promise.allSettled([loadTasks(), loadStats()]); if (value(result, 'id')) await openTask(result) } finally { syncing.value = false } }
+async function runSync(dryRun: boolean) { syncing.value = true; try { const documentIds = selectedDocumentIds.value; const result = await syncOutline({ collectionId: form.collectionId || undefined, limit: form.limit, force: form.force, dryRun, cleanupMissing: form.cleanupMissing, documentIds: documentIds.length > 0 ? documentIds : undefined }); ElMessage.success(`${dryRun ? '预演' : '同步'}完成：状态 ${value(result, 'status')}，成功 ${value(result, 'successCount', 'success_count') || 0}，跳过 ${value(result, 'skipCount', 'skip_count') || 0}，失败 ${value(result, 'failCount', 'fail_count') || 0}`); await Promise.allSettled([loadTasks(), loadStats()]); if (value(result, 'id')) await openTask(result) } finally { syncing.value = false } }
 async function doVectorize(force: boolean) { vectorizing.value = true; try { const result = await vectorizeOutline({ force, dryRun: false, limit: vectorizeLimit.value }); ElMessage.success(`补向量完成：total=${value(result, 'total') || 0} success=${value(result, 'success') || 0} failed=${value(result, 'failed') || 0}`); await loadStats() } finally { vectorizing.value = false } }
 async function openTask(item: Record<string, any>) { selectedTask.value = item; detailVisible.value = true; detailStatus.value = ''; await loadDetails() }
 async function loadDetails() { const id = value(selectedTask.value, 'id'); if (!id) return; details.value = await getOutlineSyncTaskDetails(String(id), { status: detailStatus.value || undefined, limit: 1000 }) }
 async function retryFailed(item: Record<string, any>) { const id = value(item, 'id'); if (!id) return; retrying.value = true; try { const result = await retryOutlineFailedTask(String(id), true); ElMessage.success(`重试完成：状态 ${value(result, 'status')}，成功 ${value(result, 'successCount', 'success_count') || 0}，失败 ${value(result, 'failCount', 'fail_count') || 0}`); await Promise.allSettled([loadTasks(), loadStats()]); if (value(result, 'id')) await openTask(result) } finally { retrying.value = false } }
+function handleDocumentSelection(rows: OutlineDocument[]) { selectedDocuments.value = rows }
+function clearSelectedDocuments() { selectedDocuments.value = []; docTableRef.value?.clearSelection?.() }
 function value(obj: any, ...keys: string[]) { if (!obj) return ''; for (const key of keys) { const v = obj[key]; if (v !== undefined && v !== null && String(v).trim() !== '') return v } return '' }
 function truthy(v: any) { return v === true || v === 'true' || v === 1 || v === '1' }
 function tagType(status: any) { const s = String(status || ''); if (s === 'SUCCESS' || s === 'DRY_RUN') return 'success'; if (s === 'FAILED') return 'danger'; if (s === 'PARTIAL_SUCCESS' || s === 'DRY_RUN_PARTIAL') return 'warning'; if (s === 'RUNNING') return 'warning'; if (s === 'SKIPPED') return 'info'; return 'info' }
@@ -132,7 +144,7 @@ function tagType(status: any) { const s = String(status || ''); if (s === 'SUCCE
 .toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
 .sync-page { display: grid; grid-template-columns: 360px minmax(360px, 1fr) 460px; gap: 16px; }
 .left-card, .middle-card, .right-card { min-height: calc(100vh - 240px); }
-.card-header, .task-title, .detail-toolbar, .doc-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.card-header, .task-title, .detail-toolbar, .doc-title, .header-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .mb { margin-bottom: 16px; }
 .doc-item, .task-item { padding: 12px; background: #f8fafc; border-radius: 10px; margin-bottom: 10px; font-size: 13px; }
 .task-item { cursor: pointer; }
