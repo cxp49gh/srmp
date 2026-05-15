@@ -57,8 +57,11 @@ defineEmits<{
 
 <style scoped>
 .map-ai-workbench {
+  flex: 1 1 180px;
+  min-height: 180px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  overflow: hidden;
 }
 </style>

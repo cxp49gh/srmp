@@ -568,10 +568,13 @@ const analysisTargetText = computed(() => {
 const contextMode = computed(() => {
   if (preferredContextScope.value === 'OBJECT' && activeMapObject.value) return 'OBJECT'
   if (preferredContextScope.value === 'REGION' && (activeRegionContext.value || activeRegionSummary.value)) return 'REGION'
+  if (preferredContextScope.value === 'ROUTE') return 'ROUTE'
+  if (preferredContextScope.value === 'VIEWPORT') return 'VIEWPORT'
+  if (preferredContextScope.value === 'FREE') return 'FREE'
   if (activeMapObject.value) return 'OBJECT'
   if (activeRegionContext.value || activeRegionSummary.value) return 'REGION'
-  if (preferredContextScope.value === 'VIEWPORT' || props.context?.viewport || props.context?.bounds) return 'VIEWPORT'
   if (props.context?.query?.routeCode || props.context?.routeCode) return 'ROUTE'
+  if (props.context?.viewport || props.context?.bounds) return 'VIEWPORT'
   return 'FREE'
 })
 
@@ -1324,7 +1327,7 @@ function openTrace(execution: Record<string, any>) {
 
 <style scoped>
 .agent-chat-float {
-  position: absolute;
+  position: fixed;
   top: 16px;
   right: 18px;
   bottom: 18px;
@@ -1337,6 +1340,9 @@ function openTrace(execution: Record<string, any>) {
   border: 1px solid rgba(226, 232, 240, 0.9);
   background: rgba(255, 255, 255, 0.97);
   box-shadow: 0 24px 50px rgba(15, 23, 42, 0.16);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .chat-header {
@@ -1503,6 +1509,7 @@ function openTrace(execution: Record<string, any>) {
 }
 
 .fold-panel {
+  flex-shrink: 0;
   border-top: 1px solid #eef2f7;
 }
 
@@ -1572,6 +1579,7 @@ function openTrace(execution: Record<string, any>) {
 
 .diagnostics-panel,
 .ai-wait-panel {
+  flex-shrink: 0;
   margin-bottom: 8px;
   padding: 9px 10px;
   border: 1px solid #dbeafe;
@@ -1884,12 +1892,12 @@ function openTrace(execution: Record<string, any>) {
 
 @media (max-width: 960px) {
   .agent-chat-float {
-    top: auto;
+    top: 12px;
     left: 12px;
     right: 12px;
-    bottom: 16px;
+    bottom: 12px;
     width: auto;
-    max-height: 70vh;
+    max-height: none;
   }
 
   .map-context-banner {

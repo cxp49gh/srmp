@@ -131,11 +131,12 @@ function planExecutionTagType(status: string) {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  overflow: hidden;
 }
 
 .conversation-message-list {
   flex: 1;
-  min-height: 220px;
+  min-height: 0;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -207,9 +208,15 @@ function planExecutionTagType(status: string) {
 }
 
 .send-row {
+  flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
   display: grid;
   grid-template-columns: 1fr 70px;
   gap: 8px;
   margin-top: 8px;
+  padding-top: 8px;
+  background: rgba(255, 255, 255, 0.96);
 }
 </style>
