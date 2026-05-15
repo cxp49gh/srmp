@@ -44,9 +44,32 @@ test('split map AI workbench is constrained inside fixed chat panel', () => {
 test('map AI conversation keeps input dock visible while messages scroll', () => {
   const conversationContent = read('src/views/gis/components/map-ai/MapAiConversation.vue')
 
+  assert.match(conversationContent, /<div[^>]*class="conversation-message-list"[^>]*>[\s\S]*<slot name="message-tail" \/>[\s\S]*<\/div>\s*<div class="send-row">/)
   assert.match(conversationContent, /\.map-ai-conversation\s*\{[\s\S]*overflow:\s*hidden;/)
   assert.match(conversationContent, /\.conversation-message-list\s*\{[\s\S]*min-height:\s*0;/)
   assert.match(conversationContent, /\.send-row\s*\{[\s\S]*position:\s*sticky;[\s\S]*bottom:\s*0;[\s\S]*z-index:\s*2;/)
+})
+
+test('map AI result panels stay inside the scrollable conversation area', () => {
+  const workbenchContent = read('src/views/gis/components/map-ai/MapAiWorkbench.vue')
+
+  assert.match(workbenchContent, /<MapAiConversation[\s\S]*>\s*<template #message-tail>[\s\S]*<MapAiActionResultPanel\b/)
+  assert.match(workbenchContent, /<template #message-tail>[\s\S]*<MapAiSuggestedActions\b[\s\S]*<\/template>\s*<\/MapAiConversation>/)
+})
+
+test('map AI conversation scrolls new action results into view', () => {
+  const conversationContent = read('src/views/gis/components/map-ai/MapAiConversation.vue')
+
+  assert.match(conversationContent, /<div ref="messageListRef" class="conversation-message-list">/)
+  assert.match(conversationContent, /watch\(\s*\(\)\s*=>\s*props\.messages\.length[\s\S]*scrollMessageListToBottom/)
+  assert.match(conversationContent, /messageListRef\.value\.scrollTop\s*=\s*messageListRef\.value\.scrollHeight/)
+})
+
+test('map AI panel compacts nonessential analysis text on short viewports', () => {
+  const content = read('src/views/gis/components/AgentChatFloat.vue')
+
+  assert.match(content, /@media\s*\(max-height:\s*700px\)\s*\{[\s\S]*\.analysis-summary,[\s\S]*\.analysis-action-hint\s*\{[\s\S]*display:\s*none;/)
+  assert.match(content, /@media\s*\(max-height:\s*700px\)\s*\{[\s\S]*\.analysis-metrics\s*\{[\s\S]*display:\s*none;/)
 })
 
 test('AgentChatFloat honors explicit route scope before viewport fallback', () => {

@@ -1,6 +1,6 @@
 <template>
   <section class="map-ai-conversation">
-    <div class="conversation-message-list">
+    <div ref="messageListRef" class="conversation-message-list">
       <div v-for="(item, index) in messages" :key="index" :class="['message', item.role]">
         <div class="role">{{ item.role === 'user' ? '我' : 'AI' }}</div>
         <div class="content" v-html="renderMarkdown(item.content)" />
@@ -49,6 +49,7 @@
           @open="$emit('open-trace', $event)"
         />
       </div>
+      <slot name="message-tail" />
     </div>
     <div class="send-row">
       <el-input
@@ -65,6 +66,7 @@
 </template>
 
 <script setup lang="ts">
+import { nextTick, ref, watch } from 'vue'
 import AiTraceButton from '../../../agent/components/AiTraceButton.vue'
 import AiEvidencePanel from '../AiEvidencePanel.vue'
 
@@ -86,6 +88,22 @@ const emit = defineEmits<{
   (e: 'ask-with-source', source: any): void
   (e: 'generate-default-solution'): void
 }>()
+
+const messageListRef = ref<HTMLElement | null>(null)
+
+watch(
+  () => props.messages.length,
+  () => {
+    void scrollMessageListToBottom()
+  },
+  { flush: 'post' }
+)
+
+async function scrollMessageListToBottom() {
+  await nextTick()
+  if (!messageListRef.value) return
+  messageListRef.value.scrollTop = messageListRef.value.scrollHeight
+}
 
 function send() {
   const text = props.input.trim()

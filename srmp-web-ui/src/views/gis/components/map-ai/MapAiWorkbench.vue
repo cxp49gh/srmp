@@ -15,13 +15,16 @@
       @locate-source="$emit('locate-source', $event)"
       @ask-with-source="$emit('ask-with-source', $event)"
       @generate-default-solution="$emit('generate-default-solution')"
-    />
-    <MapAiActionResultPanel :result="latestActionResult" />
-    <MapAiSuggestedActions
-      :actions="latestSuggestedActions"
-      @run-action="$emit('run-action', $event)"
-      @preview-plan="$emit('preview-plan', $event)"
-    />
+    >
+      <template #message-tail>
+        <MapAiActionResultPanel :result="latestActionResult" />
+        <MapAiSuggestedActions
+          :actions="latestSuggestedActions"
+          @run-action="$emit('run-action', $event)"
+          @preview-plan="$emit('preview-plan', $event)"
+        />
+      </template>
+    </MapAiConversation>
   </section>
 </template>
 

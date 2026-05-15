@@ -1890,6 +1890,48 @@ function openTrace(execution: Record<string, any>) {
   transform: translateY(8px);
 }
 
+@media (max-height: 700px) {
+  .agent-chat-float {
+    overflow-y: hidden;
+  }
+
+  .chat-header {
+    margin-bottom: 6px;
+  }
+
+  .analysis-workbench {
+    margin-bottom: 6px;
+    padding: 8px;
+    border-radius: 10px;
+  }
+
+  .analysis-title-row {
+    margin-bottom: 5px;
+  }
+
+  .analysis-summary,
+  .analysis-action-hint {
+    display: none;
+  }
+
+  .analysis-metrics {
+    display: none;
+  }
+
+  .analysis-actions {
+    margin-top: 6px;
+  }
+
+  .fold-trigger {
+    padding: 5px 0;
+  }
+
+  .map-context-banner {
+    margin-bottom: 6px;
+    padding: 6px 8px;
+  }
+}
+
 @media (max-width: 960px) {
   .agent-chat-float {
     top: 12px;
