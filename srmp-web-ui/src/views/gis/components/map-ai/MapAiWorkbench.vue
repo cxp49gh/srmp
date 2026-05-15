@@ -23,6 +23,7 @@
           @run-action="$emit('run-action', $event)"
           @preview-plan="$emit('preview-plan', $event)"
         />
+        <slot name="message-tail" />
       </template>
     </MapAiConversation>
   </section>

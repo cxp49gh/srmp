@@ -57,11 +57,21 @@ test('map AI result panels stay inside the scrollable conversation area', () => 
   assert.match(workbenchContent, /<template #message-tail>[\s\S]*<MapAiSuggestedActions\b[\s\S]*<\/template>\s*<\/MapAiConversation>/)
 })
 
+test('map AI wait panel is rendered inside the scrollable conversation area', () => {
+  const floatContent = read('src/views/gis/components/AgentChatFloat.vue')
+  const workbenchContent = read('src/views/gis/components/map-ai/MapAiWorkbench.vue')
+
+  assert.match(workbenchContent, /<MapAiSuggestedActions\b[\s\S]*\/>\s*<slot name="message-tail" \/>/)
+  assert.match(floatContent, /<MapAiWorkbench[\s\S]*>\s*<template #message-tail>[\s\S]*<section v-if="aiBusy" class="ai-wait-panel"/)
+  assert.doesNotMatch(floatContent, /<\/MapAiWorkbench>\s*<section v-if="aiBusy" class="ai-wait-panel"/)
+})
+
 test('map AI conversation scrolls new action results into view', () => {
   const conversationContent = read('src/views/gis/components/map-ai/MapAiConversation.vue')
 
   assert.match(conversationContent, /<div ref="messageListRef" class="conversation-message-list">/)
-  assert.match(conversationContent, /watch\(\s*\(\)\s*=>\s*props\.messages\.length[\s\S]*scrollMessageListToBottom/)
+  assert.match(conversationContent, /watch\(\s*\(\)\s*=>\s*\[props\.messages\.length,\s*props\.loading,\s*props\.solutionLoading\][\s\S]*scrollMessageListToBottom/)
+  assert.match(conversationContent, /new MutationObserver\(\(\) => \{[\s\S]*scrollMessageListToBottom/)
   assert.match(conversationContent, /messageListRef\.value\.scrollTop\s*=\s*messageListRef\.value\.scrollHeight/)
 })
 

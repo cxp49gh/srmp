@@ -66,7 +66,7 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import AiTraceButton from '../../../agent/components/AiTraceButton.vue'
 import AiEvidencePanel from '../AiEvidencePanel.vue'
 
@@ -90,19 +90,44 @@ const emit = defineEmits<{
 }>()
 
 const messageListRef = ref<HTMLElement | null>(null)
+let messageListMutationObserver: MutationObserver | null = null
 
 watch(
-  () => props.messages.length,
+  () => [props.messages.length, props.loading, props.solutionLoading],
   () => {
     void scrollMessageListToBottom()
   },
   { flush: 'post' }
 )
 
+onMounted(() => {
+  if (typeof MutationObserver === 'undefined' || !messageListRef.value) return
+  messageListMutationObserver = new MutationObserver(() => {
+    void scrollMessageListToBottom()
+  })
+  messageListMutationObserver.observe(messageListRef.value, {
+    childList: true,
+    subtree: true,
+    characterData: true
+  })
+})
+
+onUnmounted(() => {
+  messageListMutationObserver?.disconnect()
+  messageListMutationObserver = null
+})
+
 async function scrollMessageListToBottom() {
   await nextTick()
+  await waitForFrame()
   if (!messageListRef.value) return
   messageListRef.value.scrollTop = messageListRef.value.scrollHeight
+}
+
+function waitForFrame() {
+  return new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => resolve())
+  })
 }
 
 function send() {

@@ -162,34 +162,36 @@
         @generate-default-solution="generateDefaultSolutionDraft"
         @run-action="runSuggestedAction"
         @preview-plan="previewSuggestedActionPlan"
-      />
-
-      <section v-if="aiBusy" class="ai-wait-panel" :class="{ slow: waitFeedback.longWait }">
-        <div class="wait-head">
-          <strong>{{ waitFeedback.title }}</strong>
-          <span>已耗时 {{ waitFeedback.elapsedLabel }}</span>
-        </div>
-        <p>{{ waitFeedback.message }}</p>
-        <div v-if="liveTraceSummary" class="live-trace-panel">
-          <div class="live-current">
-            <span>当前步骤</span>
-            <strong>{{ liveTraceSummary.currentLabel || activeLiveTrace?.status || '等待 Runtime 上报' }}</strong>
-          </div>
-          <div class="live-meta">
-            <span v-if="liveTraceSummary.toolLabel">{{ liveTraceSummary.toolLabel }}</span>
-            <span v-if="liveTraceSummary.sourceLabel">{{ liveTraceSummary.sourceLabel }}</span>
-          </div>
-          <div v-if="liveTraceSummary.recentSteps.length" class="live-steps">
-            <span v-for="step in liveTraceSummary.recentSteps" :key="step.name || step.label">
-              {{ step.label || step.name }} · {{ step.status }}
-            </span>
-          </div>
-          <el-button size="small" text @click="openLiveTrace">查看 Trace</el-button>
-        </div>
-        <div v-else-if="liveTraceError" class="live-trace-error">
-          {{ liveTraceError }}，最终结果仍在等待。
-        </div>
-      </section>
+      >
+        <template #message-tail>
+          <section v-if="aiBusy" class="ai-wait-panel" :class="{ slow: waitFeedback.longWait }">
+            <div class="wait-head">
+              <strong>{{ waitFeedback.title }}</strong>
+              <span>已耗时 {{ waitFeedback.elapsedLabel }}</span>
+            </div>
+            <p>{{ waitFeedback.message }}</p>
+            <div v-if="liveTraceSummary" class="live-trace-panel">
+              <div class="live-current">
+                <span>当前步骤</span>
+                <strong>{{ liveTraceSummary.currentLabel || activeLiveTrace?.status || '等待 Runtime 上报' }}</strong>
+              </div>
+              <div class="live-meta">
+                <span v-if="liveTraceSummary.toolLabel">{{ liveTraceSummary.toolLabel }}</span>
+                <span v-if="liveTraceSummary.sourceLabel">{{ liveTraceSummary.sourceLabel }}</span>
+              </div>
+              <div v-if="liveTraceSummary.recentSteps.length" class="live-steps">
+                <span v-for="step in liveTraceSummary.recentSteps" :key="step.name || step.label">
+                  {{ step.label || step.name }} · {{ step.status }}
+                </span>
+              </div>
+              <el-button size="small" text @click="openLiveTrace">查看 Trace</el-button>
+            </div>
+            <div v-else-if="liveTraceError" class="live-trace-error">
+              {{ liveTraceError }}，最终结果仍在等待。
+            </div>
+          </section>
+        </template>
+      </MapAiWorkbench>
 
     </div>
   </transition>
