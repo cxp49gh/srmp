@@ -1,6 +1,7 @@
 package com.smartroad.srmp.agent.orchestrator.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartroad.srmp.agent.mapagent.dto.MapAgentRunResponse;
 import com.smartroad.srmp.agent.mapagent.dto.MapAiAgentResponse;
 import org.junit.Test;
 
@@ -37,6 +38,19 @@ public class RemoteLangGraphOrchestratorContractTest {
         assertEquals("已生成分析", response.getAnswer());
         assertEquals(1, response.getKnowledgeSources().size());
         assertEquals("chunk-001", response.getKnowledgeSources().get(0).getChunkId());
+    }
+
+    @Test
+    public void mapAgentRunResponseAcceptsRuntimePlanExecution() {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("answer", "已生成分析");
+        body.put("action", "ANALYZE_REGION");
+        body.put("planExecution", singletonMap("status", "MATCHED"));
+
+        MapAgentRunResponse response = new ObjectMapper().convertValue(body, MapAgentRunResponse.class);
+
+        assertEquals("已生成分析", response.getAnswer());
+        assertEquals("MATCHED", response.getPlanExecution().get("status"));
     }
 
     private Map<String, Object> singletonMap(String key, Object value) {

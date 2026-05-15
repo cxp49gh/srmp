@@ -58,7 +58,9 @@ require_pattern "srmp-ai-orchestrator/app/adaptive_planner.py" "evidenceBefore" 
 require_pattern "srmp-ai-orchestrator/app/adaptive_planner.py" "evidenceAfter" "Adaptive summary includes evidenceAfter"
 require_pattern "srmp-ai-orchestrator/app/workflow.py" "maxAdaptiveAddedTools" "Strategy metadata exposes adaptive added-tool budget"
 require_pattern "srmp-agent/src/main/java/com/smartroad/srmp/agent/orchestrator/controller/AgentOrchestratorOpsController.java" "adaptiveMode" "Java ops replay proxies adaptiveMode"
+require_pattern "srmp-agent/src/main/java/com/smartroad/srmp/agent/mapagent/dto/MapAgentRunResponse.java" "planExecution" "Java map-agent response accepts Runtime planExecution"
 require_pattern "srmp-agent/src/test/java/com/smartroad/srmp/agent/orchestrator/controller/AgentOrchestratorOpsControllerLiveTraceTest.java" "replayRuntimePathEncodesAdaptiveMode" "Java replay adaptiveMode path test exists"
+require_pattern "srmp-agent/src/test/java/com/smartroad/srmp/agent/orchestrator/impl/RemoteLangGraphOrchestratorContractTest.java" "mapAgentRunResponseAcceptsRuntimePlanExecution" "Java Runtime map-agent response contract test exists"
 require_pattern "srmp-web-ui/src/api/orchestrator.ts" "params: \\{ execute, adaptiveMode \\}" "Frontend replay API sends adaptiveMode"
 require_pattern "srmp-web-ui/src/views/agent/LangGraphOpsPage.vue" "自适应对比" "Ops page exposes adaptive compare action"
 require_pattern "srmp-web-ui/src/views/agent/LangGraphOpsPage.vue" "evidenceImproved" "Ops page displays evidence improvement"
@@ -74,7 +76,7 @@ echo "[OK] Python adaptive replay guard tests passed"
 node --no-warnings --test srmp-web-ui/tests/langGraphOpsAdaptive.test.mjs
 echo "[OK] Frontend adaptive ops tests passed"
 
-mvn -pl srmp-agent -Dtest=AgentOrchestratorOpsControllerLiveTraceTest test
+mvn -pl srmp-agent -Dtest=AgentOrchestratorOpsControllerLiveTraceTest,RemoteLangGraphOrchestratorContractTest test
 echo "[OK] Java ops replay proxy test passed"
 
 if [ "${SKIP_BUILD:-0}" != "1" ]; then

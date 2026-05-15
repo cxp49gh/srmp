@@ -143,7 +143,9 @@ PYTHONPATH=srmp-ai-orchestrator python -m unittest \
 node --no-warnings --test srmp-web-ui/tests/langGraphOpsAdaptive.test.mjs
 
 JAVA_HOME=$(/usr/libexec/java_home -v 17) \
-  mvn -pl srmp-agent -Dtest=AgentOrchestratorOpsControllerLiveTraceTest test
+  mvn -pl srmp-agent \
+    -Dtest=AgentOrchestratorOpsControllerLiveTraceTest,RemoteLangGraphOrchestratorContractTest \
+    test
 ```
 
 默认还会执行：

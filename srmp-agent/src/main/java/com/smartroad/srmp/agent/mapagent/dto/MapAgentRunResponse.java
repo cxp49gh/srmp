@@ -20,6 +20,7 @@ public class MapAgentRunResponse {
     private List<Map<String, Object>> knowledgeSources = new ArrayList<>();
     private List<Map<String, Object>> sources = new ArrayList<>();
     private Map<String, Object> answerMeta = new LinkedHashMap<>();
+    private Map<String, Object> planExecution = new LinkedHashMap<>();
     private Map<String, Object> trace = new LinkedHashMap<>();
     private Map<String, Object> data = new LinkedHashMap<>();
 }
