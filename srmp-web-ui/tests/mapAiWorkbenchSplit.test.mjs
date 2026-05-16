@@ -30,6 +30,13 @@ test('MapAiWorkbench exposes plan preview and assistant action events', () => {
   assert.match(content, /@ask-with-source="\$emit\('ask-with-source', \$event\)"/)
 })
 
+test('map AI workbench does not show a duplicate context breadcrumb in the conversation', () => {
+  const content = read('src/views/gis/components/map-ai/MapAiWorkbench.vue')
+
+  assert.doesNotMatch(content, /<MapAiContextPanel\b/)
+  assert.doesNotMatch(content, /import MapAiContextPanel/)
+})
+
 test('split map AI workbench is constrained inside fixed chat panel', () => {
   const floatContent = read('src/views/gis/components/AgentChatFloat.vue')
   const workbenchContent = read('src/views/gis/components/map-ai/MapAiWorkbench.vue')
@@ -89,6 +96,13 @@ test('map AI diagnostics render as a compact summary by default', () => {
   assert.match(content, /class="diagnostics-summary"/)
   assert.match(content, /v-if="quickDiagnostics && diagnosticsExpanded" class="diagnostics-grid"/)
   assert.doesNotMatch(content, /v-else-if="quickDiagnostics" class="diagnostics-grid"/)
+})
+
+test('map AI diagnostics stay inside the data source drawer', () => {
+  const content = read('src/views/gis/components/AgentChatFloat.vue')
+
+  assert.match(content, /<div v-if="showToolsPanel" class="option-row compact-options utility-panel">[\s\S]*<section v-if="quickDiagnostics \|\| diagnosticsError" class="diagnostics-panel compact-diagnostics">/)
+  assert.doesNotMatch(content, /<\/div>\s*<section v-if="quickDiagnostics \|\| diagnosticsError" class="diagnostics-panel">/)
 })
 
 test('map AI optional controls share one compact toolbar row', () => {

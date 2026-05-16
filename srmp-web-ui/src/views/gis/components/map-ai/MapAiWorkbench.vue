@@ -1,6 +1,5 @@
 <template>
   <section class="map-ai-workbench">
-    <MapAiContextPanel :scope="contextScope" :context="context" :map-object="mapObject" />
     <MapAiConversation
       :messages="messages"
       :input="input"
@@ -32,7 +31,6 @@
 <script setup lang="ts">
 import type { MapAgentActionResult, MapAgentSuggestedAction } from '../../../../api/agent'
 import MapAiActionResultPanel from './MapAiActionResultPanel.vue'
-import MapAiContextPanel from './MapAiContextPanel.vue'
 import MapAiConversation from './MapAiConversation.vue'
 import MapAiSuggestedActions from './MapAiSuggestedActions.vue'
 

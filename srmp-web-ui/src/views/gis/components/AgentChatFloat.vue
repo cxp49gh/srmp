@@ -119,31 +119,30 @@
         <el-checkbox v-model="options.useOutline">Outline</el-checkbox>
         <el-checkbox v-model="useAgentTools">Agent工具</el-checkbox>
         <el-button size="small" plain :loading="diagnosticsLoading" @click="loadQuickDiagnostics">状态诊断</el-button>
+        <section v-if="quickDiagnostics || diagnosticsError" class="diagnostics-panel compact-diagnostics">
+          <div class="diagnostics-head">
+            <strong>LangGraph 状态</strong>
+            <el-tag v-if="quickDiagnostics" size="small" :type="quickDiagnostics.runtimeOk ? 'success' : 'danger'">
+              {{ quickDiagnostics.status }}
+            </el-tag>
+          </div>
+          <p v-if="diagnosticsError" class="diagnostics-error">{{ diagnosticsError }}</p>
+          <div v-if="quickDiagnostics" class="diagnostics-summary">
+            <span>{{ diagnosticsSummary }}</span>
+            <button type="button" @click="diagnosticsExpanded = !diagnosticsExpanded">
+              {{ diagnosticsExpanded ? '收起详情' : '详情' }}
+            </button>
+          </div>
+          <div v-if="quickDiagnostics && diagnosticsExpanded" class="diagnostics-grid">
+            <span><em>Runtime</em><strong>{{ quickDiagnostics.runtimeOk ? 'UP' : 'DOWN' }}</strong></span>
+            <span><em>Tool</em><strong>{{ quickDiagnostics.toolGatewayOk ? 'OK' : '异常' }}</strong></span>
+            <span><em>契约</em><strong>{{ quickDiagnostics.contractOk ? 'OK' : '异常' }}</strong></span>
+            <span><em>LLM</em><strong>{{ quickDiagnostics.llmEnabled ? quickDiagnostics.llmModel : '关闭' }}</strong></span>
+            <span><em>成功率</em><strong>{{ quickDiagnostics.successRateLabel }}</strong></span>
+            <span><em>平均耗时</em><strong>{{ quickDiagnostics.avgCostLabel }}</strong></span>
+          </div>
+        </section>
       </div>
-
-      <section v-if="quickDiagnostics || diagnosticsError" class="diagnostics-panel">
-        <div class="diagnostics-head">
-          <strong>LangGraph 状态</strong>
-          <el-tag v-if="quickDiagnostics" size="small" :type="quickDiagnostics.runtimeOk ? 'success' : 'danger'">
-            {{ quickDiagnostics.status }}
-          </el-tag>
-        </div>
-        <p v-if="diagnosticsError" class="diagnostics-error">{{ diagnosticsError }}</p>
-        <div v-if="quickDiagnostics" class="diagnostics-summary">
-          <span>{{ diagnosticsSummary }}</span>
-          <button type="button" @click="diagnosticsExpanded = !diagnosticsExpanded">
-            {{ diagnosticsExpanded ? '收起详情' : '详情' }}
-          </button>
-        </div>
-        <div v-if="quickDiagnostics && diagnosticsExpanded" class="diagnostics-grid">
-          <span><em>Runtime</em><strong>{{ quickDiagnostics.runtimeOk ? 'UP' : 'DOWN' }}</strong></span>
-          <span><em>Tool</em><strong>{{ quickDiagnostics.toolGatewayOk ? 'OK' : '异常' }}</strong></span>
-          <span><em>契约</em><strong>{{ quickDiagnostics.contractOk ? 'OK' : '异常' }}</strong></span>
-          <span><em>LLM</em><strong>{{ quickDiagnostics.llmEnabled ? quickDiagnostics.llmModel : '关闭' }}</strong></span>
-          <span><em>成功率</em><strong>{{ quickDiagnostics.successRateLabel }}</strong></span>
-          <span><em>平均耗时</em><strong>{{ quickDiagnostics.avgCostLabel }}</strong></span>
-        </div>
-      </section>
 
       <div v-if="showQuickPanel" class="quick-list compact-quick-list utility-panel">
         <button type="button" @click="quickAsk('分析当前路线整体路况')">分析路线</button>
@@ -979,6 +978,7 @@ async function handleContextCommand(command: string) {
 }
 
 async function loadQuickDiagnostics() {
+  showToolsPanel.value = true
   diagnosticsLoading.value = true
   diagnosticsError.value = ''
   try {
@@ -1806,6 +1806,11 @@ function openTrace(execution: Record<string, any>) {
 .diagnostics-error {
   margin: 6px 0 0;
   color: #dc2626;
+}
+
+.compact-diagnostics {
+  flex-basis: 100%;
+  margin: 2px 0 0;
 }
 
 .quick-list {
