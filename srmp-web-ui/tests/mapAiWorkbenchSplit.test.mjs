@@ -107,10 +107,12 @@ test('map AI diagnostics stay inside the data source drawer', () => {
   assert.doesNotMatch(content, /<\/div>\s*<section v-if="quickDiagnostics \|\| diagnosticsError" class="diagnostics-panel">/)
 })
 
-test('map AI optional controls share one compact toolbar row', () => {
+test('map AI optional controls collapse data source settings by default', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
-  assert.match(content, /<div class="assistant-utility-row">[\s\S]*数据源：\{\{ optionSummary \}\}[\s\S]*快捷提问[\s\S]*<\/div>/)
+  assert.match(content, /<div class="assistant-utility-row">[\s\S]*class="utility-trigger primary settings-trigger"[\s\S]*设置[\s\S]*快捷提问[\s\S]*<\/div>/)
+  assert.match(content, /<span class="settings-summary">当前依据：\{\{ optionSummary \}\}<\/span>/)
+  assert.doesNotMatch(content, /<button type="button" class="utility-trigger primary"[\s\S]*数据源：\{\{ optionSummary \}\}/)
   assert.doesNotMatch(content, /<div class="fold-panel">[\s\S]*快捷提问[\s\S]*<\/div>\s*<div v-if="showQuickPanel"/)
 })
 

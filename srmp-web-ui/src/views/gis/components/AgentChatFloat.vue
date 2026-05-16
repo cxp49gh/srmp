@@ -102,8 +102,8 @@
       </section>
 
       <div class="assistant-utility-row">
-        <button type="button" class="utility-trigger primary" @click="showToolsPanel = !showToolsPanel">
-          数据源：{{ optionSummary }}
+        <button type="button" class="utility-trigger primary settings-trigger" @click="showToolsPanel = !showToolsPanel">
+          设置
           <span>{{ showToolsPanel ? '收起' : '展开' }}</span>
         </button>
         <button v-if="showQuickEntry" type="button" class="utility-trigger" @click="showQuickPanel = !showQuickPanel">
@@ -112,6 +112,7 @@
         </button>
       </div>
       <div v-if="showToolsPanel" class="option-row compact-options utility-panel">
+        <span class="settings-summary">当前依据：{{ optionSummary }}</span>
         <el-checkbox v-model="options.useBusinessData">业务数据</el-checkbox>
         <el-checkbox v-model="options.useKnowledge">知识库</el-checkbox>
         <el-checkbox v-model="options.useOutline">Outline</el-checkbox>
@@ -1629,6 +1630,10 @@ function openTrace(execution: Record<string, any>) {
   white-space: nowrap;
 }
 
+.settings-trigger {
+  width: fit-content;
+}
+
 .utility-trigger span {
   flex-shrink: 0;
   color: #2563eb;
@@ -1679,6 +1684,12 @@ function openTrace(execution: Record<string, any>) {
   gap: 12px;
   margin-bottom: 8px;
   flex-wrap: wrap;
+}
+
+.settings-summary {
+  flex-basis: 100%;
+  color: #64748b;
+  font-size: 12px;
 }
 
 .diagnostics-panel,
