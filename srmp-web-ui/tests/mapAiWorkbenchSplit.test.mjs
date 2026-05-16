@@ -107,6 +107,16 @@ test('map AI diagnostics stay inside the data source drawer', () => {
   assert.doesNotMatch(content, /<\/div>\s*<section v-if="quickDiagnostics \|\| diagnosticsError" class="diagnostics-panel">/)
 })
 
+test('map AI analysis header keeps diagnostics and plan out of the default title actions', () => {
+  const content = read('src/views/gis/components/AgentChatFloat.vue')
+  const titleActions = content.match(/<div class="analysis-title-actions">([\s\S]*?)<\/div>/)?.[1] || ''
+
+  assert.match(content, /<div class="analysis-title-actions">\s*<el-tag size="small" effect="plain">\{\{ activeMetricMeta\.shortName \}\}<\/el-tag>\s*<\/div>/)
+  assert.doesNotMatch(titleActions, /状态诊断|执行计划|el-button/)
+  assert.match(content, /<el-dropdown-item command="preview-plan" divided>查看执行计划<\/el-dropdown-item>/)
+  assert.match(content, /if \(command === 'preview-plan'\) \{[\s\S]*previewCurrentPlan\(\)/)
+})
+
 test('map AI optional controls collapse data source settings by default', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 

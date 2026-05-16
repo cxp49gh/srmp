@@ -17,8 +17,6 @@
           </div>
           <div class="analysis-title-actions">
             <el-tag size="small" effect="plain">{{ activeMetricMeta.shortName }}</el-tag>
-            <el-button size="small" text :loading="diagnosticsLoading" @click="loadQuickDiagnostics">状态诊断</el-button>
-            <el-button size="small" text :loading="planLoading" @click="previewCurrentPlan()">执行计划</el-button>
           </div>
         </div>
 
@@ -81,6 +79,7 @@
                   :command="`solution:${action.type}`"
                   :disabled="!activeMapObject || solutionLoading || loading"
                 >{{ action.label }}</el-dropdown-item>
+                <el-dropdown-item command="preview-plan" divided>查看执行计划</el-dropdown-item>
                 <el-dropdown-item command="copy-context" divided>复制上下文</el-dropdown-item>
                 <el-dropdown-item v-if="contextMode === 'OBJECT'" command="clear-object">取消对象</el-dropdown-item>
                 <el-dropdown-item v-if="contextMode === 'REGION'" command="clear-region">清除区域</el-dropdown-item>
@@ -970,6 +969,10 @@ async function handleContextCommand(command: string) {
   }
   if (command === 'copy-context') {
     await copyCurrentContext()
+    return
+  }
+  if (command === 'preview-plan') {
+    previewCurrentPlan()
     return
   }
   if (command === 'clear-object') {
