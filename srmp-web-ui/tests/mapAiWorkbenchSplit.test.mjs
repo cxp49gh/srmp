@@ -102,6 +102,8 @@ test('map AI diagnostics stay inside the data source drawer', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
   assert.match(content, /<div v-if="showToolsPanel" class="option-row compact-options utility-panel">[\s\S]*<section v-if="quickDiagnostics \|\| diagnosticsError" class="diagnostics-panel compact-diagnostics">/)
+  assert.match(content, /<strong>系统状态<\/strong>/)
+  assert.doesNotMatch(content, /LangGraph 状态|Runtime UP|Tool OK|LLM 关闭/)
   assert.doesNotMatch(content, /<\/div>\s*<section v-if="quickDiagnostics \|\| diagnosticsError" class="diagnostics-panel">/)
 })
 
@@ -112,11 +114,27 @@ test('map AI optional controls share one compact toolbar row', () => {
   assert.doesNotMatch(content, /<div class="fold-panel">[\s\S]*快捷提问[\s\S]*<\/div>\s*<div v-if="showQuickPanel"/)
 })
 
+test('map AI quick suggestions only appear before the first conversation turn', () => {
+  const content = read('src/views/gis/components/AgentChatFloat.vue')
+
+  assert.match(content, /const showQuickEntry = computed\(\(\) => messages\.value\.length === 0\)/)
+  assert.match(content, /<button v-if="showQuickEntry" type="button" class="utility-trigger" @click="showQuickPanel = !showQuickPanel">/)
+  assert.match(content, /<div v-if="showQuickPanel && showQuickEntry" class="quick-list compact-quick-list utility-panel">/)
+  assert.doesNotMatch(content, /报告草稿/)
+})
+
 test('map AI analysis explanation is collapsed by default', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
-  assert.match(content, /<details class="analysis-hint-drawer">[\s\S]*<summary>范围说明<\/summary>[\s\S]*\{\{ operationHint \}\}[\s\S]*<\/details>/)
+  assert.match(content, /<details class="analysis-detail-drawer">[\s\S]*<summary>范围与指标<\/summary>[\s\S]*\{\{ operationHint \}\}[\s\S]*<\/details>/)
   assert.doesNotMatch(content, /<div class="analysis-action-hint">\{\{ operationHint \}\}<\/div>/)
+})
+
+test('map AI analysis card keeps range and metrics inside one collapsed details drawer', () => {
+  const content = read('src/views/gis/components/AgentChatFloat.vue')
+
+  assert.match(content, /<details class="analysis-detail-drawer">[\s\S]*<summary>范围与指标<\/summary>[\s\S]*<div class="analysis-summary">\{\{ analysisScopeDescription \}\}<\/div>[\s\S]*<div v-if="analysisMetricItems\.length" class="analysis-metrics">/)
+  assert.doesNotMatch(content, /<\/details>\s*<div class="analysis-summary">\{\{ analysisScopeDescription \}\}<\/div>/)
 })
 
 test('assistant operational details are collapsed below the answer by default', () => {
@@ -134,6 +152,23 @@ test('assistant details use concise human-facing labels', () => {
   assert.match(content, /formatAssistantStatus\(item\.meta\.llmStatus\)/)
   assert.doesNotMatch(content, /依据与调用详情/)
   assert.doesNotMatch(content, /LLM \$\{item\.meta\.llmStatus\}/)
+})
+
+test('assistant collapsed detail summary avoids technical runtime labels', () => {
+  const content = read('src/views/gis/components/map-ai/MapAiConversation.vue')
+
+  assert.match(content, /if \(sourceTotal\) parts\.push\(`依据 \$\{sourceTotal\}`\)/)
+  assert.match(content, /if \(item\.meta\?\.llmStatus && String\(item\.meta\.llmStatus\)\.toUpperCase\(\) !== 'SUCCESS'\) parts\.push\(`模型 \$\{formatAssistantStatus\(item\.meta\.llmStatus\)\}`\)/)
+  assert.doesNotMatch(content, /parts\.push\(`LLM /)
+  assert.doesNotMatch(content, /Runtime UP|Tool OK|LLM 关闭/)
+})
+
+test('map AI waiting state uses user-facing execution labels', () => {
+  const content = read('src/views/gis/components/AgentChatFloat.vue')
+
+  assert.match(content, /查看执行过程/)
+  assert.match(content, /'等待执行状态'/)
+  assert.doesNotMatch(content, /LangGraph 正在处理|LangGraph 仍在生成|等待 Runtime 上报|查看 Trace/)
 })
 
 test('plain answer action result cards are hidden from the main conversation', () => {

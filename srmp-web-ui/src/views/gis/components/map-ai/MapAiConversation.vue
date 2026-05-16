@@ -20,10 +20,10 @@
               :type="planExecutionTagType(item.meta.planExecutionStatus)"
             >计划 {{ item.meta.planExecutionStatus }}</el-tag>
             <el-tag v-if="item.meta.runElapsed" size="small" type="info">耗时 {{ item.meta.runElapsed }}</el-tag>
-            <el-tag v-if="item.meta.llmStatus" size="small" :type="item.meta.llmStatus === 'SUCCESS' ? 'success' : 'warning'">LLM {{ formatAssistantStatus(item.meta.llmStatus) }}</el-tag>
+            <el-tag v-if="item.meta.llmStatus" size="small" :type="item.meta.llmStatus === 'SUCCESS' ? 'success' : 'warning'">模型 {{ formatAssistantStatus(item.meta.llmStatus) }}</el-tag>
             <el-tag v-if="item.meta.llmModel" size="small" type="info">{{ item.meta.llmModel }}</el-tag>
             <el-tag v-if="item.toolResults?.length" size="small" type="info">工具 {{ successfulTools(item.toolResults) }}/{{ item.toolResults.length }}</el-tag>
-            <el-tag v-if="item.sources?.length" size="small" type="info">来源 {{ item.sources.length }}</el-tag>
+            <el-tag v-if="item.sources?.length" size="small" type="info">依据 {{ item.sources.length }}</el-tag>
             <el-tag v-if="item.meta.retriedWithCompactPrompt" size="small" type="warning">压缩重试</el-tag>
             <el-tag v-if="item.meta.fallback" size="small" type="warning">降级</el-tag>
           </div>
@@ -177,10 +177,10 @@ function assistantDetailsSummary(item: Record<string, any>) {
   const toolTotal = Array.isArray(item.toolResults) ? item.toolResults.length : 0
   const sourceTotal = Array.isArray(item.sources) ? item.sources.length : 0
   if (toolTotal) parts.push(`工具 ${successfulTools(item.toolResults)}/${toolTotal}`)
-  if (sourceTotal) parts.push(`来源 ${sourceTotal}`)
+  if (sourceTotal) parts.push(`依据 ${sourceTotal}`)
   if (item.meta?.runElapsed) parts.push(`耗时 ${item.meta.runElapsed}`)
-  if (item.meta?.llmStatus) parts.push(`LLM ${formatAssistantStatus(item.meta.llmStatus)}`)
-  return parts.length ? parts.join(' · ') : '查看运行标签、依据和执行过程'
+  if (item.meta?.llmStatus && String(item.meta.llmStatus).toUpperCase() !== 'SUCCESS') parts.push(`模型 ${formatAssistantStatus(item.meta.llmStatus)}`)
+  return parts.length ? parts.join(' · ') : '查看依据、工具与执行过程'
 }
 
 function formatAssistantStatus(status: string) {

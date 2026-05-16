@@ -48,9 +48,9 @@ export function buildWaitFeedback(elapsedMs: number, thresholdMs = 8000): WaitFe
   return {
     elapsedLabel: formatElapsedMs(elapsedMs),
     longWait,
-    title: longWait ? 'LangGraph 仍在生成' : 'LangGraph 正在处理',
+    title: longWait ? '仍在生成' : '正在分析',
     message: longWait
-      ? '真实 LLM 调用可能需要 30s 左右，可稍后通过 Trace 查看各步骤耗时。'
+      ? '复杂分析可能需要 30s 左右，可稍后查看执行过程确认各步骤耗时。'
       : '正在识别意图、检索证据并生成回答。'
   }
 }

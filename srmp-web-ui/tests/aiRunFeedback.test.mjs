@@ -17,14 +17,14 @@ test('shows a long-wait notice after threshold', () => {
   assert.deepEqual(buildWaitFeedback(7_999), {
     elapsedLabel: '8.0s',
     longWait: false,
-    title: 'LangGraph 正在处理',
+    title: '正在分析',
     message: '正在识别意图、检索证据并生成回答。'
   })
   assert.deepEqual(buildWaitFeedback(8_000), {
     elapsedLabel: '8.0s',
     longWait: true,
-    title: 'LangGraph 仍在生成',
-    message: '真实 LLM 调用可能需要 30s 左右，可稍后通过 Trace 查看各步骤耗时。'
+    title: '仍在生成',
+    message: '复杂分析可能需要 30s 左右，可稍后查看执行过程确认各步骤耗时。'
   })
 })
 

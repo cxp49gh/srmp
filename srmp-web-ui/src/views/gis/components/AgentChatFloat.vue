@@ -26,15 +26,6 @@
           <span v-for="chip in contextChips" :key="chip" class="context-chip">{{ chip }}</span>
         </div>
 
-        <div class="analysis-summary">{{ analysisScopeDescription }}</div>
-
-        <div v-if="analysisMetricItems.length" class="analysis-metrics">
-          <span v-for="item in analysisMetricItems" :key="item.key">
-            <em>{{ item.label }}</em>
-            <strong>{{ item.value }}</strong>
-          </span>
-        </div>
-
         <div class="analysis-actions">
           <template v-if="contextMode === 'OBJECT'">
             <el-button
@@ -71,7 +62,7 @@
               :loading="props.regionLoading"
               @click="emit('generate-region')"
             >生成区域建议</el-button>
-            <el-button v-if="hasRegionTrace" size="small" plain @click="emit('trace')">Trace</el-button>
+            <el-button v-if="hasRegionTrace" size="small" plain @click="emit('trace')">执行过程</el-button>
           </template>
 
           <template v-else>
@@ -97,8 +88,15 @@
             </template>
           </el-dropdown>
         </div>
-        <details class="analysis-hint-drawer">
-          <summary>范围说明</summary>
+        <details class="analysis-detail-drawer">
+          <summary>范围与指标</summary>
+          <div class="analysis-summary">{{ analysisScopeDescription }}</div>
+          <div v-if="analysisMetricItems.length" class="analysis-metrics">
+            <span v-for="item in analysisMetricItems" :key="item.key">
+              <em>{{ item.label }}</em>
+              <strong>{{ item.value }}</strong>
+            </span>
+          </div>
           <div>{{ operationHint }}</div>
         </details>
       </section>
@@ -108,7 +106,7 @@
           数据源：{{ optionSummary }}
           <span>{{ showToolsPanel ? '收起' : '展开' }}</span>
         </button>
-        <button type="button" class="utility-trigger" @click="showQuickPanel = !showQuickPanel">
+        <button v-if="showQuickEntry" type="button" class="utility-trigger" @click="showQuickPanel = !showQuickPanel">
           快捷提问
           <span>{{ showQuickPanel ? '收起' : '展开' }}</span>
         </button>
@@ -121,7 +119,7 @@
         <el-button size="small" plain :loading="diagnosticsLoading" @click="loadQuickDiagnostics">状态诊断</el-button>
         <section v-if="quickDiagnostics || diagnosticsError" class="diagnostics-panel compact-diagnostics">
           <div class="diagnostics-head">
-            <strong>LangGraph 状态</strong>
+            <strong>系统状态</strong>
             <el-tag v-if="quickDiagnostics" size="small" :type="quickDiagnostics.runtimeOk ? 'success' : 'danger'">
               {{ quickDiagnostics.status }}
             </el-tag>
@@ -134,21 +132,20 @@
             </button>
           </div>
           <div v-if="quickDiagnostics && diagnosticsExpanded" class="diagnostics-grid">
-            <span><em>Runtime</em><strong>{{ quickDiagnostics.runtimeOk ? 'UP' : 'DOWN' }}</strong></span>
-            <span><em>Tool</em><strong>{{ quickDiagnostics.toolGatewayOk ? 'OK' : '异常' }}</strong></span>
+            <span><em>运行服务</em><strong>{{ quickDiagnostics.runtimeOk ? '正常' : '异常' }}</strong></span>
+            <span><em>工具网关</em><strong>{{ quickDiagnostics.toolGatewayOk ? '正常' : '异常' }}</strong></span>
             <span><em>契约</em><strong>{{ quickDiagnostics.contractOk ? 'OK' : '异常' }}</strong></span>
-            <span><em>LLM</em><strong>{{ quickDiagnostics.llmEnabled ? quickDiagnostics.llmModel : '关闭' }}</strong></span>
+            <span><em>模型</em><strong>{{ quickDiagnostics.llmEnabled ? quickDiagnostics.llmModel : '关闭' }}</strong></span>
             <span><em>成功率</em><strong>{{ quickDiagnostics.successRateLabel }}</strong></span>
             <span><em>平均耗时</em><strong>{{ quickDiagnostics.avgCostLabel }}</strong></span>
           </div>
         </section>
       </div>
 
-      <div v-if="showQuickPanel" class="quick-list compact-quick-list utility-panel">
+      <div v-if="showQuickPanel && showQuickEntry" class="quick-list compact-quick-list utility-panel">
         <button type="button" @click="quickAsk('分析当前路线整体路况')">分析路线</button>
         <button type="button" @click="quickAsk('找出次差路段')">次差路段</button>
         <button type="button" @click="quickAsk('解释 PCI 指标')">解释 PCI</button>
-        <button type="button" @click="quickAsk('生成评定报告草稿')">报告草稿</button>
       </div>
 
       <MapAiWorkbench
@@ -179,7 +176,7 @@
             <div v-if="liveTraceSummary" class="live-trace-panel">
               <div class="live-current">
                 <span>当前步骤</span>
-                <strong>{{ liveTraceSummary.currentLabel || activeLiveTrace?.status || '等待 Runtime 上报' }}</strong>
+                <strong>{{ liveTraceSummary.currentLabel || formatLiveStatus(liveTraceSummary.currentStatus || activeLiveTrace?.status) }}</strong>
               </div>
               <div class="live-meta">
                 <span v-if="liveTraceSummary.toolLabel">{{ liveTraceSummary.toolLabel }}</span>
@@ -187,10 +184,10 @@
               </div>
               <div v-if="liveTraceSummary.recentSteps.length" class="live-steps">
                 <span v-for="step in liveTraceSummary.recentSteps" :key="step.name || step.label">
-                  {{ step.label || step.name }} · {{ step.status }}
+                  {{ step.label || step.name }} · {{ formatLiveStatus(step.status) }}
                 </span>
               </div>
-              <el-button size="small" text @click="openLiveTrace">查看 Trace</el-button>
+              <el-button size="small" text @click="openLiveTrace">查看执行过程</el-button>
             </div>
             <div v-else-if="liveTraceError" class="live-trace-error">
               {{ liveTraceError }}，最终结果仍在等待。
@@ -368,11 +365,11 @@ const optionSummary = computed(() => {
 const diagnosticsSummary = computed(() => {
   const diagnostics = quickDiagnostics.value
   if (!diagnostics) return ''
-  const runtime = diagnostics.runtimeOk ? 'Runtime UP' : 'Runtime DOWN'
-  const tool = diagnostics.toolGatewayOk ? 'Tool OK' : 'Tool 异常'
-  const contract = diagnostics.contractOk ? '契约 OK' : '契约异常'
-  const llm = diagnostics.llmEnabled ? diagnostics.llmModel : 'LLM 关闭'
-  return `${runtime} / ${tool} / ${contract} / ${llm} / 成功率 ${diagnostics.successRateLabel}`
+  const runtime = diagnostics.runtimeOk ? '服务正常' : '服务异常'
+  const tool = diagnostics.toolGatewayOk ? '工具可用' : '工具异常'
+  const contract = diagnostics.contractOk ? '契约正常' : '契约异常'
+  const model = diagnostics.llmEnabled ? `模型 ${diagnostics.llmModel}` : '模型关闭'
+  return `${runtime} / ${tool} / ${contract} / ${model} / 成功率 ${diagnostics.successRateLabel}`
 })
 
 const latestAssistant = computed(() => {
@@ -380,6 +377,7 @@ const latestAssistant = computed(() => {
   return list.length ? list[list.length - 1] : null
 })
 
+const showQuickEntry = computed(() => messages.value.length === 0)
 const latestActionResult = computed(() => latestAssistant.value?.actionResult || null)
 const latestSuggestedActions = computed(() => latestAssistant.value?.suggestedActions || [])
 const aiBusy = computed(() => Boolean(loading.value || solutionLoading.value || props.regionLoading))
@@ -791,6 +789,15 @@ function stopLiveTracePolling() {
 function openLiveTrace() {
   if (!activeLiveTrace.value) return
   openTrace({ trace: activeLiveTrace.value, answerMeta: activeLiveTrace.value.answerMeta || {} })
+}
+
+function formatLiveStatus(status?: string) {
+  const normalized = String(status || '').toUpperCase()
+  if (normalized === 'RUNNING') return '正在执行'
+  if (normalized === 'SUCCESS' || normalized === 'COMPLETED') return '已完成'
+  if (normalized === 'FAILED' || normalized === 'ERROR') return '执行失败'
+  if (normalized === 'PENDING') return '等待中'
+  return '等待执行状态'
 }
 
 function beginAiRun(startedAt = Date.now()) {
@@ -1529,13 +1536,13 @@ function openTrace(execution: Record<string, any>) {
   line-height: 1.45;
 }
 
-.analysis-hint-drawer {
+.analysis-detail-drawer {
   margin-top: 6px;
   color: #64748b;
   font-size: 11px;
 }
 
-.analysis-hint-drawer summary {
+.analysis-detail-drawer summary {
   width: fit-content;
   cursor: pointer;
   color: #2563eb;
@@ -1543,21 +1550,21 @@ function openTrace(execution: Record<string, any>) {
   list-style: none;
 }
 
-.analysis-hint-drawer summary::-webkit-details-marker {
+.analysis-detail-drawer summary::-webkit-details-marker {
   display: none;
 }
 
-.analysis-hint-drawer summary::after {
+.analysis-detail-drawer summary::after {
   content: '展开';
   margin-left: 6px;
   font-weight: 600;
 }
 
-.analysis-hint-drawer[open] summary::after {
+.analysis-detail-drawer[open] summary::after {
   content: '收起';
 }
 
-.analysis-hint-drawer div {
+.analysis-detail-drawer > div:last-child {
   margin-top: 5px;
   padding: 6px 8px;
   border-radius: 10px;
