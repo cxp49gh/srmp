@@ -4,31 +4,42 @@
       <div v-for="(item, index) in messages" :key="index" :class="['message', item.role]">
         <div class="role">{{ item.role === 'user' ? '我' : 'AI' }}</div>
         <div class="content" v-html="renderMarkdown(item.content)" />
-        <div v-if="item.meta" class="message-meta">
-          <el-tag v-if="item.meta.mapObjectUsed" size="small" type="success">对象上下文</el-tag>
-          <el-tag v-if="item.meta.regionUsed || item.meta.mapRegionUsed" size="small" type="success">区域上下文</el-tag>
-          <el-tag v-if="item.meta.intent" size="small" type="info">{{ item.meta.intent }}</el-tag>
-          <el-tag v-if="item.meta.answerSourceLabel" size="small">{{ item.meta.answerSourceLabel }}</el-tag>
-          <el-tag
-            v-if="item.meta.planExecutionStatus && item.meta.planExecutionStatus !== 'NO_PLAN'"
-            size="small"
-            :type="planExecutionTagType(item.meta.planExecutionStatus)"
-          >计划 {{ item.meta.planExecutionStatus }}</el-tag>
-          <el-tag v-if="item.meta.runElapsed" size="small" type="info">耗时 {{ item.meta.runElapsed }}</el-tag>
-          <el-tag v-if="item.meta.llmStatus" size="small" :type="item.meta.llmStatus === 'SUCCESS' ? 'success' : 'warning'">LLM {{ item.meta.llmStatus }}</el-tag>
-          <el-tag v-if="item.meta.llmModel" size="small" type="info">{{ item.meta.llmModel }}</el-tag>
-          <el-tag v-if="item.toolResults?.length" size="small" type="info">工具 {{ successfulTools(item.toolResults) }}/{{ item.toolResults.length }}</el-tag>
-          <el-tag v-if="item.sources?.length" size="small" type="info">来源 {{ item.sources.length }}</el-tag>
-          <el-tag v-if="item.meta.retriedWithCompactPrompt" size="small" type="warning">压缩重试</el-tag>
-          <el-tag v-if="item.meta.fallback" size="small" type="warning">降级</el-tag>
-        </div>
-        <AiEvidencePanel
-          v-if="item.role === 'assistant'"
-          :message="item"
-          :map-context="mapContext"
-          @locate-source="$emit('locate-source', $event)"
-          @ask-with-source="$emit('ask-with-source', $event)"
-        />
+        <details v-if="item.role === 'assistant' && hasAssistantDetails(item)" class="assistant-detail-drawer">
+          <summary class="assistant-detail-summary">
+            <span>依据与调用详情</span>
+            <em>{{ assistantDetailsSummary(item) }}</em>
+          </summary>
+          <div v-if="item.meta" class="message-meta">
+            <el-tag v-if="item.meta.mapObjectUsed" size="small" type="success">对象上下文</el-tag>
+            <el-tag v-if="item.meta.regionUsed || item.meta.mapRegionUsed" size="small" type="success">区域上下文</el-tag>
+            <el-tag v-if="item.meta.intent" size="small" type="info">{{ item.meta.intent }}</el-tag>
+            <el-tag v-if="item.meta.answerSourceLabel" size="small">{{ item.meta.answerSourceLabel }}</el-tag>
+            <el-tag
+              v-if="item.meta.planExecutionStatus && item.meta.planExecutionStatus !== 'NO_PLAN'"
+              size="small"
+              :type="planExecutionTagType(item.meta.planExecutionStatus)"
+            >计划 {{ item.meta.planExecutionStatus }}</el-tag>
+            <el-tag v-if="item.meta.runElapsed" size="small" type="info">耗时 {{ item.meta.runElapsed }}</el-tag>
+            <el-tag v-if="item.meta.llmStatus" size="small" :type="item.meta.llmStatus === 'SUCCESS' ? 'success' : 'warning'">LLM {{ item.meta.llmStatus }}</el-tag>
+            <el-tag v-if="item.meta.llmModel" size="small" type="info">{{ item.meta.llmModel }}</el-tag>
+            <el-tag v-if="item.toolResults?.length" size="small" type="info">工具 {{ successfulTools(item.toolResults) }}/{{ item.toolResults.length }}</el-tag>
+            <el-tag v-if="item.sources?.length" size="small" type="info">来源 {{ item.sources.length }}</el-tag>
+            <el-tag v-if="item.meta.retriedWithCompactPrompt" size="small" type="warning">压缩重试</el-tag>
+            <el-tag v-if="item.meta.fallback" size="small" type="warning">降级</el-tag>
+          </div>
+          <AiEvidencePanel
+            :message="item"
+            :map-context="mapContext"
+            @locate-source="$emit('locate-source', $event)"
+            @ask-with-source="$emit('ask-with-source', $event)"
+          />
+          <AiTraceButton
+            :trace="item.trace"
+            :execution="{ trace: item.trace, answerMeta: item.meta, toolResults: item.toolResults, sources: item.sources }"
+            class="trace-button"
+            @open="$emit('open-trace', $event)"
+          />
+        </details>
         <div v-if="item.role === 'assistant' && contextScope === 'OBJECT' && mapObject" class="assistant-action-row">
           <el-button
             size="small"
@@ -41,13 +52,6 @@
             生成结构化建议
           </el-button>
         </div>
-        <AiTraceButton
-          v-if="item.role === 'assistant'"
-          :trace="item.trace"
-          :execution="{ trace: item.trace, answerMeta: item.meta, toolResults: item.toolResults, sources: item.sources }"
-          class="trace-button"
-          @open="$emit('open-trace', $event)"
-        />
       </div>
       <slot name="message-tail" />
     </div>
@@ -159,6 +163,26 @@ function successfulTools(tools: any[] = []) {
   return tools.filter((item) => item?.success !== false && String(item?.status || '').toUpperCase() !== 'FAILED').length
 }
 
+function hasAssistantDetails(item: Record<string, any>) {
+  if (!item) return false
+  if (item.meta && Object.keys(item.meta).length) return true
+  if (Array.isArray(item.toolResults) && item.toolResults.length) return true
+  if (Array.isArray(item.sources) && item.sources.length) return true
+  const trace = item.trace || {}
+  return Boolean(trace.traceId || trace.trace_id || trace.steps)
+}
+
+function assistantDetailsSummary(item: Record<string, any>) {
+  const parts: string[] = []
+  const toolTotal = Array.isArray(item.toolResults) ? item.toolResults.length : 0
+  const sourceTotal = Array.isArray(item.sources) ? item.sources.length : 0
+  if (toolTotal) parts.push(`工具 ${successfulTools(item.toolResults)}/${toolTotal}`)
+  if (sourceTotal) parts.push(`来源 ${sourceTotal}`)
+  if (item.meta?.runElapsed) parts.push(`耗时 ${item.meta.runElapsed}`)
+  if (item.meta?.llmStatus) parts.push(`LLM ${item.meta.llmStatus}`)
+  return parts.length ? parts.join(' · ') : '查看运行标签、依据和执行过程'
+}
+
 function planExecutionTagType(status: string) {
   if (status === 'MATCHED') return 'success'
   if (status === 'DIVERGED') return 'danger'
@@ -238,6 +262,67 @@ function planExecutionTagType(status: string) {
   gap: 6px;
   margin-top: 6px;
   flex-wrap: wrap;
+}
+
+.assistant-detail-drawer {
+  margin-top: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.assistant-detail-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  color: #334155;
+  cursor: pointer;
+  list-style: none;
+}
+
+.assistant-detail-summary::-webkit-details-marker {
+  display: none;
+}
+
+.assistant-detail-summary::after {
+  content: '展开';
+  margin-left: auto;
+  color: #2563eb;
+  font-weight: 700;
+}
+
+.assistant-detail-drawer[open] .assistant-detail-summary::after {
+  content: '收起';
+}
+
+.assistant-detail-summary span {
+  flex-shrink: 0;
+  font-weight: 700;
+}
+
+.assistant-detail-summary em {
+  min-width: 0;
+  color: #64748b;
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-detail-drawer .message-meta {
+  margin: 0;
+  padding: 8px 9px 0;
+  border-top: 1px solid #e2e8f0;
+}
+
+.assistant-detail-drawer :deep(.ai-evidence-panel) {
+  margin: 8px 9px;
+}
+
+.assistant-detail-drawer .trace-button {
+  margin: 0 9px 9px;
 }
 
 .assistant-action-row {

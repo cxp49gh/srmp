@@ -122,7 +122,13 @@
           </el-tag>
         </div>
         <p v-if="diagnosticsError" class="diagnostics-error">{{ diagnosticsError }}</p>
-        <div v-else-if="quickDiagnostics" class="diagnostics-grid">
+        <div v-if="quickDiagnostics" class="diagnostics-summary">
+          <span>{{ diagnosticsSummary }}</span>
+          <button type="button" @click="diagnosticsExpanded = !diagnosticsExpanded">
+            {{ diagnosticsExpanded ? '收起详情' : '详情' }}
+          </button>
+        </div>
+        <div v-if="quickDiagnostics && diagnosticsExpanded" class="diagnostics-grid">
           <span><em>Runtime</em><strong>{{ quickDiagnostics.runtimeOk ? 'UP' : 'DOWN' }}</strong></span>
           <span><em>Tool</em><strong>{{ quickDiagnostics.toolGatewayOk ? 'OK' : '异常' }}</strong></span>
           <span><em>契约</em><strong>{{ quickDiagnostics.contractOk ? 'OK' : '异常' }}</strong></span>
@@ -317,6 +323,7 @@ const showQuickPanel = ref(false)
 const diagnosticsLoading = ref(false)
 const diagnosticsError = ref('')
 const quickDiagnostics = ref<LangGraphDiagnostics | null>(null)
+const diagnosticsExpanded = ref(false)
 const aiRunStartedAt = ref<number | null>(null)
 const aiElapsedMs = ref(0)
 let aiElapsedTimer: ReturnType<typeof window.setInterval> | null = null
@@ -356,6 +363,16 @@ const optionSummary = computed(() => {
   if (options.useOutline) parts.push('Outline')
   if (useAgentTools.value) parts.push('Agent工具')
   return parts.length ? parts.join('、') : '未启用'
+})
+
+const diagnosticsSummary = computed(() => {
+  const diagnostics = quickDiagnostics.value
+  if (!diagnostics) return ''
+  const runtime = diagnostics.runtimeOk ? 'Runtime UP' : 'Runtime DOWN'
+  const tool = diagnostics.toolGatewayOk ? 'Tool OK' : 'Tool 异常'
+  const contract = diagnostics.contractOk ? '契约 OK' : '契约异常'
+  const llm = diagnostics.llmEnabled ? diagnostics.llmModel : 'LLM 关闭'
+  return `${runtime} / ${tool} / ${contract} / ${llm} / 成功率 ${diagnostics.successRateLabel}`
 })
 
 const latestAssistant = computed(() => {
@@ -966,6 +983,7 @@ async function loadQuickDiagnostics() {
   try {
     const result = await getOrchestratorQuickDiagnostics()
     quickDiagnostics.value = normalizeLangGraphDiagnostics(result)
+    diagnosticsExpanded.value = false
   } catch (error: any) {
     diagnosticsError.value = error?.message || '诊断失败'
     ElMessage.error(diagnosticsError.value)
@@ -1601,6 +1619,32 @@ function openTrace(execution: Record<string, any>) {
 .diagnostics-head strong,
 .wait-head strong {
   color: #0f172a;
+}
+
+.diagnostics-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 7px;
+  color: #475569;
+  line-height: 1.45;
+}
+
+.diagnostics-summary span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagnostics-summary button {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: #2563eb;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .wait-head span {

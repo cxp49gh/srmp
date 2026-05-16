@@ -82,6 +82,23 @@ test('map AI panel compacts nonessential analysis text on short viewports', () =
   assert.match(content, /@media\s*\(max-height:\s*700px\)\s*\{[\s\S]*\.analysis-metrics\s*\{[\s\S]*display:\s*none;/)
 })
 
+test('map AI diagnostics render as a compact summary by default', () => {
+  const content = read('src/views/gis/components/AgentChatFloat.vue')
+
+  assert.match(content, /const diagnosticsExpanded = ref\(false\)/)
+  assert.match(content, /class="diagnostics-summary"/)
+  assert.match(content, /v-if="quickDiagnostics && diagnosticsExpanded" class="diagnostics-grid"/)
+  assert.doesNotMatch(content, /v-else-if="quickDiagnostics" class="diagnostics-grid"/)
+})
+
+test('assistant operational details are collapsed below the answer by default', () => {
+  const content = read('src/views/gis/components/map-ai/MapAiConversation.vue')
+
+  assert.match(content, /<details v-if="item\.role === 'assistant' && hasAssistantDetails\(item\)" class="assistant-detail-drawer">/)
+  assert.match(content, /<summary class="assistant-detail-summary">[\s\S]*详情[\s\S]*<\/summary>[\s\S]*<div v-if="item\.meta" class="message-meta">/)
+  assert.match(content, /<details[\s\S]*<AiEvidencePanel[\s\S]*<AiTraceButton[\s\S]*<\/details>/)
+})
+
 test('AgentChatFloat honors explicit route scope before viewport fallback', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
