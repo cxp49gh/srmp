@@ -6,7 +6,7 @@
         <div class="content" v-html="renderMarkdown(item.content)" />
         <details v-if="item.role === 'assistant' && hasAssistantDetails(item)" class="assistant-detail-drawer">
           <summary class="assistant-detail-summary">
-            <span>依据与调用详情</span>
+            <span>依据与调用</span>
             <em>{{ assistantDetailsSummary(item) }}</em>
           </summary>
           <div v-if="item.meta" class="message-meta">
@@ -20,7 +20,7 @@
               :type="planExecutionTagType(item.meta.planExecutionStatus)"
             >计划 {{ item.meta.planExecutionStatus }}</el-tag>
             <el-tag v-if="item.meta.runElapsed" size="small" type="info">耗时 {{ item.meta.runElapsed }}</el-tag>
-            <el-tag v-if="item.meta.llmStatus" size="small" :type="item.meta.llmStatus === 'SUCCESS' ? 'success' : 'warning'">LLM {{ item.meta.llmStatus }}</el-tag>
+            <el-tag v-if="item.meta.llmStatus" size="small" :type="item.meta.llmStatus === 'SUCCESS' ? 'success' : 'warning'">LLM {{ formatAssistantStatus(item.meta.llmStatus) }}</el-tag>
             <el-tag v-if="item.meta.llmModel" size="small" type="info">{{ item.meta.llmModel }}</el-tag>
             <el-tag v-if="item.toolResults?.length" size="small" type="info">工具 {{ successfulTools(item.toolResults) }}/{{ item.toolResults.length }}</el-tag>
             <el-tag v-if="item.sources?.length" size="small" type="info">来源 {{ item.sources.length }}</el-tag>
@@ -179,8 +179,18 @@ function assistantDetailsSummary(item: Record<string, any>) {
   if (toolTotal) parts.push(`工具 ${successfulTools(item.toolResults)}/${toolTotal}`)
   if (sourceTotal) parts.push(`来源 ${sourceTotal}`)
   if (item.meta?.runElapsed) parts.push(`耗时 ${item.meta.runElapsed}`)
-  if (item.meta?.llmStatus) parts.push(`LLM ${item.meta.llmStatus}`)
+  if (item.meta?.llmStatus) parts.push(`LLM ${formatAssistantStatus(item.meta.llmStatus)}`)
   return parts.length ? parts.join(' · ') : '查看运行标签、依据和执行过程'
+}
+
+function formatAssistantStatus(status: string) {
+  const normalized = String(status || '').toUpperCase()
+  if (normalized === 'SUCCESS') return '成功'
+  if (normalized === 'FAILED') return '失败'
+  if (normalized === 'TIMEOUT') return '超时'
+  if (normalized === 'SKIPPED') return '未调用'
+  if (normalized === 'DISABLED') return '已关闭'
+  return status || '-'
 }
 
 function planExecutionTagType(status: string) {

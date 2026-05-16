@@ -91,12 +91,45 @@ test('map AI diagnostics render as a compact summary by default', () => {
   assert.doesNotMatch(content, /v-else-if="quickDiagnostics" class="diagnostics-grid"/)
 })
 
+test('map AI optional controls share one compact toolbar row', () => {
+  const content = read('src/views/gis/components/AgentChatFloat.vue')
+
+  assert.match(content, /<div class="assistant-utility-row">[\s\S]*数据源：\{\{ optionSummary \}\}[\s\S]*快捷提问[\s\S]*<\/div>/)
+  assert.doesNotMatch(content, /<div class="fold-panel">[\s\S]*快捷提问[\s\S]*<\/div>\s*<div v-if="showQuickPanel"/)
+})
+
+test('map AI analysis explanation is collapsed by default', () => {
+  const content = read('src/views/gis/components/AgentChatFloat.vue')
+
+  assert.match(content, /<details class="analysis-hint-drawer">[\s\S]*<summary>范围说明<\/summary>[\s\S]*\{\{ operationHint \}\}[\s\S]*<\/details>/)
+  assert.doesNotMatch(content, /<div class="analysis-action-hint">\{\{ operationHint \}\}<\/div>/)
+})
+
 test('assistant operational details are collapsed below the answer by default', () => {
   const content = read('src/views/gis/components/map-ai/MapAiConversation.vue')
 
   assert.match(content, /<details v-if="item\.role === 'assistant' && hasAssistantDetails\(item\)" class="assistant-detail-drawer">/)
-  assert.match(content, /<summary class="assistant-detail-summary">[\s\S]*详情[\s\S]*<\/summary>[\s\S]*<div v-if="item\.meta" class="message-meta">/)
+  assert.match(content, /<summary class="assistant-detail-summary">[\s\S]*依据与调用[\s\S]*<\/summary>[\s\S]*<div v-if="item\.meta" class="message-meta">/)
   assert.match(content, /<details[\s\S]*<AiEvidencePanel[\s\S]*<AiTraceButton[\s\S]*<\/details>/)
+})
+
+test('assistant details use concise human-facing labels', () => {
+  const content = read('src/views/gis/components/map-ai/MapAiConversation.vue')
+
+  assert.match(content, /<span>依据与调用<\/span>/)
+  assert.match(content, /formatAssistantStatus\(item\.meta\.llmStatus\)/)
+  assert.doesNotMatch(content, /依据与调用详情/)
+  assert.doesNotMatch(content, /LLM \$\{item\.meta\.llmStatus\}/)
+})
+
+test('plain answer action result cards are hidden from the main conversation', () => {
+  const content = read('src/views/gis/components/map-ai/MapAiActionResultPanel.vue')
+
+  assert.match(content, /const visibleResult = computed/)
+  assert.match(content, /props\.result\?\.type === 'ANSWER'/)
+  assert.match(content, /!props\.result\.markdown && !props\.result\.errorMessage/)
+  assert.match(content, /<section v-if="visibleResult" class="map-ai-action-result">/)
+  assert.doesNotMatch(content, /<section v-if="result" class="map-ai-action-result">/)
 })
 
 test('AgentChatFloat honors explicit route scope before viewport fallback', () => {

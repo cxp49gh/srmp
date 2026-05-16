@@ -1,11 +1,11 @@
 <template>
-  <section v-if="result" class="map-ai-action-result">
+  <section v-if="visibleResult" class="map-ai-action-result">
     <div class="result-head">
-      <strong>{{ result.title || result.type }}</strong>
-      <el-tag size="small" :type="tagType">{{ result.status }}</el-tag>
+      <strong>{{ visibleResult.title || visibleResult.type }}</strong>
+      <el-tag size="small" :type="tagType">{{ visibleResult.status }}</el-tag>
     </div>
-    <p v-if="result.errorMessage" class="error">{{ result.errorMessage }}</p>
-    <article v-if="result.markdown" class="markdown">{{ result.markdown }}</article>
+    <p v-if="visibleResult.errorMessage" class="error">{{ visibleResult.errorMessage }}</p>
+    <article v-if="visibleResult.markdown" class="markdown">{{ visibleResult.markdown }}</article>
   </section>
 </template>
 
@@ -15,9 +15,15 @@ import type { MapAgentActionResult } from '../../../../api/agent'
 
 const props = defineProps<{ result?: MapAgentActionResult | null }>()
 
+const visibleResult = computed(() => {
+  if (!props.result) return null
+  if (props.result?.type === 'ANSWER' && !props.result.markdown && !props.result.errorMessage) return null
+  return props.result
+})
+
 const tagType = computed(() => {
-  if (props.result?.status === 'SUCCESS') return 'success'
-  if (props.result?.status === 'NEEDS_CONFIRMATION') return 'warning'
+  if (visibleResult.value?.status === 'SUCCESS') return 'success'
+  if (visibleResult.value?.status === 'NEEDS_CONFIRMATION') return 'warning'
   return 'danger'
 })
 </script>

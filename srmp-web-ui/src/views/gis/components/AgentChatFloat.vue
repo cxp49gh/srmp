@@ -97,21 +97,28 @@
             </template>
           </el-dropdown>
         </div>
-        <div class="analysis-action-hint">{{ operationHint }}</div>
+        <details class="analysis-hint-drawer">
+          <summary>范围说明</summary>
+          <div>{{ operationHint }}</div>
+        </details>
       </section>
 
-      <div class="fold-panel">
-        <button type="button" class="fold-trigger" @click="showToolsPanel = !showToolsPanel">
-          数据源与工具：{{ optionSummary }}
+      <div class="assistant-utility-row">
+        <button type="button" class="utility-trigger primary" @click="showToolsPanel = !showToolsPanel">
+          数据源：{{ optionSummary }}
           <span>{{ showToolsPanel ? '收起' : '展开' }}</span>
         </button>
-        <div v-if="showToolsPanel" class="option-row compact-options">
-          <el-checkbox v-model="options.useBusinessData">业务数据</el-checkbox>
-          <el-checkbox v-model="options.useKnowledge">知识库</el-checkbox>
-          <el-checkbox v-model="options.useOutline">Outline</el-checkbox>
-          <el-checkbox v-model="useAgentTools">Agent工具</el-checkbox>
-          <el-button size="small" plain :loading="diagnosticsLoading" @click="loadQuickDiagnostics">状态诊断</el-button>
-        </div>
+        <button type="button" class="utility-trigger" @click="showQuickPanel = !showQuickPanel">
+          快捷提问
+          <span>{{ showQuickPanel ? '收起' : '展开' }}</span>
+        </button>
+      </div>
+      <div v-if="showToolsPanel" class="option-row compact-options utility-panel">
+        <el-checkbox v-model="options.useBusinessData">业务数据</el-checkbox>
+        <el-checkbox v-model="options.useKnowledge">知识库</el-checkbox>
+        <el-checkbox v-model="options.useOutline">Outline</el-checkbox>
+        <el-checkbox v-model="useAgentTools">Agent工具</el-checkbox>
+        <el-button size="small" plain :loading="diagnosticsLoading" @click="loadQuickDiagnostics">状态诊断</el-button>
       </div>
 
       <section v-if="quickDiagnostics || diagnosticsError" class="diagnostics-panel">
@@ -138,17 +145,11 @@
         </div>
       </section>
 
-      <div class="fold-panel">
-        <button type="button" class="fold-trigger" @click="showQuickPanel = !showQuickPanel">
-          快捷提问
-          <span>{{ showQuickPanel ? '收起' : '展开' }}</span>
-        </button>
-        <div v-if="showQuickPanel" class="quick-list compact-quick-list">
-          <button type="button" @click="quickAsk('分析当前路线整体路况')">分析路线</button>
-          <button type="button" @click="quickAsk('找出次差路段')">次差路段</button>
-          <button type="button" @click="quickAsk('解释 PCI 指标')">解释 PCI</button>
-          <button type="button" @click="quickAsk('生成评定报告草稿')">报告草稿</button>
-        </div>
+      <div v-if="showQuickPanel" class="quick-list compact-quick-list utility-panel">
+        <button type="button" @click="quickAsk('分析当前路线整体路况')">分析路线</button>
+        <button type="button" @click="quickAsk('找出次差路段')">次差路段</button>
+        <button type="button" @click="quickAsk('解释 PCI 指标')">解释 PCI</button>
+        <button type="button" @click="quickAsk('生成评定报告草稿')">报告草稿</button>
       </div>
 
       <MapAiWorkbench
@@ -1528,6 +1529,42 @@ function openTrace(execution: Record<string, any>) {
   line-height: 1.45;
 }
 
+.analysis-hint-drawer {
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.analysis-hint-drawer summary {
+  width: fit-content;
+  cursor: pointer;
+  color: #2563eb;
+  font-weight: 700;
+  list-style: none;
+}
+
+.analysis-hint-drawer summary::-webkit-details-marker {
+  display: none;
+}
+
+.analysis-hint-drawer summary::after {
+  content: '展开';
+  margin-left: 6px;
+  font-weight: 600;
+}
+
+.analysis-hint-drawer[open] summary::after {
+  content: '收起';
+}
+
+.analysis-hint-drawer div {
+  margin-top: 5px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.62);
+  line-height: 1.45;
+}
+
 .fold-panel {
   flex-shrink: 0;
   border-top: 1px solid #eef2f7;
@@ -1553,6 +1590,46 @@ function openTrace(execution: Record<string, any>) {
 .compact-options,
 .compact-quick-list {
   margin-bottom: 8px;
+}
+
+.assistant-utility-row {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 0;
+  border-top: 1px solid #eef2f7;
+}
+
+.utility-trigger {
+  min-width: 0;
+  border: none;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  color: #475569;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.utility-trigger.primary {
+  justify-content: flex-start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.utility-trigger span {
+  flex-shrink: 0;
+  color: #2563eb;
+  font-weight: 700;
+}
+
+.utility-panel {
+  padding-bottom: 6px;
 }
 
 .map-context-banner {
