@@ -25,11 +25,13 @@ test('map toolbar draw tools publish active state and clear affordance', () => {
   assert.match(content, /title="清除框选"/)
 })
 
-test('map toolbar keeps draw tools inside the visible wrapped query bar', () => {
+test('map toolbar keeps draw tools visible without query scrollbars', () => {
   assert.match(content, /\.query-primary-row\s*\{[\s\S]*flex-wrap:\s*nowrap;[\s\S]*overflow:\s*visible;/)
-  assert.match(content, /\.fields-grid\s*\{[\s\S]*flex:\s*1\s+1\s+0;[\s\S]*grid-template-columns:\s*minmax\(210px,\s*1\.25fr\)\s+repeat\(3,\s*minmax\(160px,\s*1fr\)\)\s+minmax\(140px,\s*0\.8fr\);[\s\S]*overflow-x:\s*auto;/)
-  assert.match(content, /@media\s*\(max-width:\s*1320px\)\s*\{[\s\S]*\.fields-grid\s*\{[\s\S]*min-width:\s*0;/)
+  assert.match(content, /\.fields-grid\s*\{[\s\S]*flex:\s*1\s+1\s+0;[\s\S]*overflow:\s*visible;/)
+  assert.match(content, /@media\s*\(max-width:\s*1320px\)\s*\{[\s\S]*\.fields-grid\s*\{[\s\S]*grid-template-columns:\s*minmax\(98px,\s*1\.1fr\)\s+minmax\(62px,\s*0\.72fr\)\s+minmax\(66px,\s*0\.78fr\)\s+minmax\(58px,\s*0\.68fr\)\s+minmax\(48px,\s*0\.56fr\);/)
+  assert.match(content, /@media\s*\(max-width:\s*1320px\)[\s\S]*:deep\(\.uniform-item \.el-form-item__label\)\s*\{[\s\S]*position:\s*absolute !important;[\s\S]*width:\s*1px !important;/)
   assert.match(content, /\.draw-section\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-shrink:\s*0;/)
+  assert.doesNotMatch(content, /overflow-x:\s*auto|overflow:\s*auto/)
   assert.doesNotMatch(content, /query-extended-row|expand-toggle|el-collapse-transition/)
 })
 

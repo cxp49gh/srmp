@@ -92,7 +92,7 @@ test('map AI panel compacts nonessential analysis text on short viewports', () =
 test('map AI analysis is a default header panel before settings and diagnostics', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
-  assert.match(content, /import \{ MapLocation, Monitor, Setting \} from '@element-plus\/icons-vue'/)
+  assert.match(content, /import \{ ChatDotRound, MapLocation, Monitor, Setting \} from '@element-plus\/icons-vue'/)
   assert.match(content, /const showAnalysisPanel = ref\(true\)/)
   assert.match(content, /<strong>AI 养护助手<\/strong>[\s\S]*class="header-icon-btn analysis-icon-button"[\s\S]*aria-label="一张图分析"[\s\S]*@click="toggleAnalysisPanel"[\s\S]*class="header-icon-btn settings-icon-button"/)
   assert.match(content, /<el-icon><MapLocation \/><\/el-icon>/)
@@ -103,7 +103,7 @@ test('map AI analysis is a default header panel before settings and diagnostics'
 test('map AI diagnostics use a header icon and render full details without a second fold', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
-  assert.match(content, /import \{ MapLocation, Monitor, Setting \} from '@element-plus\/icons-vue'/)
+  assert.match(content, /import \{ ChatDotRound, MapLocation, Monitor, Setting \} from '@element-plus\/icons-vue'/)
   assert.match(content, /const showDiagnosticsPanel = ref\(false\)/)
   assert.match(content, /class="header-icon-btn diagnostics-icon-button"[\s\S]*aria-label="状态诊断"[\s\S]*@click="toggleDiagnosticsPanel"/)
   assert.match(content, /<el-icon><Monitor \/><\/el-icon>/)
@@ -124,19 +124,19 @@ test('map AI diagnostics stay outside the settings drawer', () => {
   assert.doesNotMatch(content, /<\/div>\s*<section v-if="quickDiagnostics \|\| diagnosticsError" class="diagnostics-panel">/)
 })
 
-test('map AI analysis header keeps diagnostics and plan out of the default title actions', () => {
+test('map AI analysis header avoids redundant metric tag and keeps plan inline', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
-  const titleActions = content.match(/<div class="analysis-title-actions">([\s\S]*?)<\/div>/)?.[1] || ''
+  const titleRow = content.match(/<div class="analysis-title-row">([\s\S]*?)<\/div>\s*<\/div>/)?.[0] || ''
 
-  assert.match(content, /<div class="analysis-title-actions">\s*<el-tag size="small" effect="plain">\{\{ activeMetricMeta\.shortName \}\}<\/el-tag>\s*<\/div>/)
-  assert.doesNotMatch(titleActions, /状态诊断|执行计划|el-button/)
+  assert.doesNotMatch(titleRow, /analysis-title-actions|activeMetricMeta\.shortName|el-tag/)
+  assert.doesNotMatch(titleRow, /综合\s*MQI|状态诊断|执行计划|el-button/)
   assert.match(content, /<el-button size="small" plain @click="previewCurrentPlan">查看计划<\/el-button>/)
 })
 
 test('map AI optional controls collapse data source settings by default', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
-  assert.match(content, /import \{ MapLocation, Monitor, Setting \} from '@element-plus\/icons-vue'/)
+  assert.match(content, /import \{ ChatDotRound, MapLocation, Monitor, Setting \} from '@element-plus\/icons-vue'/)
   assert.match(content, /<div class="title-main-row">[\s\S]*<strong>AI 养护助手<\/strong>[\s\S]*class="header-icon-btn settings-icon-button"[\s\S]*aria-label="设置"[\s\S]*@click="toggleSettingsPanel"/)
   assert.match(content, /<el-icon><Setting \/><\/el-icon>/)
   assert.match(content, /function toggleSettingsPanel\(\)[\s\S]*showAnalysisPanel\.value = false[\s\S]*showDiagnosticsPanel\.value = false/)
@@ -167,9 +167,11 @@ test('map AI quick suggestions only appear before the first conversation turn', 
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
   assert.match(content, /const showQuickEntry = computed\(\(\) => messages\.value\.length === 0\)/)
-  assert.match(content, /<div v-if="showQuickEntry" class="assistant-utility-row quick-utility-row">/)
-  assert.match(content, /<button v-if="showQuickEntry" type="button" class="utility-trigger" @click="showQuickPanel = !showQuickPanel">/)
-  assert.match(content, /<div v-if="showQuickPanel && showQuickEntry" class="quick-list compact-quick-list utility-panel">/)
+  assert.match(content, /class="header-icon-btn quick-icon-button"[\s\S]*aria-label="快捷提问"[\s\S]*@click="toggleQuickPanel"/)
+  assert.match(content, /<el-icon><ChatDotRound \/><\/el-icon>/)
+  assert.match(content, /<section v-if="showQuickPanel && showQuickEntry" class="quick-panel header-quick-panel">[\s\S]*<div class="quick-list compact-quick-list">/)
+  assert.match(content, /function toggleQuickPanel\(\)[\s\S]*showAnalysisPanel\.value = false[\s\S]*showToolsPanel\.value = false[\s\S]*showDiagnosticsPanel\.value = false/)
+  assert.doesNotMatch(content, /class="assistant-utility-row quick-utility-row"/)
   assert.doesNotMatch(content, /报告草稿/)
 })
 

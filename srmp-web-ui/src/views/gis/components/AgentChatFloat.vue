@@ -17,6 +17,18 @@
               <el-icon><MapLocation /></el-icon>
             </button>
             <button
+              v-if="showQuickEntry"
+              type="button"
+              class="header-icon-btn quick-icon-button"
+              :class="{ 'is-active': showQuickPanel }"
+              :aria-expanded="showQuickPanel"
+              aria-label="快捷提问"
+              title="快捷提问"
+              @click="toggleQuickPanel"
+            >
+              <el-icon><ChatDotRound /></el-icon>
+            </button>
+            <button
               type="button"
               class="header-icon-btn settings-icon-button"
               :class="{ 'is-active': showToolsPanel }"
@@ -82,14 +94,23 @@
         </div>
       </section>
 
+      <section v-if="showQuickPanel && showQuickEntry" class="quick-panel header-quick-panel">
+        <div class="quick-panel-head">
+          <strong>快捷提问</strong>
+          <span>基于当前地图上下文</span>
+        </div>
+        <div class="quick-list compact-quick-list">
+          <button type="button" @click="quickAsk('分析当前路线整体路况')">分析路线</button>
+          <button type="button" @click="quickAsk('找出次差路段')">次差路段</button>
+          <button type="button" @click="quickAsk('解释 PCI 指标')">解释 PCI</button>
+        </div>
+      </section>
+
       <section v-if="showAnalysisPanel" class="analysis-workbench" :class="contextMode.toLowerCase()">
         <div class="analysis-title-row">
           <div class="analysis-heading">
             <strong>一张图分析</strong>
             <span class="analysis-compact-scope">{{ analysisCompactScope }}</span>
-          </div>
-          <div class="analysis-title-actions">
-            <el-tag size="small" effect="plain">{{ activeMetricMeta.shortName }}</el-tag>
           </div>
         </div>
 
@@ -163,19 +184,6 @@
         </div>
         <div class="analysis-action-hint">{{ operationHint }}</div>
       </section>
-
-      <div v-if="showQuickEntry" class="assistant-utility-row quick-utility-row">
-        <button v-if="showQuickEntry" type="button" class="utility-trigger" @click="showQuickPanel = !showQuickPanel">
-          快捷提问
-          <span>{{ showQuickPanel ? '收起' : '展开' }}</span>
-        </button>
-      </div>
-
-      <div v-if="showQuickPanel && showQuickEntry" class="quick-list compact-quick-list utility-panel">
-        <button type="button" @click="quickAsk('分析当前路线整体路况')">分析路线</button>
-        <button type="button" @click="quickAsk('找出次差路段')">次差路段</button>
-        <button type="button" @click="quickAsk('解释 PCI 指标')">解释 PCI</button>
-      </div>
 
       <MapAiWorkbench
         v-model:input="input"
@@ -256,7 +264,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { MapLocation, Monitor, Setting } from '@element-plus/icons-vue'
+import { ChatDotRound, MapLocation, Monitor, Setting } from '@element-plus/icons-vue'
 import { mapAgentRun, type MapAgentAction, type MapAgentActionResult, type MapAgentRunRequest, type MapAgentRunResponse, type MapAgentSuggestedAction } from '../../../api/agent'
 import { saveMapObjectSolutionDraft, updateSolutionTaskAiContext } from '../../../api/solution'
 import { getOrchestratorLiveTrace, getOrchestratorQuickDiagnostics, runOrchestratorPlan } from '../../../api/orchestrator'
@@ -1003,6 +1011,7 @@ async function executePlanPreview() {
 
 async function loadQuickDiagnostics() {
   showDiagnosticsPanel.value = true
+  showQuickPanel.value = false
   showAnalysisPanel.value = false
   showToolsPanel.value = false
   diagnosticsLoading.value = true
@@ -1021,6 +1030,16 @@ async function loadQuickDiagnostics() {
 function toggleAnalysisPanel() {
   showAnalysisPanel.value = !showAnalysisPanel.value
   if (showAnalysisPanel.value) {
+    showQuickPanel.value = false
+    showToolsPanel.value = false
+    showDiagnosticsPanel.value = false
+  }
+}
+
+function toggleQuickPanel() {
+  showQuickPanel.value = !showQuickPanel.value
+  if (showQuickPanel.value) {
+    showAnalysisPanel.value = false
     showToolsPanel.value = false
     showDiagnosticsPanel.value = false
   }
@@ -1029,6 +1048,7 @@ function toggleAnalysisPanel() {
 function toggleSettingsPanel() {
   showToolsPanel.value = !showToolsPanel.value
   if (showToolsPanel.value) {
+    showQuickPanel.value = false
     showAnalysisPanel.value = false
     showDiagnosticsPanel.value = false
   }
@@ -1037,6 +1057,7 @@ function toggleSettingsPanel() {
 async function toggleDiagnosticsPanel() {
   showDiagnosticsPanel.value = !showDiagnosticsPanel.value
   if (showDiagnosticsPanel.value) {
+    showQuickPanel.value = false
     showAnalysisPanel.value = false
     showToolsPanel.value = false
     if (!quickDiagnostics.value && !diagnosticsError.value && !diagnosticsLoading.value) {
@@ -1517,13 +1538,6 @@ function openTrace(execution: Record<string, any>) {
   margin-bottom: 6px;
 }
 
-.analysis-title-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
 .analysis-heading {
   min-width: 0;
 }
@@ -1631,29 +1645,6 @@ function openTrace(execution: Record<string, any>) {
   line-height: 1.45;
 }
 
-.fold-panel {
-  flex-shrink: 0;
-  border-top: 1px solid #eef2f7;
-}
-
-.fold-trigger {
-  width: 100%;
-  padding: 7px 0;
-  border: none;
-  background: transparent;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  color: #475569;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.fold-trigger span {
-  color: #2563eb;
-}
-
-.compact-options,
 .compact-quick-list {
   margin-bottom: 8px;
 }
@@ -1666,44 +1657,8 @@ function openTrace(execution: Record<string, any>) {
   margin: 0 0 8px;
 }
 
-.assistant-utility-row {
-  flex-shrink: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  padding: 6px 0;
-  border-top: 1px solid #eef2f7;
-}
-
-.quick-utility-row {
-  display: flex;
-  justify-content: flex-end;
-  padding: 0 0 6px;
-  border-top: none;
-}
-
-.utility-trigger {
-  min-width: 0;
-  border: none;
-  background: transparent;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  color: #475569;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.utility-trigger span {
-  flex-shrink: 0;
-  color: #2563eb;
-  font-weight: 700;
-}
-
-.utility-panel {
-  padding-bottom: 6px;
+.header-quick-panel {
+  margin: 0 0 8px;
 }
 
 .map-context-banner {
@@ -1754,6 +1709,7 @@ function openTrace(execution: Record<string, any>) {
   font-size: 12px;
 }
 
+.quick-panel,
 .settings-panel,
 .diagnostics-panel,
 .ai-wait-panel {
@@ -1766,6 +1722,7 @@ function openTrace(execution: Record<string, any>) {
   font-size: 12px;
 }
 
+.quick-panel-head,
 .settings-head,
 .diagnostics-head,
 .wait-head {
@@ -1775,12 +1732,14 @@ function openTrace(execution: Record<string, any>) {
   gap: 8px;
 }
 
+.quick-panel-head strong,
 .settings-head strong,
 .diagnostics-head strong,
 .wait-head strong {
   color: #0f172a;
 }
 
+.quick-panel-head span,
 .settings-head span {
   min-width: 0;
   color: #64748b;
@@ -1923,6 +1882,10 @@ function openTrace(execution: Record<string, any>) {
   gap: 8px;
   margin-bottom: 10px;
   flex-wrap: wrap;
+}
+
+.quick-panel .quick-list {
+  margin: 8px 0 0;
 }
 
 .quick-list button {
@@ -2153,10 +2116,6 @@ function openTrace(execution: Record<string, any>) {
 
   .analysis-actions {
     margin-top: 6px;
-  }
-
-  .fold-trigger {
-    padding: 5px 0;
   }
 
   .map-context-banner {
