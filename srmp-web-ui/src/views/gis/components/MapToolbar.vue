@@ -29,15 +29,46 @@
                 <el-option label="百米级" value="HM" />
               </el-select>
             </el-form-item>
+
+            <el-form-item label="指标" class="uniform-item">
+              <el-select v-model="localQuery.indexCode" clearable placeholder="请选择指标">
+                <el-option
+                    v-for="item in metricOptions"
+                    :key="item.code"
+                    :label="`${item.code} ${item.name}`"
+                    :value="item.code"
+                >
+                  <div class="metric-option-layout">
+                    <strong class="m-code">{{ item.code }}</strong>
+                    <span class="m-name">{{ item.name }}</span>
+                    <em class="m-dim">{{ item.dimension }}</em>
+                  </div>
+                </el-option>
+              </el-select>
+            </el-form-item>
+
+            <el-form-item label="等级" class="uniform-item">
+              <el-select v-model="localQuery.grade" clearable placeholder="全部">
+                <el-option label="全部" value="" />
+                <el-option
+                    v-for="grade in gradeOptions"
+                    :key="grade.code"
+                    :label="`${grade.label}（${grade.rangeText}）`"
+                    :value="grade.code"
+                >
+                  <div class="grade-option-layout">
+                    <span class="grade-dot" :style="{ background: grade.color }" />
+                    <span class="grade-label">{{ grade.label }}</span>
+                    <small class="grade-range">{{ grade.rangeText }}</small>
+                  </div>
+                </el-option>
+              </el-select>
+            </el-form-item>
           </div>
 
           <div class="action-group">
             <el-button type="primary" @click="emitSearch">查询</el-button>
             <el-button @click="emitReset">重置</el-button>
-            <el-button link class="expand-toggle" @click="isExpanded = !isExpanded">
-              {{ isExpanded ? '收起' : '展开' }}
-              <i :class="['el-icon-arrow-down', 'arrow-icon', { 'is-reverse': isExpanded }]"></i>
-            </el-button>
           </div>
 
           <div class="v-divider" />
@@ -77,49 +108,6 @@
             </div>
           </div>
         </div>
-
-        <el-collapse-transition>
-          <div v-show="isExpanded" class="query-extended-row">
-            <div class="fields-grid">
-              <el-form-item label="指标" class="uniform-item">
-                <el-select v-model="localQuery.indexCode" clearable placeholder="请选择指标">
-                  <el-option
-                      v-for="item in metricOptions"
-                      :key="item.code"
-                      :label="`${item.code} ${item.name}`"
-                      :value="item.code"
-                  >
-                    <div class="metric-option-layout">
-                      <strong class="m-code">{{ item.code }}</strong>
-                      <span class="m-name">{{ item.name }}</span>
-                      <em class="m-dim">{{ item.dimension }}</em>
-                    </div>
-                  </el-option>
-                </el-select>
-              </el-form-item>
-
-              <el-form-item label="等级" class="uniform-item">
-                <el-select v-model="localQuery.grade" clearable placeholder="全部">
-                  <el-option label="全部" value="" />
-                  <el-option
-                      v-for="grade in gradeOptions"
-                      :key="grade.code"
-                      :label="`${grade.label}（${grade.rangeText}）`"
-                      :value="grade.code"
-                  >
-                    <div class="grade-option-layout">
-                      <span class="grade-dot" :style="{ background: grade.color }" />
-                      <span class="grade-label">{{ grade.label }}</span>
-                      <small class="grade-range">{{ grade.rangeText }}</small>
-                    </div>
-                  </el-option>
-                </el-select>
-              </el-form-item>
-
-              <div class="uniform-item-placeholder" />
-            </div>
-          </div>
-        </el-collapse-transition>
       </div>
     </el-form>
   </div>
@@ -142,7 +130,6 @@ const props = withDefaults(
 
 const emit = defineEmits(['search', 'reset', 'start-region', 'clear-region'])
 
-const isExpanded = ref(false)
 const localQuery = reactive<GisLayerQuery>({ ...props.query })
 const localTier = ref<GisSectionTier>((props.query.sectionTier || 'LINE') as GisSectionTier)
 
@@ -179,44 +166,52 @@ const emitClearRegion = () => emit('clear-region')
 .toolbar-main-layout {
   display: flex;
   flex-direction: column;
-  gap: 10px;
 }
 
 .query-primary-row {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 16px;
+  flex-wrap: nowrap;
+  gap: 12px;
+  overflow: visible;
+  padding-bottom: 1px;
 }
 
-/* 栅格布局 */
 .fields-grid {
   display: grid;
-  flex: 1 1 714px;
-  grid-template-columns: repeat(3, 230px);
-  gap: 12px;
+  flex: 1 1 0;
+  grid-template-columns: minmax(210px, 1.25fr) repeat(3, minmax(160px, 1fr)) minmax(140px, 0.8fr);
+  gap: 10px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 .uniform-item {
   margin-right: 0 !important;
   margin-bottom: 0 !important;
   display: flex !important;
+  min-width: 0;
 }
 
-/* ==== 核心：Label 右对齐优化 ==== */
 :deep(.uniform-item .el-form-item__label) {
-  width: 70px !important;
+  width: 64px !important;
   display: inline-flex !important;
-  justify-content: flex-end !important; /* 强制内容右对齐 */
+  justify-content: flex-end !important;
   align-items: center;
   font-weight: 600;
   color: #475569;
   padding-right: 8px !important;
 }
 
+:deep(.uniform-item .el-form-item__content) {
+  flex: 1;
+  min-width: 0;
+}
+
 :deep(.uniform-item .el-select),
 :deep(.uniform-item .el-input) {
-  width: 150px !important;
+  width: 100% !important;
 }
 
 /* 下拉内容布局 */
@@ -252,21 +247,6 @@ const emitClearRegion = () => emit('clear-region')
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
-}
-
-.expand-toggle {
-  font-size: 13px;
-  color: #2563eb;
-  padding: 0 4px;
-}
-
-.arrow-icon {
-  margin-left: 4px;
-  transition: transform 0.3s;
-}
-
-.arrow-icon.is-reverse {
-  transform: rotate(180deg);
 }
 
 .v-divider {
@@ -325,11 +305,6 @@ const emitClearRegion = () => emit('clear-region')
   color: #2563eb;
 }
 
-.query-extended-row {
-  padding-top: 10px;
-  border-top: 1px dashed #e2e8f0;
-}
-
 .icon-svg {
   width: 16px;
   height: 16px;
@@ -340,15 +315,10 @@ const emitClearRegion = () => emit('clear-region')
   stroke-linejoin: round;
 }
 
-@media (max-width: 1660px) {
+@media (max-width: 1320px) {
   .fields-grid {
-    flex-basis: 100%;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  :deep(.uniform-item .el-select),
-  :deep(.uniform-item .el-input) {
-    width: 130px !important;
+    min-width: 0;
+    grid-template-columns: minmax(190px, 1.2fr) repeat(3, minmax(145px, 1fr)) minmax(125px, 0.8fr);
   }
 }
 </style>

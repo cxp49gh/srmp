@@ -26,8 +26,14 @@ test('map toolbar draw tools publish active state and clear affordance', () => {
 })
 
 test('map toolbar keeps draw tools inside the visible wrapped query bar', () => {
-  assert.match(content, /\.query-primary-row\s*\{[\s\S]*flex-wrap:\s*wrap;/)
-  assert.match(content, /\.fields-grid\s*\{[\s\S]*flex:\s*1\s+1\s+714px;/)
+  assert.match(content, /\.query-primary-row\s*\{[\s\S]*flex-wrap:\s*nowrap;[\s\S]*overflow:\s*visible;/)
+  assert.match(content, /\.fields-grid\s*\{[\s\S]*flex:\s*1\s+1\s+0;[\s\S]*grid-template-columns:\s*minmax\(210px,\s*1\.25fr\)\s+repeat\(3,\s*minmax\(160px,\s*1fr\)\)\s+minmax\(140px,\s*0\.8fr\);[\s\S]*overflow-x:\s*auto;/)
+  assert.match(content, /@media\s*\(max-width:\s*1320px\)\s*\{[\s\S]*\.fields-grid\s*\{[\s\S]*min-width:\s*0;/)
   assert.match(content, /\.draw-section\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-shrink:\s*0;/)
-  assert.match(content, /@media\s*\(max-width:\s*1660px\)\s*\{[\s\S]*\.fields-grid\s*\{[\s\S]*flex-basis:\s*100%;/)
+  assert.doesNotMatch(content, /query-extended-row|expand-toggle|el-collapse-transition/)
+})
+
+test('map toolbar shows all condition controls in one primary row', () => {
+  assert.match(content, /<div class="query-primary-row">[\s\S]*<div class="fields-grid">[\s\S]*label="项目"[\s\S]*label="路网编码"[\s\S]*label="路段专题"[\s\S]*label="指标"[\s\S]*label="等级"[\s\S]*<\/div>\s*<div class="action-group">[\s\S]*查询[\s\S]*重置[\s\S]*<\/div>[\s\S]*<div class="draw-section" aria-label="区域框选工具">/)
+  assert.doesNotMatch(content, /{{ isExpanded \? '收起' : '展开' }}/)
 })

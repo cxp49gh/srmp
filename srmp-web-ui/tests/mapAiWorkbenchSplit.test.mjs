@@ -117,7 +117,7 @@ test('map AI diagnostics use a header icon and render full details without a sec
 test('map AI diagnostics stay outside the settings drawer', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
-  assert.match(content, /<div v-if="showToolsPanel" class="option-row compact-options utility-panel header-settings-panel">[\s\S]*<el-checkbox v-model="useAgentTools">Agent工具<\/el-checkbox>[\s\S]*<\/div>\s*<section v-if="showDiagnosticsPanel" class="diagnostics-panel header-diagnostics-panel">/)
+  assert.match(content, /<section v-if="showToolsPanel" class="settings-panel header-settings-panel">[\s\S]*<div class="settings-head">[\s\S]*<strong>设置<\/strong>[\s\S]*<span>当前依据：\{\{ optionSummary \}\}<\/span>[\s\S]*<div class="settings-grid">[\s\S]*<el-checkbox v-model="useAgentTools">Agent工具<\/el-checkbox>[\s\S]*<\/section>\s*<section v-if="showDiagnosticsPanel" class="diagnostics-panel header-diagnostics-panel">/)
   assert.match(content, /<strong>系统状态<\/strong>/)
   assert.doesNotMatch(content, /<el-button size="small" plain :loading="diagnosticsLoading" @click="loadQuickDiagnostics">状态诊断<\/el-button>/)
   assert.doesNotMatch(content, /LangGraph 状态|Runtime UP|Tool OK|LLM 关闭/)
@@ -130,8 +130,7 @@ test('map AI analysis header keeps diagnostics and plan out of the default title
 
   assert.match(content, /<div class="analysis-title-actions">\s*<el-tag size="small" effect="plain">\{\{ activeMetricMeta\.shortName \}\}<\/el-tag>\s*<\/div>/)
   assert.doesNotMatch(titleActions, /状态诊断|执行计划|el-button/)
-  assert.match(content, /<el-dropdown-item command="preview-plan" divided>查看执行计划<\/el-dropdown-item>/)
-  assert.match(content, /if \(command === 'preview-plan'\) \{[\s\S]*previewCurrentPlan\(\)/)
+  assert.match(content, /<el-button size="small" plain @click="previewCurrentPlan">查看计划<\/el-button>/)
 })
 
 test('map AI optional controls collapse data source settings by default', () => {
@@ -142,10 +141,26 @@ test('map AI optional controls collapse data source settings by default', () => 
   assert.match(content, /<el-icon><Setting \/><\/el-icon>/)
   assert.match(content, /function toggleSettingsPanel\(\)[\s\S]*showAnalysisPanel\.value = false[\s\S]*showDiagnosticsPanel\.value = false/)
   assert.match(content, /async function toggleDiagnosticsPanel\(\)[\s\S]*showAnalysisPanel\.value = false[\s\S]*showToolsPanel\.value = false/)
-  assert.match(content, /<span class="settings-summary">当前依据：\{\{ optionSummary \}\}<\/span>/)
+  assert.match(content, /<section v-if="showToolsPanel" class="settings-panel header-settings-panel">[\s\S]*<div class="settings-head">[\s\S]*<strong>设置<\/strong>[\s\S]*<span>当前依据：\{\{ optionSummary \}\}<\/span>[\s\S]*<div class="settings-grid">/)
+  assert.match(content, /\.settings-panel,\s*\.diagnostics-panel,[\s\S]*\.ai-wait-panel\s*\{/)
+  assert.match(content, /\.settings-grid\s*\{[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/)
   assert.doesNotMatch(content, /class="utility-trigger primary settings-trigger"/)
   assert.doesNotMatch(content, /<div class="assistant-utility-row">[\s\S]*设置[\s\S]*<\/div>/)
   assert.doesNotMatch(content, /<div class="fold-panel">[\s\S]*快捷提问[\s\S]*<\/div>\s*<div v-if="showQuickPanel"/)
+})
+
+test('map AI analysis exposes all operations inline instead of a more menu', () => {
+  const content = read('src/views/gis/components/AgentChatFloat.vue')
+  const analysisSection = content.match(/<section v-if="showAnalysisPanel" class="analysis-workbench"[\s\S]*?<\/section>/)?.[0] || ''
+
+  assert.match(analysisSection, /<el-button size="small" plain @click="previewCurrentPlan">查看计划<\/el-button>/)
+  assert.match(analysisSection, /<el-button size="small" plain @click="copyCurrentContext">复制上下文<\/el-button>/)
+  assert.match(analysisSection, /v-for="action in secondarySolutionActions"[\s\S]*@click="generateSolutionDraft\(action\.type\)"/)
+  assert.match(analysisSection, /v-if="contextMode === 'REGION'" size="small" plain @click="suggestForCurrentRegion">生成区域追问<\/el-button>/)
+  assert.match(analysisSection, /v-if="contextMode === 'OBJECT'" size="small" plain @click="emit\('close-detail'\)">取消对象<\/el-button>/)
+  assert.match(analysisSection, /v-if="contextMode === 'REGION'" size="small" plain @click="emit\('clear-region'\)">清除区域<\/el-button>/)
+  assert.doesNotMatch(analysisSection, /<el-dropdown|更多操作|el-dropdown-item/)
+  assert.doesNotMatch(content, /function handleContextCommand/)
 })
 
 test('map AI quick suggestions only appear before the first conversation turn', () => {

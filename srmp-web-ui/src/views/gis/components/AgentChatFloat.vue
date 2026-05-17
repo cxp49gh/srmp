@@ -45,13 +45,18 @@
         <button type="button" class="close-btn" @click="emit('update:visible', false)">×</button>
       </div>
 
-      <div v-if="showToolsPanel" class="option-row compact-options utility-panel header-settings-panel">
-        <span class="settings-summary">当前依据：{{ optionSummary }}</span>
-        <el-checkbox v-model="options.useBusinessData">业务数据</el-checkbox>
-        <el-checkbox v-model="options.useKnowledge">知识库</el-checkbox>
-        <el-checkbox v-model="options.useOutline">Outline</el-checkbox>
-        <el-checkbox v-model="useAgentTools">Agent工具</el-checkbox>
-      </div>
+      <section v-if="showToolsPanel" class="settings-panel header-settings-panel">
+        <div class="settings-head">
+          <strong>设置</strong>
+          <span>当前依据：{{ optionSummary }}</span>
+        </div>
+        <div class="settings-grid">
+          <el-checkbox v-model="options.useBusinessData">业务数据</el-checkbox>
+          <el-checkbox v-model="options.useKnowledge">知识库</el-checkbox>
+          <el-checkbox v-model="options.useOutline">Outline</el-checkbox>
+          <el-checkbox v-model="useAgentTools">Agent工具</el-checkbox>
+        </div>
+      </section>
       <section v-if="showDiagnosticsPanel" class="diagnostics-panel header-diagnostics-panel">
         <div class="diagnostics-head">
           <strong>系统状态</strong>
@@ -132,24 +137,22 @@
             <el-button size="small" plain :loading="loading" @click="findWeakSections">查找次差路段</el-button>
           </template>
 
-          <el-dropdown trigger="click" @command="handleContextCommand">
-            <el-button size="small" plain>更多操作</el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item v-if="contextMode === 'REGION'" command="suggest-region">生成区域追问</el-dropdown-item>
-                <el-dropdown-item
-                  v-for="action in contextMode === 'OBJECT' ? secondarySolutionActions : []"
-                  :key="action.type"
-                  :command="`solution:${action.type}`"
-                  :disabled="!activeMapObject || solutionLoading || loading"
-                >{{ action.label }}</el-dropdown-item>
-                <el-dropdown-item command="preview-plan" divided>查看执行计划</el-dropdown-item>
-                <el-dropdown-item command="copy-context" divided>复制上下文</el-dropdown-item>
-                <el-dropdown-item v-if="contextMode === 'OBJECT'" command="clear-object">取消对象</el-dropdown-item>
-                <el-dropdown-item v-if="contextMode === 'REGION'" command="clear-region">清除区域</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
+          <template v-if="contextMode === 'OBJECT'">
+            <el-button
+              v-for="action in secondarySolutionActions"
+              :key="action.type"
+              size="small"
+              plain
+              :disabled="!activeMapObject || solutionLoading || loading"
+              :loading="solutionLoading && activeSolutionType === action.type"
+              @click="generateSolutionDraft(action.type)"
+            >{{ action.label }}</el-button>
+          </template>
+          <el-button v-if="contextMode === 'REGION'" size="small" plain @click="suggestForCurrentRegion">生成区域追问</el-button>
+          <el-button size="small" plain @click="previewCurrentPlan">查看计划</el-button>
+          <el-button size="small" plain @click="copyCurrentContext">复制上下文</el-button>
+          <el-button v-if="contextMode === 'OBJECT'" size="small" plain @click="emit('close-detail')">取消对象</el-button>
+          <el-button v-if="contextMode === 'REGION'" size="small" plain @click="emit('clear-region')">清除区域</el-button>
         </div>
         <div class="analysis-summary">{{ analysisScopeDescription }}</div>
         <div v-if="analysisMetricItems.length" class="analysis-metrics">
@@ -998,32 +1001,6 @@ async function executePlanPreview() {
   await runMapAgentRequest(request, snapshot.message)
 }
 
-async function handleContextCommand(command: string) {
-  if (command === 'suggest-region') {
-    suggestForCurrentRegion()
-    return
-  }
-  if (command === 'copy-context') {
-    await copyCurrentContext()
-    return
-  }
-  if (command === 'preview-plan') {
-    previewCurrentPlan()
-    return
-  }
-  if (command === 'clear-object') {
-    emit('close-detail')
-    return
-  }
-  if (command === 'clear-region') {
-    emit('clear-region')
-    return
-  }
-  if (command.startsWith('solution:')) {
-    generateSolutionDraft(command.replace('solution:', '') as MapObjectSolutionType)
-  }
-}
-
 async function loadQuickDiagnostics() {
   showDiagnosticsPanel.value = true
   showAnalysisPanel.value = false
@@ -1683,8 +1660,6 @@ function openTrace(execution: Record<string, any>) {
 
 .header-settings-panel {
   margin: 0 0 8px;
-  padding: 8px 0 10px;
-  border-bottom: 1px solid #eef2f7;
 }
 
 .header-diagnostics-panel {
@@ -1779,6 +1754,7 @@ function openTrace(execution: Record<string, any>) {
   font-size: 12px;
 }
 
+.settings-panel,
 .diagnostics-panel,
 .ai-wait-panel {
   flex-shrink: 0;
@@ -1790,6 +1766,7 @@ function openTrace(execution: Record<string, any>) {
   font-size: 12px;
 }
 
+.settings-head,
 .diagnostics-head,
 .wait-head {
   display: flex;
@@ -1798,9 +1775,31 @@ function openTrace(execution: Record<string, any>) {
   gap: 8px;
 }
 
+.settings-head strong,
 .diagnostics-head strong,
 .wait-head strong {
   color: #0f172a;
+}
+
+.settings-head span {
+  min-width: 0;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+  margin-top: 8px;
+}
+
+.settings-grid :deep(.el-checkbox) {
+  height: 24px;
+  margin-right: 0;
+  overflow: hidden;
 }
 
 .diagnostics-head-actions {
