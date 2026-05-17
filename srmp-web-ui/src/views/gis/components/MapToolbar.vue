@@ -42,16 +42,37 @@
 
           <div class="v-divider" />
 
-          <div class="draw-section">
+          <div class="draw-section" aria-label="区域框选工具">
+            <span class="draw-section-label">框选</span>
             <div class="draw-btn-group">
-              <el-button :class="{ 'is-active': regionMode === 'RECTANGLE' }" @click="emitRegion('RECTANGLE')">
-                <svg class="icon-svg" viewBox="0 0 24 24"><rect x="5" y="6" width="14" height="12" rx="2" /></svg>
+              <el-button
+                  class="draw-tool-button"
+                  :class="{ 'is-active': regionMode === 'RECTANGLE' }"
+                  :aria-pressed="regionMode === 'RECTANGLE'"
+                  aria-label="矩形框选"
+                  title="矩形框选"
+                  @click="emitRegion('RECTANGLE')"
+              >
+                <svg class="icon-svg" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><rect x="5" y="6" width="14" height="12" rx="2" /></svg>
               </el-button>
-              <el-button :class="{ 'is-active': regionMode === 'POLYGON' }" @click="emitRegion('POLYGON')">
-                <svg class="icon-svg" viewBox="0 0 24 24"><path d="M7.5 4.5 17 6.2l3 8.2-6.3 5.1-8.8-3.2-1-7.5Z" /></svg>
+              <el-button
+                  class="draw-tool-button"
+                  :class="{ 'is-active': regionMode === 'POLYGON' }"
+                  :aria-pressed="regionMode === 'POLYGON'"
+                  aria-label="多边形框选"
+                  title="多边形框选"
+                  @click="emitRegion('POLYGON')"
+              >
+                <svg class="icon-svg" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M7.5 4.5 17 6.2l3 8.2-6.3 5.1-8.8-3.2-1-7.5Z" /></svg>
               </el-button>
-              <el-button :disabled="!hasRegion" @click="emitClearRegion">
-                <svg class="icon-svg" viewBox="0 0 24 24"><path d="m7 17 10-10M7 7l10 10" /></svg>
+              <el-button
+                  class="draw-tool-button draw-clear-button"
+                  :disabled="!hasRegion"
+                  aria-label="清除框选"
+                  title="清除框选"
+                  @click="emitClearRegion"
+              >
+                <svg class="icon-svg" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="m7 17 10-10M7 7l10 10" /></svg>
               </el-button>
             </div>
           </div>
@@ -164,12 +185,14 @@ const emitClearRegion = () => emit('clear-region')
 .query-primary-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 16px;
 }
 
 /* 栅格布局 */
 .fields-grid {
   display: grid;
+  flex: 1 1 714px;
   grid-template-columns: repeat(3, 230px);
   gap: 12px;
 }
@@ -247,9 +270,25 @@ const emitClearRegion = () => emit('clear-region')
 }
 
 .v-divider {
+  flex-shrink: 0;
   width: 1px;
   height: 24px;
   background: #e2e8f0;
+}
+
+.draw-section {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.draw-section-label {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .draw-btn-group {
@@ -259,16 +298,28 @@ const emitClearRegion = () => emit('clear-region')
   border-radius: 6px;
 }
 
-.draw-btn-group :deep(.el-button) {
+.draw-btn-group :deep(.draw-tool-button) {
   border: none;
   background: transparent;
+  color: #334155;
   padding: 6px;
   width: 32px;
   height: 32px;
   margin: 0;
 }
 
-.draw-btn-group :deep(.el-button.is-active) {
+.draw-btn-group :deep(.draw-tool-button > span) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.draw-btn-group :deep(.draw-tool-button:hover:not(.is-disabled)) {
+  background: #e0edff;
+  color: #1d4ed8;
+}
+
+.draw-btn-group :deep(.draw-tool-button.is-active) {
   background: white;
   box-shadow: 0 2px 4px rgba(0,0,0,0.05);
   color: #2563eb;
@@ -285,5 +336,19 @@ const emitClearRegion = () => emit('clear-region')
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (max-width: 1660px) {
+  .fields-grid {
+    flex-basis: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  :deep(.uniform-item .el-select),
+  :deep(.uniform-item .el-input) {
+    width: 130px !important;
+  }
 }
 </style>
