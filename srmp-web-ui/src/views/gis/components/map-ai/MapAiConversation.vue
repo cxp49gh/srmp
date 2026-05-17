@@ -3,43 +3,53 @@
     <div ref="messageListRef" class="conversation-message-list">
       <div v-for="(item, index) in messages" :key="index" :class="['message', item.role]">
         <div class="role">{{ item.role === 'user' ? '我' : 'AI' }}</div>
-        <div class="content" v-html="renderMarkdown(item.content)" />
-        <details v-if="item.role === 'assistant' && hasAssistantDetails(item)" class="assistant-detail-drawer">
-          <summary class="assistant-detail-summary">
-            <span>依据与调用</span>
-            <em>{{ assistantDetailsSummary(item) }}</em>
-          </summary>
-          <div v-if="item.meta" class="message-meta">
-            <el-tag v-if="item.meta.mapObjectUsed" size="small" type="success">对象上下文</el-tag>
-            <el-tag v-if="item.meta.regionUsed || item.meta.mapRegionUsed" size="small" type="success">区域上下文</el-tag>
-            <el-tag v-if="item.meta.intent" size="small" type="info">{{ item.meta.intent }}</el-tag>
-            <el-tag v-if="item.meta.answerSourceLabel" size="small">{{ item.meta.answerSourceLabel }}</el-tag>
-            <el-tag
-              v-if="item.meta.planExecutionStatus && item.meta.planExecutionStatus !== 'NO_PLAN'"
-              size="small"
-              :type="planExecutionTagType(item.meta.planExecutionStatus)"
-            >计划 {{ item.meta.planExecutionStatus }}</el-tag>
-            <el-tag v-if="item.meta.runElapsed" size="small" type="info">耗时 {{ item.meta.runElapsed }}</el-tag>
-            <el-tag v-if="item.meta.llmStatus" size="small" :type="item.meta.llmStatus === 'SUCCESS' ? 'success' : 'warning'">模型 {{ formatAssistantStatus(item.meta.llmStatus) }}</el-tag>
-            <el-tag v-if="item.meta.llmModel" size="small" type="info">{{ item.meta.llmModel }}</el-tag>
-            <el-tag v-if="item.toolResults?.length" size="small" type="info">工具 {{ successfulTools(item.toolResults) }}/{{ item.toolResults.length }}</el-tag>
-            <el-tag v-if="item.sources?.length" size="small" type="info">依据 {{ item.sources.length }}</el-tag>
-            <el-tag v-if="item.meta.retriedWithCompactPrompt" size="small" type="warning">压缩重试</el-tag>
-            <el-tag v-if="item.meta.fallback" size="small" type="warning">降级</el-tag>
-          </div>
-          <AiEvidencePanel
-            :message="item"
-            :map-context="mapContext"
-            @locate-source="$emit('locate-source', $event)"
-            @ask-with-source="$emit('ask-with-source', $event)"
-          />
-          <AiTraceButton
-            :trace="item.trace"
-            :execution="{ trace: item.trace, answerMeta: item.meta, toolResults: item.toolResults, sources: item.sources }"
-            class="trace-button"
-            @open="$emit('open-trace', $event)"
-          />
-        </details>
+        <article v-if="item.role === 'assistant'" class="assistant-response-card">
+          <div class="content assistant-answer-content" v-html="renderMarkdown(item.content)" />
+          <details v-if="hasAssistantDetails(item)" class="assistant-audit-drawer">
+            <summary class="assistant-audit-summary">
+              <span>依据 / 调用 / 执行</span>
+              <em>{{ assistantDetailsSummary(item) }}</em>
+            </summary>
+            <div class="assistant-audit-body">
+              <div v-if="item.meta" class="assistant-audit-tags">
+                <el-tag v-if="item.meta.mapObjectUsed" size="small" type="success">对象上下文</el-tag>
+                <el-tag v-if="item.meta.regionUsed || item.meta.mapRegionUsed" size="small" type="success">区域上下文</el-tag>
+                <el-tag v-if="item.meta.intent" size="small" type="info">{{ item.meta.intent }}</el-tag>
+                <el-tag v-if="item.meta.answerSourceLabel" size="small">{{ item.meta.answerSourceLabel }}</el-tag>
+                <el-tag
+                  v-if="item.meta.planExecutionStatus && item.meta.planExecutionStatus !== 'NO_PLAN'"
+                  size="small"
+                  :type="planExecutionTagType(item.meta.planExecutionStatus)"
+                >计划 {{ item.meta.planExecutionStatus }}</el-tag>
+                <el-tag v-if="item.meta.runElapsed" size="small" type="info">耗时 {{ item.meta.runElapsed }}</el-tag>
+                <el-tag v-if="item.meta.llmStatus" size="small" :type="item.meta.llmStatus === 'SUCCESS' ? 'success' : 'warning'">模型 {{ formatAssistantStatus(item.meta.llmStatus) }}</el-tag>
+                <el-tag v-if="item.meta.llmModel" size="small" type="info">{{ item.meta.llmModel }}</el-tag>
+                <el-tag v-if="item.toolResults?.length" size="small" type="info">工具 {{ successfulTools(item.toolResults) }}/{{ item.toolResults.length }}</el-tag>
+                <el-tag v-if="item.sources?.length" size="small" type="info">依据 {{ item.sources.length }}</el-tag>
+                <el-tag v-if="item.meta.retriedWithCompactPrompt" size="small" type="warning">压缩重试</el-tag>
+                <el-tag v-if="item.meta.fallback" size="small" type="warning">降级</el-tag>
+              </div>
+              <AiEvidencePanel
+                :message="item"
+                :map-context="mapContext"
+                embedded
+                :default-expanded="true"
+                @locate-source="$emit('locate-source', $event)"
+                @ask-with-source="$emit('ask-with-source', $event)"
+              />
+              <div class="assistant-audit-actions">
+                <AiTraceButton
+                  :trace="item.trace"
+                  :execution="{ trace: item.trace, answerMeta: item.meta, toolResults: item.toolResults, sources: item.sources }"
+                  label="查看执行过程"
+                  class="audit-trace-button"
+                  @open="$emit('open-trace', $event)"
+                />
+              </div>
+            </div>
+          </details>
+        </article>
+        <div v-else class="content" v-html="renderMarkdown(item.content)" />
         <div v-if="item.role === 'assistant' && contextScope === 'OBJECT' && mapObject" class="assistant-action-row">
           <el-button
             size="small"
@@ -250,6 +260,18 @@ function planExecutionTagType(status: string) {
   color: #0f172a;
 }
 
+.assistant-response-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.message.assistant .assistant-answer-content {
+  border-radius: 0;
+  background: #fff;
+}
+
 .content :deep(h2),
 .content :deep(h3),
 .content :deep(h4) {
@@ -267,52 +289,42 @@ function planExecutionTagType(status: string) {
   margin-left: 4px;
 }
 
-.message-meta {
-  display: flex;
-  gap: 6px;
-  margin-top: 6px;
-  flex-wrap: wrap;
-}
-
-.assistant-detail-drawer {
-  margin-top: 8px;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
+.assistant-audit-drawer {
+  border-top: 1px solid #e5e7eb;
   background: #f8fafc;
-  overflow: hidden;
 }
 
-.assistant-detail-summary {
+.assistant-audit-summary {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 9px;
+  padding: 8px 12px;
   color: #334155;
   cursor: pointer;
   list-style: none;
 }
 
-.assistant-detail-summary::-webkit-details-marker {
+.assistant-audit-summary::-webkit-details-marker {
   display: none;
 }
 
-.assistant-detail-summary::after {
+.assistant-audit-summary::after {
   content: '展开';
   margin-left: auto;
   color: #2563eb;
   font-weight: 700;
 }
 
-.assistant-detail-drawer[open] .assistant-detail-summary::after {
+.assistant-audit-drawer[open] .assistant-audit-summary::after {
   content: '收起';
 }
 
-.assistant-detail-summary span {
+.assistant-audit-summary span {
   flex-shrink: 0;
   font-weight: 700;
 }
 
-.assistant-detail-summary em {
+.assistant-audit-summary em {
   min-width: 0;
   color: #64748b;
   font-style: normal;
@@ -321,28 +333,28 @@ function planExecutionTagType(status: string) {
   white-space: nowrap;
 }
 
-.assistant-detail-drawer .message-meta {
-  margin: 0;
-  padding: 8px 9px 0;
+.assistant-audit-body {
+  padding: 10px 12px 12px;
   border-top: 1px solid #e2e8f0;
 }
 
-.assistant-detail-drawer :deep(.ai-evidence-panel) {
-  margin: 8px 9px;
+.assistant-audit-tags {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
 }
 
-.assistant-detail-drawer .trace-button {
-  margin: 0 9px 9px;
+.assistant-audit-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 10px;
 }
 
 .assistant-action-row {
   margin-top: 8px;
   display: flex;
   justify-content: flex-start;
-}
-
-.trace-button {
-  margin-top: 6px;
 }
 
 .send-row {

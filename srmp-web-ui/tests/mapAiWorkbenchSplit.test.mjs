@@ -194,20 +194,29 @@ test('map AI analysis card avoids duplicated chips and keeps direct summary metr
   assert.doesNotMatch(content, /<div class="analysis-context-line">/)
 })
 
-test('assistant operational details are collapsed below the answer by default', () => {
+test('assistant answer keeps one collapsed audit entry below a unified answer card', () => {
   const content = read('src/views/gis/components/map-ai/MapAiConversation.vue')
 
-  assert.match(content, /<details v-if="item\.role === 'assistant' && hasAssistantDetails\(item\)" class="assistant-detail-drawer">/)
-  assert.match(content, /<summary class="assistant-detail-summary">[\s\S]*依据与调用[\s\S]*<\/summary>[\s\S]*<div v-if="item\.meta" class="message-meta">/)
-  assert.match(content, /<details[\s\S]*<AiEvidencePanel[\s\S]*<AiTraceButton[\s\S]*<\/details>/)
+  assert.match(content, /<article v-if="item\.role === 'assistant'" class="assistant-response-card">/)
+  assert.match(content, /<div class="content assistant-answer-content" v-html="renderMarkdown\(item\.content\)" \/>/)
+  assert.match(content, /<details v-if="hasAssistantDetails\(item\)" class="assistant-audit-drawer">/)
+  assert.match(content, /<summary class="assistant-audit-summary">[\s\S]*<span>依据 \/ 调用 \/ 执行<\/span>[\s\S]*<em>\{\{ assistantDetailsSummary\(item\) \}\}<\/em>[\s\S]*<\/summary>/)
+  assert.match(content, /<details[\s\S]*class="assistant-audit-body"[\s\S]*<AiEvidencePanel[\s\S]*embedded[\s\S]*:default-expanded="true"[\s\S]*<AiTraceButton[\s\S]*label="查看执行过程"[\s\S]*<\/details>/)
+  assert.doesNotMatch(content, /assistant-detail-drawer|assistant-detail-summary/)
 })
 
-test('assistant details use concise human-facing labels', () => {
+test('assistant audit details avoid nested evidence headers', () => {
   const content = read('src/views/gis/components/map-ai/MapAiConversation.vue')
+  const evidenceContent = read('src/views/gis/components/AiEvidencePanel.vue')
 
-  assert.match(content, /<span>依据与调用<\/span>/)
+  assert.match(content, /<span>依据 \/ 调用 \/ 执行<\/span>/)
+  assert.match(evidenceContent, /embedded\?: boolean/)
+  assert.match(evidenceContent, /defaultExpanded\?: boolean/)
+  assert.match(evidenceContent, /<div v-if="!embedded" class="evidence-header" @click="expanded = !expanded">/)
+  assert.match(evidenceContent, /<div v-if="expanded \|\| embedded" class="evidence-body">/)
   assert.match(content, /formatAssistantStatus\(item\.meta\.llmStatus\)/)
   assert.doesNotMatch(content, /依据与调用详情/)
+  assert.doesNotMatch(content, /class="message-meta"/)
   assert.doesNotMatch(content, /LLM \$\{item\.meta\.llmStatus\}/)
 })
 

@@ -1,6 +1,6 @@
 <template>
   <el-button v-if="enabled" size="small" plain @click="openTrace">
-    AI 执行过程
+    {{ label || 'AI 执行过程' }}
   </el-button>
 </template>
 
@@ -10,6 +10,7 @@ import { computed } from 'vue'
 const props = defineProps<{
   trace?: Record<string, any> | null
   execution?: Record<string, any> | null
+  label?: string
 }>()
 
 const emit = defineEmits<{
