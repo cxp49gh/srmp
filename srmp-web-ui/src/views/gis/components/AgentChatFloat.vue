@@ -3,25 +3,66 @@
     <div v-if="visible" class="agent-chat-float srmp-card">
       <div class="chat-header compact">
         <div class="title-box">
-          <strong>AI 养护助手</strong>
+          <div class="title-main-row">
+            <strong>AI 养护助手</strong>
+            <button
+              type="button"
+              class="header-icon-btn settings-icon-button"
+              :class="{ 'is-active': showToolsPanel }"
+              :aria-expanded="showToolsPanel"
+              aria-label="设置"
+              title="设置"
+              @click="showToolsPanel = !showToolsPanel"
+            >
+              <el-icon><Setting /></el-icon>
+            </button>
+          </div>
           <span class="header-subtitle">一张图分析、养护建议与依据追踪</span>
         </div>
         <button type="button" class="close-btn" @click="emit('update:visible', false)">×</button>
       </div>
 
+      <div v-if="showToolsPanel" class="option-row compact-options utility-panel header-settings-panel">
+        <span class="settings-summary">当前依据：{{ optionSummary }}</span>
+        <el-checkbox v-model="options.useBusinessData">业务数据</el-checkbox>
+        <el-checkbox v-model="options.useKnowledge">知识库</el-checkbox>
+        <el-checkbox v-model="options.useOutline">Outline</el-checkbox>
+        <el-checkbox v-model="useAgentTools">Agent工具</el-checkbox>
+        <el-button size="small" plain :loading="diagnosticsLoading" @click="loadQuickDiagnostics">状态诊断</el-button>
+        <section v-if="quickDiagnostics || diagnosticsError" class="diagnostics-panel compact-diagnostics">
+          <div class="diagnostics-head">
+            <strong>系统状态</strong>
+            <el-tag v-if="quickDiagnostics" size="small" :type="quickDiagnostics.runtimeOk ? 'success' : 'danger'">
+              {{ quickDiagnostics.status }}
+            </el-tag>
+          </div>
+          <p v-if="diagnosticsError" class="diagnostics-error">{{ diagnosticsError }}</p>
+          <div v-if="quickDiagnostics" class="diagnostics-summary">
+            <span>{{ diagnosticsSummary }}</span>
+            <button type="button" @click="diagnosticsExpanded = !diagnosticsExpanded">
+              {{ diagnosticsExpanded ? '收起详情' : '详情' }}
+            </button>
+          </div>
+          <div v-if="quickDiagnostics && diagnosticsExpanded" class="diagnostics-grid">
+            <span><em>运行服务</em><strong>{{ quickDiagnostics.runtimeOk ? '正常' : '异常' }}</strong></span>
+            <span><em>工具网关</em><strong>{{ quickDiagnostics.toolGatewayOk ? '正常' : '异常' }}</strong></span>
+            <span><em>契约</em><strong>{{ quickDiagnostics.contractOk ? 'OK' : '异常' }}</strong></span>
+            <span><em>模型</em><strong>{{ quickDiagnostics.llmEnabled ? quickDiagnostics.llmModel : '关闭' }}</strong></span>
+            <span><em>成功率</em><strong>{{ quickDiagnostics.successRateLabel }}</strong></span>
+            <span><em>平均耗时</em><strong>{{ quickDiagnostics.avgCostLabel }}</strong></span>
+          </div>
+        </section>
+      </div>
+
       <section class="analysis-workbench" :class="contextMode.toLowerCase()">
         <div class="analysis-title-row">
-          <div>
+          <div class="analysis-heading">
             <strong>一张图分析</strong>
-            <span>{{ analysisScopeTitle }}</span>
+            <span class="analysis-compact-scope">{{ analysisCompactScope }}</span>
           </div>
           <div class="analysis-title-actions">
             <el-tag size="small" effect="plain">{{ activeMetricMeta.shortName }}</el-tag>
           </div>
-        </div>
-
-        <div class="analysis-context-line">
-          <span v-for="chip in contextChips" :key="chip" class="context-chip">{{ chip }}</span>
         </div>
 
         <div class="analysis-actions">
@@ -88,7 +129,10 @@
           </el-dropdown>
         </div>
         <details class="analysis-detail-drawer">
-          <summary>范围与指标</summary>
+          <summary>详情</summary>
+          <div v-if="contextChips.length" class="analysis-context-line detail-context-line">
+            <span v-for="chip in contextChips" :key="chip" class="context-chip">{{ chip }}</span>
+          </div>
           <div class="analysis-summary">{{ analysisScopeDescription }}</div>
           <div v-if="analysisMetricItems.length" class="analysis-metrics">
             <span v-for="item in analysisMetricItems" :key="item.key">
@@ -100,46 +144,11 @@
         </details>
       </section>
 
-      <div class="assistant-utility-row">
-        <button type="button" class="utility-trigger primary settings-trigger" @click="showToolsPanel = !showToolsPanel">
-          设置
-          <span>{{ showToolsPanel ? '收起' : '展开' }}</span>
-        </button>
+      <div v-if="showQuickEntry" class="assistant-utility-row quick-utility-row">
         <button v-if="showQuickEntry" type="button" class="utility-trigger" @click="showQuickPanel = !showQuickPanel">
           快捷提问
           <span>{{ showQuickPanel ? '收起' : '展开' }}</span>
         </button>
-      </div>
-      <div v-if="showToolsPanel" class="option-row compact-options utility-panel">
-        <span class="settings-summary">当前依据：{{ optionSummary }}</span>
-        <el-checkbox v-model="options.useBusinessData">业务数据</el-checkbox>
-        <el-checkbox v-model="options.useKnowledge">知识库</el-checkbox>
-        <el-checkbox v-model="options.useOutline">Outline</el-checkbox>
-        <el-checkbox v-model="useAgentTools">Agent工具</el-checkbox>
-        <el-button size="small" plain :loading="diagnosticsLoading" @click="loadQuickDiagnostics">状态诊断</el-button>
-        <section v-if="quickDiagnostics || diagnosticsError" class="diagnostics-panel compact-diagnostics">
-          <div class="diagnostics-head">
-            <strong>系统状态</strong>
-            <el-tag v-if="quickDiagnostics" size="small" :type="quickDiagnostics.runtimeOk ? 'success' : 'danger'">
-              {{ quickDiagnostics.status }}
-            </el-tag>
-          </div>
-          <p v-if="diagnosticsError" class="diagnostics-error">{{ diagnosticsError }}</p>
-          <div v-if="quickDiagnostics" class="diagnostics-summary">
-            <span>{{ diagnosticsSummary }}</span>
-            <button type="button" @click="diagnosticsExpanded = !diagnosticsExpanded">
-              {{ diagnosticsExpanded ? '收起详情' : '详情' }}
-            </button>
-          </div>
-          <div v-if="quickDiagnostics && diagnosticsExpanded" class="diagnostics-grid">
-            <span><em>运行服务</em><strong>{{ quickDiagnostics.runtimeOk ? '正常' : '异常' }}</strong></span>
-            <span><em>工具网关</em><strong>{{ quickDiagnostics.toolGatewayOk ? '正常' : '异常' }}</strong></span>
-            <span><em>契约</em><strong>{{ quickDiagnostics.contractOk ? 'OK' : '异常' }}</strong></span>
-            <span><em>模型</em><strong>{{ quickDiagnostics.llmEnabled ? quickDiagnostics.llmModel : '关闭' }}</strong></span>
-            <span><em>成功率</em><strong>{{ quickDiagnostics.successRateLabel }}</strong></span>
-            <span><em>平均耗时</em><strong>{{ quickDiagnostics.avgCostLabel }}</strong></span>
-          </div>
-        </section>
       </div>
 
       <div v-if="showQuickPanel && showQuickEntry" class="quick-list compact-quick-list utility-panel">
@@ -227,6 +236,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Setting } from '@element-plus/icons-vue'
 import { mapAgentRun, type MapAgentAction, type MapAgentActionResult, type MapAgentRunRequest, type MapAgentRunResponse, type MapAgentSuggestedAction } from '../../../api/agent'
 import { saveMapObjectSolutionDraft, updateSolutionTaskAiContext } from '../../../api/solution'
 import { getOrchestratorLiveTrace, getOrchestratorQuickDiagnostics, runOrchestratorPlan } from '../../../api/orchestrator'
@@ -402,6 +412,14 @@ const analysisScopeTitle = computed(() => {
   if (activeMapObject.value) return '当前对象'
   if (activeRegionContext.value) return activeRegionContext.value.geometryType === 'POLYGON' ? '多边形区域' : '矩形区域'
   return '当前路线范围'
+})
+
+const analysisCompactScope = computed(() => {
+  const scope = analysisScopeTitle.value
+  const chips = contextChips.value
+    .filter((chip) => !(scope.includes('区域') && chip === '区域'))
+    .slice(0, 3)
+  return [scope, ...chips].filter(Boolean).join(' · ')
 })
 
 const analysisScopeDescription = computed(() => {
@@ -1390,7 +1408,16 @@ function openTrace(execution: Record<string, any>) {
 }
 
 .title-box {
+  flex: 1;
   min-width: 0;
+}
+
+.title-main-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .chat-header strong {
@@ -1408,6 +1435,28 @@ function openTrace(execution: Record<string, any>) {
   white-space: nowrap;
 }
 
+.header-icon-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.header-icon-btn:hover,
+.header-icon-btn.is-active {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #2563eb;
+}
+
 .close-btn {
   flex-shrink: 0;
   border: none;
@@ -1420,16 +1469,16 @@ function openTrace(execution: Record<string, any>) {
 .analysis-workbench {
   flex-shrink: 0;
   margin-bottom: 8px;
-  padding: 10px;
-  border: 1px solid #dbeafe;
-  border-radius: 14px;
-  background: linear-gradient(180deg, #eff6ff 0%, rgba(239, 246, 255, 0.52) 100%);
+  padding: 9px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: rgba(248, 251, 255, 0.88);
   color: #1e3a8a;
 }
 
 .analysis-workbench.region {
   border-color: #bbf7d0;
-  background: linear-gradient(180deg, #ecfdf5 0%, rgba(236, 253, 245, 0.52) 100%);
+  background: rgba(236, 253, 245, 0.68);
   color: #047857;
 }
 
@@ -1438,7 +1487,7 @@ function openTrace(execution: Record<string, any>) {
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 7px;
+  margin-bottom: 6px;
 }
 
 .analysis-title-actions {
@@ -1446,6 +1495,10 @@ function openTrace(execution: Record<string, any>) {
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+}
+
+.analysis-heading {
+  min-width: 0;
 }
 
 .analysis-title-row strong {
@@ -1461,11 +1514,22 @@ function openTrace(execution: Record<string, any>) {
   font-size: 12px;
 }
 
+.analysis-compact-scope {
+  max-width: 330px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .analysis-context-line {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
   min-width: 0;
+}
+
+.detail-context-line {
+  margin-top: 7px;
 }
 
 .context-chip {
@@ -1527,7 +1591,7 @@ function openTrace(execution: Record<string, any>) {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  margin-top: 8px;
+  margin-top: 0;
 }
 
 .analysis-action-hint {
@@ -1541,7 +1605,7 @@ function openTrace(execution: Record<string, any>) {
 }
 
 .analysis-detail-drawer {
-  margin-top: 6px;
+  margin-top: 7px;
   color: #64748b;
   font-size: 11px;
 }
@@ -1603,6 +1667,12 @@ function openTrace(execution: Record<string, any>) {
   margin-bottom: 8px;
 }
 
+.header-settings-panel {
+  margin: 0 0 8px;
+  padding: 8px 0 10px;
+  border-bottom: 1px solid #eef2f7;
+}
+
 .assistant-utility-row {
   flex-shrink: 0;
   display: grid;
@@ -1611,6 +1681,13 @@ function openTrace(execution: Record<string, any>) {
   align-items: center;
   padding: 6px 0;
   border-top: 1px solid #eef2f7;
+}
+
+.quick-utility-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 0 6px;
+  border-top: none;
 }
 
 .utility-trigger {
@@ -1624,17 +1701,6 @@ function openTrace(execution: Record<string, any>) {
   color: #475569;
   font-size: 12px;
   cursor: pointer;
-}
-
-.utility-trigger.primary {
-  justify-content: flex-start;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.settings-trigger {
-  width: fit-content;
 }
 
 .utility-trigger span {

@@ -98,10 +98,10 @@ test('map AI diagnostics render as a compact summary by default', () => {
   assert.doesNotMatch(content, /v-else-if="quickDiagnostics" class="diagnostics-grid"/)
 })
 
-test('map AI diagnostics stay inside the data source drawer', () => {
+test('map AI diagnostics stay inside the header settings drawer', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
-  assert.match(content, /<div v-if="showToolsPanel" class="option-row compact-options utility-panel">[\s\S]*<section v-if="quickDiagnostics \|\| diagnosticsError" class="diagnostics-panel compact-diagnostics">/)
+  assert.match(content, /<div v-if="showToolsPanel" class="option-row compact-options utility-panel header-settings-panel">[\s\S]*<section v-if="quickDiagnostics \|\| diagnosticsError" class="diagnostics-panel compact-diagnostics">/)
   assert.match(content, /<strong>系统状态<\/strong>/)
   assert.doesNotMatch(content, /LangGraph 状态|Runtime UP|Tool OK|LLM 关闭/)
   assert.doesNotMatch(content, /<\/div>\s*<section v-if="quickDiagnostics \|\| diagnosticsError" class="diagnostics-panel">/)
@@ -120,9 +120,12 @@ test('map AI analysis header keeps diagnostics and plan out of the default title
 test('map AI optional controls collapse data source settings by default', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
-  assert.match(content, /<div class="assistant-utility-row">[\s\S]*class="utility-trigger primary settings-trigger"[\s\S]*设置[\s\S]*快捷提问[\s\S]*<\/div>/)
+  assert.match(content, /import \{ Setting \} from '@element-plus\/icons-vue'/)
+  assert.match(content, /<div class="title-main-row">[\s\S]*<strong>AI 养护助手<\/strong>[\s\S]*class="header-icon-btn settings-icon-button"[\s\S]*aria-label="设置"/)
+  assert.match(content, /<el-icon><Setting \/><\/el-icon>/)
   assert.match(content, /<span class="settings-summary">当前依据：\{\{ optionSummary \}\}<\/span>/)
-  assert.doesNotMatch(content, /<button type="button" class="utility-trigger primary"[\s\S]*数据源：\{\{ optionSummary \}\}/)
+  assert.doesNotMatch(content, /class="utility-trigger primary settings-trigger"/)
+  assert.doesNotMatch(content, /<div class="assistant-utility-row">[\s\S]*设置[\s\S]*<\/div>/)
   assert.doesNotMatch(content, /<div class="fold-panel">[\s\S]*快捷提问[\s\S]*<\/div>\s*<div v-if="showQuickPanel"/)
 })
 
@@ -130,6 +133,7 @@ test('map AI quick suggestions only appear before the first conversation turn', 
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
   assert.match(content, /const showQuickEntry = computed\(\(\) => messages\.value\.length === 0\)/)
+  assert.match(content, /<div v-if="showQuickEntry" class="assistant-utility-row quick-utility-row">/)
   assert.match(content, /<button v-if="showQuickEntry" type="button" class="utility-trigger" @click="showQuickPanel = !showQuickPanel">/)
   assert.match(content, /<div v-if="showQuickPanel && showQuickEntry" class="quick-list compact-quick-list utility-panel">/)
   assert.doesNotMatch(content, /报告草稿/)
@@ -138,14 +142,16 @@ test('map AI quick suggestions only appear before the first conversation turn', 
 test('map AI analysis explanation is collapsed by default', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
-  assert.match(content, /<details class="analysis-detail-drawer">[\s\S]*<summary>范围与指标<\/summary>[\s\S]*\{\{ operationHint \}\}[\s\S]*<\/details>/)
+  assert.match(content, /<details class="analysis-detail-drawer">[\s\S]*<summary>详情<\/summary>[\s\S]*\{\{ operationHint \}\}[\s\S]*<\/details>/)
   assert.doesNotMatch(content, /<div class="analysis-action-hint">\{\{ operationHint \}\}<\/div>/)
 })
 
-test('map AI analysis card keeps range and metrics inside one collapsed details drawer', () => {
+test('map AI analysis card keeps chips range and metrics inside one collapsed details drawer', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
-  assert.match(content, /<details class="analysis-detail-drawer">[\s\S]*<summary>范围与指标<\/summary>[\s\S]*<div class="analysis-summary">\{\{ analysisScopeDescription \}\}<\/div>[\s\S]*<div v-if="analysisMetricItems\.length" class="analysis-metrics">/)
+  assert.match(content, /<span class="analysis-compact-scope">\{\{ analysisCompactScope \}\}<\/span>/)
+  assert.match(content, /<details class="analysis-detail-drawer">[\s\S]*<summary>详情<\/summary>[\s\S]*<div v-if="contextChips\.length" class="analysis-context-line detail-context-line">[\s\S]*<div class="analysis-summary">\{\{ analysisScopeDescription \}\}<\/div>[\s\S]*<div v-if="analysisMetricItems\.length" class="analysis-metrics">/)
+  assert.doesNotMatch(content, /<\/div>\s*<div class="analysis-context-line">/)
   assert.doesNotMatch(content, /<\/details>\s*<div class="analysis-summary">\{\{ analysisScopeDescription \}\}<\/div>/)
 })
 
