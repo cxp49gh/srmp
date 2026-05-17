@@ -17,7 +17,6 @@
               <el-icon><MapLocation /></el-icon>
             </button>
             <button
-              v-if="showQuickEntry"
               type="button"
               class="header-icon-btn quick-icon-button"
               :class="{ 'is-active': showQuickPanel }"
@@ -94,7 +93,7 @@
         </div>
       </section>
 
-      <section v-if="showQuickPanel && showQuickEntry" class="quick-panel header-quick-panel">
+      <section v-if="showQuickPanel" class="quick-panel header-quick-panel">
         <div class="quick-panel-head">
           <strong>快捷提问</strong>
           <span>基于当前地图上下文</span>
@@ -416,7 +415,6 @@ const latestAssistant = computed(() => {
   return list.length ? list[list.length - 1] : null
 })
 
-const showQuickEntry = computed(() => messages.value.length === 0)
 const latestActionResult = computed(() => latestAssistant.value?.actionResult || null)
 const latestSuggestedActions = computed(() => latestAssistant.value?.suggestedActions || [])
 const aiBusy = computed(() => Boolean(loading.value || solutionLoading.value || props.regionLoading))
@@ -888,6 +886,7 @@ async function consumeAutoQuestionWhenReady() {
 
 function quickAsk(text: string) {
   input.value = text
+  showQuickPanel.value = false
   send()
 }
 

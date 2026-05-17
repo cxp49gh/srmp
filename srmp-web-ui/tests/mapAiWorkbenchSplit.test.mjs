@@ -184,14 +184,16 @@ test('map AI analysis exposes all operations inline instead of a more menu', () 
   assert.doesNotMatch(content, /function handleContextCommand/)
 })
 
-test('map AI quick suggestions only appear before the first conversation turn', () => {
+test('map AI quick suggestions remain available after a conversation starts', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
-  assert.match(content, /const showQuickEntry = computed\(\(\) => messages\.value\.length === 0\)/)
   assert.match(content, /class="header-icon-btn quick-icon-button"[\s\S]*aria-label="快捷提问"[\s\S]*@click="toggleQuickPanel"/)
   assert.match(content, /<el-icon><ChatDotRound \/><\/el-icon>/)
-  assert.match(content, /<section v-if="showQuickPanel && showQuickEntry" class="quick-panel header-quick-panel">[\s\S]*<div class="quick-list compact-quick-list">/)
+  assert.match(content, /<section v-if="showQuickPanel" class="quick-panel header-quick-panel">[\s\S]*<div class="quick-list compact-quick-list">/)
+  assert.match(content, /function quickAsk\(text: string\)[\s\S]*showQuickPanel\.value = false[\s\S]*send\(\)/)
   assert.match(content, /function toggleQuickPanel\(\)[\s\S]*showAnalysisPanel\.value = false[\s\S]*showToolsPanel\.value = false[\s\S]*showDiagnosticsPanel\.value = false/)
+  assert.doesNotMatch(content, /showQuickEntry/)
+  assert.doesNotMatch(content, /messages\.value\.length === 0/)
   assert.doesNotMatch(content, /class="assistant-utility-row quick-utility-row"/)
   assert.doesNotMatch(content, /报告草稿/)
 })
