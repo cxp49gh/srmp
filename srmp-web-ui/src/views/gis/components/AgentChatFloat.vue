@@ -7,14 +7,37 @@
             <strong>AI 养护助手</strong>
             <button
               type="button"
+              class="header-icon-btn analysis-icon-button"
+              :class="{ 'is-active': showAnalysisPanel }"
+              :aria-expanded="showAnalysisPanel"
+              aria-label="一张图分析"
+              title="一张图分析"
+              @click="toggleAnalysisPanel"
+            >
+              <el-icon><MapLocation /></el-icon>
+            </button>
+            <button
+              type="button"
               class="header-icon-btn settings-icon-button"
               :class="{ 'is-active': showToolsPanel }"
               :aria-expanded="showToolsPanel"
               aria-label="设置"
               title="设置"
-              @click="showToolsPanel = !showToolsPanel"
+              @click="toggleSettingsPanel"
             >
               <el-icon><Setting /></el-icon>
+            </button>
+            <button
+              type="button"
+              class="header-icon-btn diagnostics-icon-button"
+              :class="{ 'is-active': showDiagnosticsPanel, 'is-loading': diagnosticsLoading }"
+              :aria-expanded="showDiagnosticsPanel"
+              :aria-busy="diagnosticsLoading"
+              aria-label="状态诊断"
+              title="状态诊断"
+              @click="toggleDiagnosticsPanel"
+            >
+              <el-icon><Monitor /></el-icon>
             </button>
           </div>
           <span class="header-subtitle">一张图分析、养护建议与依据追踪</span>
@@ -28,33 +51,33 @@
         <el-checkbox v-model="options.useKnowledge">知识库</el-checkbox>
         <el-checkbox v-model="options.useOutline">Outline</el-checkbox>
         <el-checkbox v-model="useAgentTools">Agent工具</el-checkbox>
-        <el-button size="small" plain :loading="diagnosticsLoading" @click="loadQuickDiagnostics">状态诊断</el-button>
-        <section v-if="quickDiagnostics || diagnosticsError" class="diagnostics-panel compact-diagnostics">
-          <div class="diagnostics-head">
-            <strong>系统状态</strong>
+      </div>
+      <section v-if="showDiagnosticsPanel" class="diagnostics-panel header-diagnostics-panel">
+        <div class="diagnostics-head">
+          <strong>系统状态</strong>
+          <div class="diagnostics-head-actions">
             <el-tag v-if="quickDiagnostics" size="small" :type="quickDiagnostics.runtimeOk ? 'success' : 'danger'">
               {{ quickDiagnostics.status }}
             </el-tag>
+            <el-button size="small" text :loading="diagnosticsLoading" @click="loadQuickDiagnostics">刷新</el-button>
           </div>
-          <p v-if="diagnosticsError" class="diagnostics-error">{{ diagnosticsError }}</p>
-          <div v-if="quickDiagnostics" class="diagnostics-summary">
-            <span>{{ diagnosticsSummary }}</span>
-            <button type="button" @click="diagnosticsExpanded = !diagnosticsExpanded">
-              {{ diagnosticsExpanded ? '收起详情' : '详情' }}
-            </button>
-          </div>
-          <div v-if="quickDiagnostics && diagnosticsExpanded" class="diagnostics-grid">
-            <span><em>运行服务</em><strong>{{ quickDiagnostics.runtimeOk ? '正常' : '异常' }}</strong></span>
-            <span><em>工具网关</em><strong>{{ quickDiagnostics.toolGatewayOk ? '正常' : '异常' }}</strong></span>
-            <span><em>契约</em><strong>{{ quickDiagnostics.contractOk ? 'OK' : '异常' }}</strong></span>
-            <span><em>模型</em><strong>{{ quickDiagnostics.llmEnabled ? quickDiagnostics.llmModel : '关闭' }}</strong></span>
-            <span><em>成功率</em><strong>{{ quickDiagnostics.successRateLabel }}</strong></span>
-            <span><em>平均耗时</em><strong>{{ quickDiagnostics.avgCostLabel }}</strong></span>
-          </div>
-        </section>
-      </div>
+        </div>
+        <p v-if="diagnosticsLoading && !quickDiagnostics" class="diagnostics-empty">正在诊断...</p>
+        <p v-if="diagnosticsError" class="diagnostics-error">{{ diagnosticsError }}</p>
+        <div v-if="quickDiagnostics" class="diagnostics-summary">
+          <span>{{ diagnosticsSummary }}</span>
+        </div>
+        <div v-if="quickDiagnostics" class="diagnostics-grid">
+          <span><em>运行服务</em><strong>{{ quickDiagnostics.runtimeOk ? '正常' : '异常' }}</strong></span>
+          <span><em>工具网关</em><strong>{{ quickDiagnostics.toolGatewayOk ? '正常' : '异常' }}</strong></span>
+          <span><em>契约</em><strong>{{ quickDiagnostics.contractOk ? 'OK' : '异常' }}</strong></span>
+          <span><em>模型</em><strong>{{ quickDiagnostics.llmEnabled ? quickDiagnostics.llmModel : '关闭' }}</strong></span>
+          <span><em>成功率</em><strong>{{ quickDiagnostics.successRateLabel }}</strong></span>
+          <span><em>平均耗时</em><strong>{{ quickDiagnostics.avgCostLabel }}</strong></span>
+        </div>
+      </section>
 
-      <section class="analysis-workbench" :class="contextMode.toLowerCase()">
+      <section v-if="showAnalysisPanel" class="analysis-workbench" :class="contextMode.toLowerCase()">
         <div class="analysis-title-row">
           <div class="analysis-heading">
             <strong>一张图分析</strong>
@@ -128,20 +151,14 @@
             </template>
           </el-dropdown>
         </div>
-        <details class="analysis-detail-drawer">
-          <summary>详情</summary>
-          <div v-if="contextChips.length" class="analysis-context-line detail-context-line">
-            <span v-for="chip in contextChips" :key="chip" class="context-chip">{{ chip }}</span>
-          </div>
-          <div class="analysis-summary">{{ analysisScopeDescription }}</div>
-          <div v-if="analysisMetricItems.length" class="analysis-metrics">
-            <span v-for="item in analysisMetricItems" :key="item.key">
-              <em>{{ item.label }}</em>
-              <strong>{{ item.value }}</strong>
-            </span>
-          </div>
-          <div>{{ operationHint }}</div>
-        </details>
+        <div class="analysis-summary">{{ analysisScopeDescription }}</div>
+        <div v-if="analysisMetricItems.length" class="analysis-metrics">
+          <span v-for="item in analysisMetricItems" :key="item.key">
+            <em>{{ item.label }}</em>
+            <strong>{{ item.value }}</strong>
+          </span>
+        </div>
+        <div class="analysis-action-hint">{{ operationHint }}</div>
       </section>
 
       <div v-if="showQuickEntry" class="assistant-utility-row quick-utility-row">
@@ -236,7 +253,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Setting } from '@element-plus/icons-vue'
+import { MapLocation, Monitor, Setting } from '@element-plus/icons-vue'
 import { mapAgentRun, type MapAgentAction, type MapAgentActionResult, type MapAgentRunRequest, type MapAgentRunResponse, type MapAgentSuggestedAction } from '../../../api/agent'
 import { saveMapObjectSolutionDraft, updateSolutionTaskAiContext } from '../../../api/solution'
 import { getOrchestratorLiveTrace, getOrchestratorQuickDiagnostics, runOrchestratorPlan } from '../../../api/orchestrator'
@@ -325,12 +342,13 @@ const traceDrawerVisible = ref(false)
 const activeExecution = ref<Record<string, any> | null>(null)
 const autoQuestionInFlight = ref(false)
 const useAgentTools = ref(true)
+const showAnalysisPanel = ref(true)
 const showToolsPanel = ref(false)
+const showDiagnosticsPanel = ref(false)
 const showQuickPanel = ref(false)
 const diagnosticsLoading = ref(false)
 const diagnosticsError = ref('')
 const quickDiagnostics = ref<LangGraphDiagnostics | null>(null)
-const diagnosticsExpanded = ref(false)
 const aiRunStartedAt = ref<number | null>(null)
 const aiElapsedMs = ref(0)
 let aiElapsedTimer: ReturnType<typeof window.setInterval> | null = null
@@ -1007,18 +1025,46 @@ async function handleContextCommand(command: string) {
 }
 
 async function loadQuickDiagnostics() {
-  showToolsPanel.value = true
+  showDiagnosticsPanel.value = true
+  showAnalysisPanel.value = false
+  showToolsPanel.value = false
   diagnosticsLoading.value = true
   diagnosticsError.value = ''
   try {
     const result = await getOrchestratorQuickDiagnostics()
     quickDiagnostics.value = normalizeLangGraphDiagnostics(result)
-    diagnosticsExpanded.value = false
   } catch (error: any) {
     diagnosticsError.value = error?.message || '诊断失败'
     ElMessage.error(diagnosticsError.value)
   } finally {
     diagnosticsLoading.value = false
+  }
+}
+
+function toggleAnalysisPanel() {
+  showAnalysisPanel.value = !showAnalysisPanel.value
+  if (showAnalysisPanel.value) {
+    showToolsPanel.value = false
+    showDiagnosticsPanel.value = false
+  }
+}
+
+function toggleSettingsPanel() {
+  showToolsPanel.value = !showToolsPanel.value
+  if (showToolsPanel.value) {
+    showAnalysisPanel.value = false
+    showDiagnosticsPanel.value = false
+  }
+}
+
+async function toggleDiagnosticsPanel() {
+  showDiagnosticsPanel.value = !showDiagnosticsPanel.value
+  if (showDiagnosticsPanel.value) {
+    showAnalysisPanel.value = false
+    showToolsPanel.value = false
+    if (!quickDiagnostics.value && !diagnosticsError.value && !diagnosticsLoading.value) {
+      await loadQuickDiagnostics()
+    }
   }
 }
 
@@ -1457,6 +1503,10 @@ function openTrace(execution: Record<string, any>) {
   color: #2563eb;
 }
 
+.diagnostics-icon-button.is-loading {
+  color: #2563eb;
+}
+
 .close-btn {
   flex-shrink: 0;
   border: none;
@@ -1604,42 +1654,6 @@ function openTrace(execution: Record<string, any>) {
   line-height: 1.45;
 }
 
-.analysis-detail-drawer {
-  margin-top: 7px;
-  color: #64748b;
-  font-size: 11px;
-}
-
-.analysis-detail-drawer summary {
-  width: fit-content;
-  cursor: pointer;
-  color: #2563eb;
-  font-weight: 700;
-  list-style: none;
-}
-
-.analysis-detail-drawer summary::-webkit-details-marker {
-  display: none;
-}
-
-.analysis-detail-drawer summary::after {
-  content: '展开';
-  margin-left: 6px;
-  font-weight: 600;
-}
-
-.analysis-detail-drawer[open] summary::after {
-  content: '收起';
-}
-
-.analysis-detail-drawer > div:last-child {
-  margin-top: 5px;
-  padding: 6px 8px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.62);
-  line-height: 1.45;
-}
-
 .fold-panel {
   flex-shrink: 0;
   border-top: 1px solid #eef2f7;
@@ -1671,6 +1685,10 @@ function openTrace(execution: Record<string, any>) {
   margin: 0 0 8px;
   padding: 8px 0 10px;
   border-bottom: 1px solid #eef2f7;
+}
+
+.header-diagnostics-panel {
+  margin: 0 0 8px;
 }
 
 .assistant-utility-row {
@@ -1785,11 +1803,16 @@ function openTrace(execution: Record<string, any>) {
   color: #0f172a;
 }
 
+.diagnostics-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .diagnostics-summary {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
   margin-top: 7px;
   color: #475569;
   line-height: 1.45;
@@ -1800,15 +1823,6 @@ function openTrace(execution: Record<string, any>) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.diagnostics-summary button {
-  flex-shrink: 0;
-  border: none;
-  background: transparent;
-  color: #2563eb;
-  font-weight: 700;
-  cursor: pointer;
 }
 
 .wait-head span {
@@ -1893,6 +1907,11 @@ function openTrace(execution: Record<string, any>) {
 .diagnostics-error {
   margin: 6px 0 0;
   color: #dc2626;
+}
+
+.diagnostics-empty {
+  margin: 7px 0 0;
+  color: #64748b;
 }
 
 .compact-diagnostics {
