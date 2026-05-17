@@ -8,20 +8,18 @@
       :context-scope="contextScope"
       :map-context="context"
       :map-object="mapObject"
+      :latest-suggested-actions="latestSuggestedActions"
       @update:input="$emit('update:input', $event)"
       @send="$emit('send', $event)"
       @open-trace="$emit('open-trace', $event)"
       @locate-source="$emit('locate-source', $event)"
       @ask-with-source="$emit('ask-with-source', $event)"
       @generate-default-solution="$emit('generate-default-solution')"
+      @run-action="$emit('run-action', $event)"
+      @preview-plan="$emit('preview-plan', $event)"
     >
       <template #message-tail>
         <MapAiActionResultPanel :result="latestActionResult" />
-        <MapAiSuggestedActions
-          :actions="latestSuggestedActions"
-          @run-action="$emit('run-action', $event)"
-          @preview-plan="$emit('preview-plan', $event)"
-        />
         <slot name="message-tail" />
       </template>
     </MapAiConversation>
@@ -32,7 +30,6 @@
 import type { MapAgentActionResult, MapAgentSuggestedAction } from '../../../../api/agent'
 import MapAiActionResultPanel from './MapAiActionResultPanel.vue'
 import MapAiConversation from './MapAiConversation.vue'
-import MapAiSuggestedActions from './MapAiSuggestedActions.vue'
 
 defineProps<{
   contextScope?: string

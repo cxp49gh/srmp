@@ -25,6 +25,7 @@ test('MapAiWorkbench exposes plan preview and assistant action events', () => {
   const content = read('src/views/gis/components/map-ai/MapAiWorkbench.vue')
 
   assert.match(content, /@preview-plan="\$emit\('preview-plan', \$event\)"/)
+  assert.match(content, /@run-action="\$emit\('run-action', \$event\)"/)
   assert.match(content, /@generate-default-solution="\$emit\('generate-default-solution'\)"/)
   assert.match(content, /@locate-source="\$emit\('locate-source', \$event\)"/)
   assert.match(content, /@ask-with-source="\$emit\('ask-with-source', \$event\)"/)
@@ -61,16 +62,36 @@ test('map AI result panels stay inside the scrollable conversation area', () => 
   const workbenchContent = read('src/views/gis/components/map-ai/MapAiWorkbench.vue')
 
   assert.match(workbenchContent, /<MapAiConversation[\s\S]*>\s*<template #message-tail>[\s\S]*<MapAiActionResultPanel\b/)
-  assert.match(workbenchContent, /<template #message-tail>[\s\S]*<MapAiSuggestedActions\b[\s\S]*<\/template>\s*<\/MapAiConversation>/)
+  assert.match(workbenchContent, /<template #message-tail>[\s\S]*<MapAiActionResultPanel\b[\s\S]*<slot name="message-tail" \/>[\s\S]*<\/template>\s*<\/MapAiConversation>/)
+  assert.doesNotMatch(workbenchContent, /<template #message-tail>[\s\S]*<MapAiSuggestedActions\b/)
 })
 
 test('map AI wait panel is rendered inside the scrollable conversation area', () => {
   const floatContent = read('src/views/gis/components/AgentChatFloat.vue')
   const workbenchContent = read('src/views/gis/components/map-ai/MapAiWorkbench.vue')
 
-  assert.match(workbenchContent, /<MapAiSuggestedActions\b[\s\S]*\/>\s*<slot name="message-tail" \/>/)
+  assert.match(workbenchContent, /<MapAiActionResultPanel\b[\s\S]*\/>\s*<slot name="message-tail" \/>/)
   assert.match(floatContent, /<MapAiWorkbench[\s\S]*>\s*<template #message-tail>[\s\S]*<section v-if="aiBusy" class="ai-wait-panel"/)
   assert.doesNotMatch(floatContent, /<\/MapAiWorkbench>\s*<section v-if="aiBusy" class="ai-wait-panel"/)
+})
+
+test('assistant suggested actions are integrated into the latest answer card', () => {
+  const workbenchContent = read('src/views/gis/components/map-ai/MapAiWorkbench.vue')
+  const conversationContent = read('src/views/gis/components/map-ai/MapAiConversation.vue')
+  const suggestedActionsContent = read('src/views/gis/components/map-ai/MapAiSuggestedActions.vue')
+
+  assert.match(workbenchContent, /:latest-suggested-actions="latestSuggestedActions"/)
+  assert.match(workbenchContent, /@run-action="\$emit\('run-action', \$event\)"/)
+  assert.match(workbenchContent, /@preview-plan="\$emit\('preview-plan', \$event\)"/)
+  assert.match(conversationContent, /import MapAiSuggestedActions from '\.\/MapAiSuggestedActions\.vue'/)
+  assert.match(conversationContent, /<section v-if="hasAssistantNextActions\(item, index\)" class="assistant-next-actions">/)
+  assert.match(conversationContent, /<MapAiSuggestedActions[\s\S]*:actions="latestSuggestedActions"[\s\S]*@run-action="\$emit\('run-action', \$event\)"[\s\S]*@preview-plan="\$emit\('preview-plan', \$event\)"/)
+  assert.match(conversationContent, /function hasAssistantNextActions\(item: Record<string, any>, index: number\)[\s\S]*shouldShowAssistantActions\(item, index\) \|\| shouldShowObjectSolutionAction\(item, index\)/)
+  assert.match(conversationContent, /function shouldShowAssistantActions\(item: Record<string, any>, index: number\)/)
+  assert.match(conversationContent, /index === latestAssistantIndex\.value/)
+  assert.match(suggestedActionsContent, /v-if="isHeavyAction\(item\.action\)"[\s\S]*plain[\s\S]*查看计划/)
+  assert.doesNotMatch(suggestedActionsContent, /v-if="isHeavyAction\(item\.action\)"[\s\S]*text[\s\S]*>\s*计划\s*<\/el-button>/)
+  assert.doesNotMatch(conversationContent, /class="assistant-action-row"/)
 })
 
 test('map AI conversation scrolls new action results into view', () => {
