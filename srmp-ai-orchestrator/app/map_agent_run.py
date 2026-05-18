@@ -110,6 +110,8 @@ class MapAgentRunWorkflow:
             "llmStatus": "SKIPPED",
         }
         source_summaries = data.get("sourceSummaries") if isinstance(data.get("sourceSummaries"), list) else []
+        tool_success_count = 1 if tool_result.success else 0
+        tool_failed_count = 0 if tool_result.success else 1
         response = MapAgentRunResponse(
             answer=answer,
             action=normalize_action(request.action),
@@ -123,7 +125,15 @@ class MapAgentRunWorkflow:
             trace=data.get("trace") if isinstance(data.get("trace"), dict) else {
                 "steps": [{"name": "solution_generate", "label": "生成方案预览", "status": action_result.status, "count": 1 if tool_result.success else 0}]
             },
-            data={"orchestratorProvider": "langgraph", "graphName": "solution_generation_graph"},
+            data={
+                "orchestratorProvider": "langgraph",
+                "graphName": "solution_generation_graph",
+                "toolTotalCount": 1,
+                "toolSuccessCount": tool_success_count,
+                "toolFailedCount": tool_failed_count,
+                "sourceCount": len(source_summaries),
+                "actionResultStatus": action_result.status,
+            },
         )
         self._complete_live_step(resolved_trace_id, {
             "name": "solution_generate",

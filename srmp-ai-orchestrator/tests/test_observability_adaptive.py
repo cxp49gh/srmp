@@ -1,10 +1,44 @@
 import unittest
 
 from app.observability import RuntimeAuditStore
-from app.schemas import MapAiAgentRequest, MapAiAgentResponse
+from app.schemas import ActionResult, MapAiAgentRequest, MapAiAgentResponse
 
 
 class AdaptiveObservabilityTest(unittest.TestCase):
+    def test_record_success_classifies_failed_action_result_as_failed(self):
+        store = RuntimeAuditStore(max_records=10, persist_enabled=False)
+        response = MapAiAgentResponse(
+            answer="方案生成失败",
+            action="GENERATE_OBJECT_SOLUTION",
+            actionResult=ActionResult(
+                type="SOLUTION_PREVIEW",
+                status="FAILED",
+                errorMessage="业务工具返回失败",
+            ),
+            toolResults=[
+                {"toolName": "solution.generateDraft", "success": False, "errorMessage": "业务工具返回失败"},
+            ],
+            data={},
+        )
+
+        record = store.record_success(
+            request=MapAiAgentRequest(message="生成当前对象的结构化养护建议"),
+            response=response,
+            tenant_id="default",
+            trace_id="failed-action-trace",
+            cost_ms=88,
+        )
+
+        summary = store.summary()
+        self.assertEqual("FAILED", record["status"])
+        self.assertEqual("FAILED", record["actionResultStatus"])
+        self.assertEqual(1, record["toolTotalCount"])
+        self.assertEqual(0, record["toolSuccessCount"])
+        self.assertEqual(1, record["toolFailedCount"])
+        self.assertTrue(record["fallbackLike"])
+        self.assertEqual(1, summary["failed"])
+        self.assertEqual(0, summary["success"])
+
     def test_record_success_flattens_adaptive_planning(self):
         store = RuntimeAuditStore(max_records=10, persist_enabled=False)
         response = MapAiAgentResponse(

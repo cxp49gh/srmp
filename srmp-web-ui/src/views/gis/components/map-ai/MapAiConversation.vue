@@ -49,26 +49,6 @@
               </div>
             </div>
           </details>
-          <section v-if="hasAssistantNextActions(item, index)" class="assistant-next-actions">
-            <span class="assistant-next-actions-title">后续操作</span>
-            <MapAiSuggestedActions
-              v-if="shouldShowAssistantActions(item, index)"
-              :actions="latestSuggestedActions"
-              @run-action="$emit('run-action', $event)"
-              @preview-plan="$emit('preview-plan', $event)"
-            />
-            <el-button
-              v-if="shouldShowObjectSolutionAction(item, index)"
-              size="small"
-              type="success"
-              plain
-              :loading="solutionLoading"
-              :disabled="loading || solutionLoading"
-              @click="$emit('generate-default-solution')"
-            >
-              生成结构化建议
-            </el-button>
-          </section>
         </article>
         <div v-else class="content" v-html="renderMarkdown(item.content)" />
       </div>
@@ -89,11 +69,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import type { MapAgentSuggestedAction } from '../../../../api/agent'
+import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import AiTraceButton from '../../../agent/components/AiTraceButton.vue'
 import AiEvidencePanel from '../AiEvidencePanel.vue'
-import MapAiSuggestedActions from './MapAiSuggestedActions.vue'
 
 const props = defineProps<{
   messages: Array<Record<string, any>>
@@ -103,7 +81,6 @@ const props = defineProps<{
   contextScope?: string
   mapContext?: Record<string, any>
   mapObject?: Record<string, any> | null
-  latestSuggestedActions?: MapAgentSuggestedAction[]
 }>()
 
 const emit = defineEmits<{
@@ -112,20 +89,10 @@ const emit = defineEmits<{
   (e: 'open-trace', execution: Record<string, any>): void
   (e: 'locate-source', source: any): void
   (e: 'ask-with-source', source: any): void
-  (e: 'generate-default-solution'): void
-  (e: 'run-action', action: MapAgentSuggestedAction): void
-  (e: 'preview-plan', action: MapAgentSuggestedAction): void
 }>()
 
 const messageListRef = ref<HTMLElement | null>(null)
 let messageListMutationObserver: MutationObserver | null = null
-
-const latestAssistantIndex = computed(() => {
-  for (let i = props.messages.length - 1; i >= 0; i -= 1) {
-    if (props.messages[i]?.role === 'assistant') return i
-  }
-  return -1
-})
 
 function userQuestionBefore(index: number) {
   for (let i = index - 1; i >= 0; i -= 1) {
@@ -213,18 +180,6 @@ function hasAssistantDetails(item: Record<string, any>) {
   return Boolean(trace.traceId || trace.trace_id || trace.steps)
 }
 
-function shouldShowAssistantActions(item: Record<string, any>, index: number) {
-  return item?.role === 'assistant' && index === latestAssistantIndex.value && Boolean(props.latestSuggestedActions?.length)
-}
-
-function shouldShowObjectSolutionAction(item: Record<string, any>, index: number) {
-  return item?.role === 'assistant' && index === latestAssistantIndex.value && props.contextScope === 'OBJECT' && Boolean(props.mapObject)
-}
-
-function hasAssistantNextActions(item: Record<string, any>, index: number) {
-  return shouldShowAssistantActions(item, index) || shouldShowObjectSolutionAction(item, index)
-}
-
 function assistantDetailsSummary(item: Record<string, any>) {
   const parts: string[] = []
   const toolTotal = Array.isArray(item.toolResults) ? item.toolResults.length : 0
@@ -252,6 +207,7 @@ function planExecutionTagType(status: string) {
   if (status === 'PARTIAL') return 'warning'
   return 'info'
 }
+
 </script>
 
 <style scoped>
@@ -392,58 +348,6 @@ function planExecutionTagType(status: string) {
   display: flex;
   justify-content: flex-start;
   margin-top: 10px;
-}
-
-.assistant-next-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 12px;
-  border-top: 1px solid #e5e7eb;
-  background: #fff;
-}
-
-.assistant-next-actions-title {
-  flex-shrink: 0;
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.assistant-next-actions :deep(.map-ai-suggested-actions) {
-  flex: 1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 0;
-}
-
-.assistant-next-actions :deep(.suggested-action-item) {
-  gap: 4px;
-}
-
-.assistant-next-actions :deep(.el-button + .el-button) {
-  margin-left: 0;
-}
-
-.assistant-next-actions :deep(.el-button) {
-  margin: 0;
-}
-
-.assistant-next-actions + .assistant-next-actions {
-  border-top-style: dashed;
-}
-
-@media (max-width: 1280px) {
-  .assistant-next-actions {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 6px;
-  }
-}
-
-.assistant-next-actions .el-button {
-  margin-left: 0;
 }
 
 .send-row {

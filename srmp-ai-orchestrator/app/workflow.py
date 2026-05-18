@@ -305,7 +305,6 @@ class LangGraphWorkflow:
                     context.geometry = geometry
                     changed["geometry"] = True
             context.extra = context.extra or {}
-            context.extra["orchestratorStrategy"] = settings.strategy_version
             context.extra["readOnly"] = not settings.allow_write_tools
             context.extra["intent"] = state.get("intent")
             context.extra["traceId"] = state.get("trace_id")
@@ -318,7 +317,7 @@ class LangGraphWorkflow:
 
     async def _tool_plan(self, state: AgentState) -> Dict[str, Any]:
         calls = plan_tools(state["request"], state["intent"], state.get("intent_detail", {}))
-        self._step(state, "tool_plan", "规划只读工具", {"strategy": settings.strategy_version, "tools": [item.model_dump() for item in calls]})
+        self._step(state, "tool_plan", "规划只读工具", {"readOnly": not settings.allow_write_tools, "tools": [item.model_dump() for item in calls]})
         return {"tool_plan": calls}
 
     async def _tool_execute(self, state: AgentState) -> Dict[str, Any]:
@@ -383,7 +382,6 @@ class LangGraphWorkflow:
                 business_hit_count += count
 
         return {
-            "strategyVersion": settings.strategy_version,
             "toolSuccessCount": len(success),
             "toolFailedCount": len(failed),
             "businessHitCount": business_hit_count,
@@ -605,11 +603,10 @@ class LangGraphWorkflow:
             state["answer_meta"] = meta
 
         if not settings.allow_write_tools and re.search(r"(已保存|已派单|已转工单|已更新|已删除|已经写入)", answer):
-            answer += "\n\n注意：当前 LangGraph 编排处于只读模式，未执行保存、派单或数据库更新。"
+            answer += "\n\n注意：当前为只读分析，未执行保存、派单或数据库更新。"
             changed.append("readonly_notice_added")
 
         quality = {
-            "strategyVersion": settings.strategy_version,
             "changed": changed,
             "beforeLength": len(before),
             "afterLength": len(answer),
@@ -662,7 +659,6 @@ class LangGraphWorkflow:
         trace_payload = {
             "traceId": state.get("trace_id"),
             "orchestratorProvider": "langgraph",
-            "strategyVersion": settings.strategy_version,
             "nodeFlow": NODE_FLOW,
             "steps": state.get("steps", []),
             "planExecution": plan_execution,
@@ -690,7 +686,6 @@ class LangGraphWorkflow:
             data={
                 "orchestratorProvider": "langgraph",
                 "orchestratorFallback": False,
-                "strategyVersion": settings.strategy_version,
                 "intent": state.get("intent"),
                 "intentDetail": state.get("intent_detail", {}),
                 "nodeFlow": NODE_FLOW,
@@ -712,7 +707,6 @@ class LangGraphWorkflow:
                 "sourceCount": len(sources),
                 "readOnly": not settings.allow_write_tools,
                 "langgraphAvailable": LANGGRAPH_AVAILABLE,
-                "parityVersion": "phase50.15-native-parity",
             },
         )
 

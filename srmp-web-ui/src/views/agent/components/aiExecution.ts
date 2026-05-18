@@ -60,6 +60,15 @@ export interface AiExecutionInput {
   solution?: Record<string, any> | null
 }
 
+const INTERNAL_DIAGNOSTIC_KEYS = new Set([
+  'strategyVersion',
+  'strategy_version',
+  'orchestratorStrategy',
+  'orchestrator_strategy',
+  'parityVersion',
+  'parity_version'
+])
+
 export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnapshot | null {
   const trace = firstRecordOrNull(input.trace, extractTrace(input))
   const record = firstRecordOrNull(input.record) || null
@@ -69,7 +78,7 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
   const responseData = firstRecord(responsePreview.data, replayResponse?.data, replayResult?.data)
   const solution = asRecord(input.solution)
 
-  const answerMeta = firstRecord(
+  const answerMeta = sanitizeInternalDiagnostics(firstRecord(
     input.answerMeta,
     solution.answerMeta,
     solution.answer_meta,
@@ -77,7 +86,7 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     responsePreview.answerMeta,
     replayResponse?.answerMeta,
     trace?.answerMeta
-  )
+  )) as Record<string, any>
 
   const toolResults = firstArray(
     input.toolResults,
@@ -109,14 +118,14 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
   const liveToolSummary = firstRecord(trace?.toolSummary, trace?.tool_summary)
   const liveSourceSummary = firstRecord(trace?.sourceSummary, trace?.source_summary)
   const tools = normalizeTools(toolResults)
-  const quality = firstRecord(
+  const quality = sanitizeInternalDiagnostics(firstRecord(
     solution.quality,
     solution.qualityCheck,
     responseData.quality,
     responsePreview.quality,
     replayResponse?.quality,
     trace?.quality
-  )
+  )) as Record<string, any>
 
   if (!trace && !record && !replayResult && !Object.keys(solution).length) return null
 
@@ -150,7 +159,7 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
       sources
     },
     quality,
-    raw: compactRaw(input),
+    raw: sanitizeInternalDiagnostics(compactRaw(input)) as Record<string, any>,
     warnings: buildWarnings(answerMeta, steps, summary.sourceCount, sources.length)
   }
 }
@@ -184,8 +193,20 @@ function normalizeStep(step: any, index: number): AiExecutionStep | null {
     count: item.hit_count ?? item.count ?? item.resultCount,
     phase: stringValue(item.phase || item.node || item.group),
     error: stringValue(item.error_message || item.error || item.errorMessage),
-    data: firstRecord(item.data, item.detail, item.details)
+    data: sanitizeInternalDiagnostics(firstRecord(item.data, item.detail, item.details)) as Record<string, any>
   }
+}
+
+function sanitizeInternalDiagnostics(value: any): any {
+  if (Array.isArray(value)) return value.map((item) => sanitizeInternalDiagnostics(item))
+  if (!value || typeof value !== 'object') return value
+
+  const next: Record<string, any> = {}
+  Object.entries(value).forEach(([key, item]) => {
+    if (INTERNAL_DIAGNOSTIC_KEYS.has(key)) return
+    next[key] = sanitizeInternalDiagnostics(item)
+  })
+  return next
 }
 
 function normalizeTools(tools: any[]): AiExecutionTool[] {

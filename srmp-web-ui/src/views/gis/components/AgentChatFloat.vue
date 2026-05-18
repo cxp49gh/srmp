@@ -113,66 +113,39 @@
           </div>
         </div>
 
-        <div class="analysis-actions">
-          <template v-if="contextMode === 'OBJECT'">
+        <div class="analysis-flow">
+          <div class="analysis-flow-group primary">
+            <span class="flow-group-label">先分析</span>
             <el-button
               size="small"
               type="primary"
-              :disabled="!activeMapObject"
-              :loading="loading"
-              @click="triggerAnalyzeObject"
-            >{{ analyzeObjectLabel }}</el-button>
-            <el-button
-              v-if="primarySolutionAction"
-              size="small"
-              type="success"
-              plain
-              :disabled="!activeMapObject || solutionLoading || loading"
-              :loading="solutionLoading && activeSolutionType === primarySolutionAction.type"
-              @click="generateSolutionDraft(primarySolutionAction.type)"
-            >{{ primarySolutionAction.label }}</el-button>
-          </template>
+              :disabled="primaryAnalyzeDisabled"
+              :loading="primaryAnalyzeLoading"
+              @click="runPrimaryAnalysis"
+            >{{ primaryAnalyzeLabel }}</el-button>
+          </div>
 
-          <template v-else-if="contextMode === 'REGION'">
+          <div class="analysis-flow-group produce">
+            <span class="flow-group-label">生成成果</span>
             <el-button
-              size="small"
-              type="primary"
-              :disabled="!activeRegionContext || regionBusy"
-              :loading="props.regionSummaryLoading || loading"
-              @click="triggerAnalyzeRegion"
-            >分析区域</el-button>
-            <el-button
-              size="small"
-              type="success"
-              plain
-              :disabled="!activeRegionContext || regionBusy"
-              :loading="props.regionLoading"
-              @click="emit('generate-region')"
-            >生成区域建议</el-button>
-            <el-button v-if="hasRegionTrace" size="small" plain @click="emit('trace')">执行过程</el-button>
-          </template>
-
-          <template v-else>
-            <el-button size="small" type="primary" :loading="loading" @click="analyzeCurrentRoute">分析路线</el-button>
-            <el-button size="small" plain :loading="loading" @click="findWeakSections">查找次差路段</el-button>
-          </template>
-
-          <template v-if="contextMode === 'OBJECT'">
-            <el-button
-              v-for="action in secondarySolutionActions"
+              v-for="action in resultActions"
               :key="action.type"
               size="small"
+              :type="action.buttonType || 'success'"
               plain
-              :disabled="!activeMapObject || solutionLoading || loading"
+              :disabled="action.disabled"
               :loading="solutionLoading && activeSolutionType === action.type"
-              @click="generateSolutionDraft(action.type)"
+              @click="runResultAction(action)"
             >{{ action.label }}</el-button>
-          </template>
-          <el-button v-if="contextMode === 'REGION'" size="small" plain @click="suggestForCurrentRegion">生成区域追问</el-button>
-          <el-button size="small" plain @click="previewCurrentPlan">查看计划</el-button>
-          <el-button size="small" plain @click="copyCurrentContext">复制上下文</el-button>
-          <el-button v-if="contextMode === 'OBJECT'" size="small" plain @click="emit('close-detail')">取消对象</el-button>
-          <el-button v-if="contextMode === 'REGION'" size="small" plain @click="emit('clear-region')">清除区域</el-button>
+          </div>
+
+          <div class="analysis-flow-group utility">
+            <span class="flow-group-label">辅助</span>
+            <el-button size="small" plain @click="previewCurrentPlan">查看执行计划</el-button>
+            <el-button size="small" plain @click="copyCurrentContext">复制上下文</el-button>
+            <el-button v-if="contextMode === 'OBJECT'" size="small" plain @click="emit('close-detail')">取消对象</el-button>
+            <el-button v-if="contextMode === 'REGION'" size="small" plain @click="emit('clear-region')">清除区域</el-button>
+          </div>
         </div>
         <div class="analysis-summary">{{ analysisScopeDescription }}</div>
         <div v-if="analysisMetricItems.length" class="analysis-metrics">
@@ -193,14 +166,10 @@
         :loading="loading"
         :solution-loading="solutionLoading"
         :latest-action-result="latestActionResult"
-        :latest-suggested-actions="latestSuggestedActions"
         @send="sendText"
         @open-trace="openTrace"
         @locate-source="locateEvidenceSource"
         @ask-with-source="askWithSource"
-        @generate-default-solution="generateDefaultSolutionDraft"
-        @run-action="runSuggestedAction"
-        @preview-plan="previewSuggestedActionPlan"
       >
         <template #message-tail>
           <section v-if="aiBusy" class="ai-wait-panel" :class="{ slow: waitFeedback.longWait }">
@@ -264,7 +233,7 @@
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ChatDotRound, MapLocation, Monitor, Setting } from '@element-plus/icons-vue'
-import { mapAgentRun, type MapAgentAction, type MapAgentActionResult, type MapAgentRunRequest, type MapAgentRunResponse, type MapAgentSuggestedAction } from '../../../api/agent'
+import { mapAgentRun, type MapAgentAction, type MapAgentActionResult, type MapAgentRunRequest, type MapAgentRunResponse } from '../../../api/agent'
 import { saveMapObjectSolutionDraft, updateSolutionTaskAiContext } from '../../../api/solution'
 import { getOrchestratorLiveTrace, getOrchestratorQuickDiagnostics, runOrchestratorPlan } from '../../../api/orchestrator'
 import SolutionPreviewDialog from './SolutionPreviewDialog.vue'
@@ -292,7 +261,6 @@ interface MessageItem {
   sources?: any[]
   toolResults?: any[]
   actionResult?: MapAgentActionResult | null
-  suggestedActions?: MapAgentSuggestedAction[]
 }
 
 type MapObjectSolutionType =
@@ -304,10 +272,19 @@ type MapObjectSolutionType =
   | 'ROUTE_REPORT'
   | 'GENERAL_ADVICE'
 
+type AnalysisResultAction = {
+  type: MapObjectSolutionType | 'REGION_SOLUTION' | 'WEAK_SECTIONS'
+  label: string
+  buttonType?: 'primary' | 'success' | 'warning' | 'danger' | 'info'
+  disabled?: boolean
+}
+
 type PreviewSolution = MapAgentRunResponse & {
   solutionType?: string
+  status?: string
   title?: string
   markdown?: string
+  errorMessage?: string
   objectSummary?: Record<string, any>
   regionSummary?: Record<string, any>
   qualityCheck?: Record<string, any>
@@ -416,7 +393,6 @@ const latestAssistant = computed(() => {
 })
 
 const latestActionResult = computed(() => latestAssistant.value?.actionResult || null)
-const latestSuggestedActions = computed(() => latestAssistant.value?.suggestedActions || [])
 const aiBusy = computed(() => Boolean(loading.value || solutionLoading.value || props.regionLoading))
 const waitFeedback = computed(() => buildWaitFeedback(aiElapsedMs.value))
 const activeLiveTrace = computed(() => liveTrace.value || props.context?.regionLiveTrace || null)
@@ -432,8 +408,6 @@ const activeMetricDisplay = computed(() => {
   const grade = gradeCode ? gradeLabel(gradeCode) : ''
   return `${formatMetricValue(value)}${grade ? ` ${grade}` : ''}`
 })
-
-const hasRegionTrace = computed(() => Boolean(props.context?.regionTrace?.traceId || props.context?.regionTrace?.trace_id))
 
 const analysisScopeTitle = computed(() => {
   if (activeMapObject.value) return '当前对象'
@@ -525,16 +499,21 @@ function objectScopeMetricItems(mapObject: Record<string, any>) {
     type === 'ASSESSMENT_RESULT' ? '1' : ''
   )
 
-  if (routeCount !== '') items.push({ key: 'routeCount', label: '路线', value: String(routeCount) })
-  if (sectionCount !== '') items.push({ key: 'sectionCount', label: '路段', value: String(sectionCount) })
-  if (diseaseCount !== '') items.push({ key: 'diseaseCount', label: '病害', value: String(diseaseCount) })
-  if (evaluationUnitCount !== '') items.push({ key: 'evaluationUnitCount', label: '评定单元', value: String(evaluationUnitCount) })
-  if (assessmentCount !== '') items.push({ key: 'assessmentCount', label: '评定', value: String(assessmentCount) })
+  pushMeaningfulCountMetric(items, 'routeCount', '路线', routeCount)
+  pushMeaningfulCountMetric(items, 'sectionCount', '路段', sectionCount)
+  pushMeaningfulCountMetric(items, 'diseaseCount', '病害', diseaseCount)
+  pushMeaningfulCountMetric(items, 'evaluationUnitCount', '评定单元', evaluationUnitCount)
+  pushMeaningfulCountMetric(items, 'assessmentCount', '评定', assessmentCount)
 
-  if (items.length <= 1) {
-    items.push({ key: 'objectCount', label: mapObjectTypeLabel(type) || '对象', value: '1' })
-  }
   return items.slice(0, 5)
+}
+
+function pushMeaningfulCountMetric(items: Array<{ key: string; label: string; value: string }>, key: string, label: string, rawValue: any) {
+  if (rawValue === undefined || rawValue === null || rawValue === '') return
+  const value = String(rawValue)
+  const numeric = Number(value)
+  if (Number.isFinite(numeric) && Number(value) <= 1) return
+  items.push({ key, label, value })
 }
 
 function hasRouteContext(mapObject: Record<string, any>) {
@@ -673,14 +652,55 @@ const solutionActions = computed(() => {
   return [{ type: 'GENERAL_ADVICE' as MapObjectSolutionType, label: '生成通用建议', primary: true }]
 })
 
-const primarySolutionAction = computed(() => solutionActions.value.find((it: any) => it.primary) || solutionActions.value[0] || null)
-const secondarySolutionActions = computed(() => solutionActions.value.filter((it: any) => !it.primary))
+const primaryAnalyzeLabel = computed(() => {
+  if (contextMode.value === 'OBJECT') return analyzeObjectLabel.value
+  if (contextMode.value === 'REGION') return '分析区域'
+  if (contextMode.value === 'ROUTE') return '分析路线'
+  if (contextMode.value === 'VIEWPORT') return '分析视野'
+  return '分析当前范围'
+})
+
+const primaryAnalyzeDisabled = computed(() => {
+  if (contextMode.value === 'OBJECT') return !activeMapObject.value
+  if (contextMode.value === 'REGION') return !activeRegionContext.value || regionBusy.value
+  return false
+})
+
+const primaryAnalyzeLoading = computed(() => {
+  if (contextMode.value === 'REGION') return Boolean(props.regionSummaryLoading || loading.value)
+  return loading.value
+})
+
+const resultActions = computed<AnalysisResultAction[]>(() => {
+  if (contextMode.value === 'OBJECT') {
+    return solutionActions.value.map((action: any) => ({
+      type: action.type,
+      label: action.label,
+      buttonType: action.primary ? 'success' : 'info',
+      disabled: !activeMapObject.value || solutionLoading.value || loading.value
+    }))
+  }
+  if (contextMode.value === 'REGION') {
+    return [{
+      type: 'REGION_SOLUTION',
+      label: '生成区域建议',
+      buttonType: 'success',
+      disabled: !activeRegionContext.value || regionBusy.value
+    }]
+  }
+  return [{
+    type: 'WEAK_SECTIONS',
+    label: '查找次差路段',
+    buttonType: 'info',
+    disabled: loading.value
+  }]
+})
 
 const operationHint = computed(() => {
   if (activeMapObject.value) {
     const type = normalizeObjectType(activeMapObject.value)
     if (type === 'DISEASE' || type === 'DISEASE_RECORD') {
-      return '分析病害用于解释成因和风险；生成处置建议会生成结构化建议；复核意见在更多操作中，用于识别结果、等级和位置复核。'
+      return '分析病害用于解释成因和风险；生成成果会按对象类型生成处置建议或复核意见。'
     }
     if (type === 'ASSESSMENT' || type === 'ASSESSMENT_RESULT') {
       return '分析低分原因用于解释指标问题；生成低分处置建议会生成结构化建议，预览后可保存为方案草稿。'
@@ -908,9 +928,28 @@ function triggerAnalyzeRegion() {
   analyzeCurrentRegion()
 }
 
-function suggestForCurrentRegion() {
-  if (!activeRegionContext.value) return
-  quickAsk('基于当前区域分析结果，生成区域养护处置建议、优先级和可落地实施步骤')
+function runPrimaryAnalysis() {
+  if (contextMode.value === 'OBJECT') {
+    triggerAnalyzeObject()
+    return
+  }
+  if (contextMode.value === 'REGION') {
+    triggerAnalyzeRegion()
+    return
+  }
+  analyzeCurrentRoute()
+}
+
+function runResultAction(action: AnalysisResultAction) {
+  if (action.type === 'REGION_SOLUTION') {
+    emit('generate-region')
+    return
+  }
+  if (action.type === 'WEAK_SECTIONS') {
+    findWeakSections()
+    return
+  }
+  generateSolutionDraft(action.type)
 }
 
 function analyzeCurrentRoute() {
@@ -1101,15 +1140,6 @@ function buildMapAiContext(message: string) {
   }
 }
 
-function generateDefaultSolutionDraft() {
-  const primary = solutionActions.value.find((it: any) => it.primary) || solutionActions.value[0]
-  if (!primary) {
-    ElMessage.warning('当前对象暂不支持生成建议')
-    return
-  }
-  generateSolutionDraft(primary.type)
-}
-
 async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
   const obj: any = activeMapObject.value
   if (!obj) {
@@ -1140,7 +1170,20 @@ async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
       },
       options: { ...options, requireAi: true, traceId }
     })
-    solutionResult.value = normalizeSolutionResponse(res)
+    const normalized = normalizeSolutionResponse(res)
+    if (isFailedSolutionResponse(normalized)) {
+      solutionResult.value = normalized
+      activeExecution.value = {
+        trace: normalized.trace || liveTrace.value || null,
+        answerMeta: normalized.answerMeta || null,
+        toolResults: normalized.toolResults || [],
+        sources: normalized.sources || [],
+        solution: normalized
+      }
+      ElMessage.error(solutionFailureMessage(normalized))
+      return
+    }
+    solutionResult.value = normalized
     solutionDialogVisible.value = true
   } catch (error: any) {
     ElMessage.error(error?.message || '生成结构化建议失败')
@@ -1289,7 +1332,6 @@ async function runMapAgentRequest(request: MapAgentRunRequest, userMessage: stri
       sources: payload.data?.sources || payload.sources || payload.data?.knowledgeHits || [],
       toolResults: payload.data?.toolResults || payload.toolResults || payload.data?.tools || [],
       actionResult: payload.actionResult || null,
-      suggestedActions: payload.suggestedActions || [],
       meta: {
         ...meta,
         intent: payload.data?.intent || payload.intent,
@@ -1333,36 +1375,6 @@ async function sendText(text: string) {
   await send()
 }
 
-function runSuggestedAction(action: MapAgentSuggestedAction) {
-  if (action.action === 'GENERATE_REGION_SOLUTION') {
-    emit('generate-region')
-    return
-  }
-  if (action.action === 'GENERATE_ROUTE_REPORT') {
-    generateSolutionDraft('ROUTE_REPORT')
-    return
-  }
-  if (action.action === 'GENERATE_OBJECT_SOLUTION') {
-    generateDefaultSolutionDraft()
-    return
-  }
-  if (action.action === 'SAVE_SOLUTION_DRAFT') {
-    saveSolutionDraft()
-    return
-  }
-  input.value = action.label || action.action
-}
-
-function previewSuggestedActionPlan(action: MapAgentSuggestedAction) {
-  const message = action.label || action.action
-  openPlanPreview({
-    kind: 'SEND',
-    action: action.action,
-    message,
-    request: buildPlanRequest(action.action, message, action.payload || {})
-  })
-}
-
 function normalizeResponse(res: any) {
   if (res?.answer || res?.answerMeta || res?.actionResult) {
     return { ...res, data: { ...(res.data || {}), answerMeta: res.answerMeta, toolResults: res.toolResults, sources: res.sources, trace: res.trace, intent: res.intent } }
@@ -1372,22 +1384,85 @@ function normalizeResponse(res: any) {
 }
 
 function normalizeSolutionResponse(res: MapAgentRunResponse): PreviewSolution {
-  const actionResult = (res.actionResult || {}) as Record<string, any>
+  const responseData = ((res as any).data || {}) as Record<string, any>
+  const actionResult = ((res.actionResult || responseData.actionResult || {}) as Record<string, any>)
+  const toolResults = Array.isArray(res.toolResults)
+    ? res.toolResults
+    : Array.isArray(responseData.toolResults)
+      ? responseData.toolResults
+      : []
+  const toolData = (toolResults.find((item: any) => item?.data && typeof item.data === 'object') as any)?.data || {}
+  const sources = Array.isArray(res.sources)
+    ? res.sources
+    : Array.isArray(res.knowledgeSources)
+      ? res.knowledgeSources
+      : Array.isArray(responseData.sources)
+        ? responseData.sources
+        : Array.isArray(responseData.knowledgeSources)
+          ? responseData.knowledgeSources
+          : []
   return {
     ...res,
     solutionType: String((res.action === 'GENERATE_ROUTE_REPORT' ? 'ROUTE_REPORT' : (res as any).solutionType) || activeSolutionType.value || res.action || ''),
-    title: actionResult.title || '方案草稿',
-    markdown: actionResult.markdown || res.answer || '',
-    objectSummary: actionResult.objectSummary || {},
-    regionSummary: actionResult.regionSummary || {},
-    qualityCheck: actionResult.qualityCheck || {},
-    templateMeta: actionResult.templateMeta || {},
-    sourceSummaries: res.sources || res.knowledgeSources || [],
-    trace: res.trace,
-    answerMeta: res.answerMeta,
-    toolResults: res.toolResults || [],
-    sources: res.sources || res.knowledgeSources || []
+    status: actionResult.status || toolData.status || responseData.actionStatus || (res as any).actionStatus || '',
+    title: actionResult.title || toolData.title || '方案草稿',
+    markdown: actionResult.markdown || toolData.markdown || res.answer || responseData.answer || '',
+    errorMessage: actionResult.errorMessage || toolData.errorMessage || responseData.errorMessage || (res as any).errorMessage || '',
+    objectSummary: actionResult.objectSummary || toolData.objectSummary || {},
+    regionSummary: actionResult.regionSummary || toolData.regionSummary || {},
+    qualityCheck: actionResult.qualityCheck || toolData.qualityCheck || {},
+    templateMeta: actionResult.templateMeta || toolData.templateMeta || {},
+    sourceSummaries: sources,
+    trace: res.trace || responseData.trace || toolData.trace,
+    answerMeta: pickSolutionAnswerMeta(res, actionResult),
+    toolResults,
+    sources
   } as PreviewSolution
+}
+
+function isFailedSolutionResponse(solution: PreviewSolution | null) {
+  if (!solution) return true
+  const status = String((solution as any).status || (solution as any).actionResult?.status || (solution as any).data?.actionStatus || '').toUpperCase()
+  if (['FAILED', 'ERROR', 'TIMEOUT'].includes(status)) return true
+  return !solution.markdown && Boolean(solutionFailureMessage(solution))
+}
+
+function solutionFailureMessage(solution: PreviewSolution | null) {
+  const value = (solution as any)?.errorMessage
+    || (solution as any)?.actionResult?.errorMessage
+    || (solution as any)?.data?.errorMessage
+    || ''
+  return value ? `生成结构化建议失败：${value}` : '生成结构化建议失败，请查看 AI 执行过程。'
+}
+
+function pickSolutionAnswerMeta(res: any, actionResult: Record<string, any>) {
+  const toolResults = Array.isArray(res?.toolResults)
+    ? res.toolResults
+    : Array.isArray(res?.data?.toolResults)
+      ? res.data.toolResults
+      : []
+  const toolMeta = toolResults?.find((item: any) => item?.data?.answerMeta || item?.data?.answer_meta)?.data?.answerMeta
+    || toolResults?.find((item: any) => item?.data?.answerMeta || item?.data?.answer_meta)?.data?.answer_meta
+  return firstSolutionRecord(
+    res?.answerMeta,
+    res?.answer_meta,
+    res.data?.answerMeta,
+    res.data?.answer_meta,
+    actionResult.answerMeta,
+    actionResult.answer_meta,
+    actionResult.data?.answerMeta,
+    actionResult.data?.answer_meta,
+    toolMeta
+  ) || {}
+}
+
+function firstSolutionRecord(...values: any[]) {
+  for (const value of values) {
+    if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length) {
+      return value
+    }
+  }
+  return null
 }
 
 function normalizeYear(value: any) {
@@ -1626,12 +1701,32 @@ function openTrace(execution: Record<string, any>) {
   white-space: nowrap;
 }
 
-.analysis-actions {
+.analysis-flow {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.9fr) minmax(160px, 1.3fr) minmax(170px, 1.2fr);
+  gap: 8px;
+}
+
+.analysis-flow-group {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  margin-top: 0;
+  padding: 7px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.analysis-flow-group.primary {
+  background: rgba(219, 234, 254, 0.78);
+}
+
+.flow-group-label {
+  flex: 0 0 100%;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .analysis-action-hint {
@@ -2113,8 +2208,13 @@ function openTrace(execution: Record<string, any>) {
     display: none;
   }
 
-  .analysis-actions {
-    margin-top: 6px;
+  .analysis-flow {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .analysis-flow-group {
+    padding: 6px;
   }
 
   .map-context-banner {

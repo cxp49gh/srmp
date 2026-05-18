@@ -13,6 +13,7 @@ public class MapObjectSolutionResponse {
     private Map<String, Object> objectSummary;
     private MapObjectSolutionQualityCheck qualityCheck;
     private Map<String, Object> templateMeta;
+    private Map<String, Object> answerMeta;
     private List<Map<String, Object>> sourceSummaries;
     private Map<String, Object> trace;
 }

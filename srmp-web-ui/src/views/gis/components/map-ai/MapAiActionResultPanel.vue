@@ -17,7 +17,7 @@ const props = defineProps<{ result?: MapAgentActionResult | null }>()
 
 const visibleResult = computed(() => {
   if (!props.result) return null
-  if (props.result?.type === 'ANSWER' && !props.result.markdown && !props.result.errorMessage) return null
+  if (!props.result.markdown && !props.result.errorMessage) return null
   return props.result
 })
 

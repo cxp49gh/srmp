@@ -84,19 +84,34 @@ class RuntimeAuditStore:
         action = getattr(response, "action", None)
         if not action and isinstance(data, dict):
             action = data.get("action")
+        action_result_status = str(action_result.get("status") or "SUCCESS").upper()
+        status = _audit_status_from_action(action_result_status)
         graph_name = data.get("graphName") if isinstance(data, dict) else None
         if not graph_name and isinstance(trace, dict):
             graph_name = trace.get("graphName")
         steps = trace.get("steps") if isinstance(trace, dict) else None
         tool_results = response.toolResults or []
-        tool_total = data.get("toolTotalCount") if isinstance(data, dict) else len(tool_results)
-        tool_success = data.get("toolSuccessCount") if isinstance(data, dict) else sum(1 for item in tool_results if item.get("success"))
+        tool_total = _first_int(data.get("toolTotalCount") if isinstance(data, dict) else None, len(tool_results))
+        tool_success = _first_int(
+            data.get("toolSuccessCount") if isinstance(data, dict) else None,
+            sum(1 for item in tool_results if item.get("success")),
+        )
+        tool_failed = _first_int(
+            data.get("toolFailedCount") if isinstance(data, dict) else None,
+            max(0, tool_total - tool_success),
+        )
         adaptive_planning = _adaptive_planning_from_response(response)
         adaptive_added_tools = _adaptive_added_tools(adaptive_planning)
+        answer_meta = response.answerMeta or (data.get("answerMeta") if isinstance(data, dict) else {}) or {}
+        fallback_like = (
+            status != "SUCCESS"
+            or bool(answer_meta.get("fallback") if isinstance(answer_meta, dict) else False)
+            or (tool_total > 0 and tool_success == 0)
+        )
         record = {
             "id": str(uuid.uuid4()),
             "ts": _now_ms(),
-            "status": "SUCCESS",
+            "status": status,
             "tenantId": tenant_id or _tenant_from_request(request) or "default",
             "traceId": trace_id or trace.get("traceId"),
             "messagePreview": (request.message or "")[:120],
@@ -106,7 +121,7 @@ class RuntimeAuditStore:
             "action": action,
             "graphName": graph_name,
             "actionResultType": action_result.get("type"),
-            "actionResultStatus": action_result.get("status"),
+            "actionResultStatus": action_result_status,
             "writeBlocked": bool(data.get("writeBlocked") or data.get("writeConfirmation") is False) if isinstance(data, dict) else False,
             "needsConfirmation": action_result.get("status") == "NEEDS_CONFIRMATION",
             "mapMode": _mode_from_request(request),
@@ -117,7 +132,7 @@ class RuntimeAuditStore:
             "langgraphAvailable": data.get("langgraphAvailable") if isinstance(data, dict) else None,
             "toolTotalCount": tool_total,
             "toolSuccessCount": tool_success,
-            "toolFailedCount": data.get("toolFailedCount") if isinstance(data, dict) else sum(1 for item in tool_results if not item.get("success")),
+            "toolFailedCount": tool_failed,
             "sourceCount": data.get("sourceCount") if isinstance(data, dict) else len(response.sources or []),
             "adaptivePlanningStatus": adaptive_planning.get("status"),
             "adaptivePlanningEnabled": adaptive_planning.get("enabled"),
@@ -129,7 +144,7 @@ class RuntimeAuditStore:
             "toolResults": _compact_tool_results(tool_results),
             "requestPayload": _request_payload(request),
             "responsePreview": _compact_response(response),
-            "fallbackLike": (tool_total or 0) > 0 and (tool_success or 0) == 0,
+            "fallbackLike": fallback_like,
             "replayable": True,
         }
         self._append(record)
@@ -422,6 +437,24 @@ def _request_payload(request: Optional[MapAiAgentRequest]) -> Optional[Dict[str,
         return _compact_value(request.model_dump(exclude_none=True))
     except Exception:  # noqa: BLE001
         return None
+
+
+def _first_int(*values: Any) -> int:
+    for value in values:
+        if value is None or value == "":
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
+def _audit_status_from_action(action_result_status: str) -> str:
+    normalized = str(action_result_status or "").upper()
+    if normalized in {"FAILED", "ERROR", "TIMEOUT"}:
+        return "FAILED"
+    return "SUCCESS"
 
 
 def _compact_response(response: MapAiAgentResponse) -> Dict[str, Any]:

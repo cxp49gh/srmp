@@ -1,5 +1,7 @@
+import json
 import unittest
 
+from app.config import settings
 from app.schemas import MapAiAgentRequest, MapAiContext, ToolCall, ToolResult
 from app.workflow import LangGraphWorkflow, strategy_metadata
 
@@ -50,6 +52,28 @@ class AdaptiveWorkflowTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(metadata["adaptivePlanning"])
         self.assertEqual(1, metadata["maxAdaptiveIterations"])
+
+    async def test_workflow_response_hides_internal_strategy_version(self):
+        gateway = SufficientFakeGateway()
+        workflow = LangGraphWorkflow(gateway=gateway, llm_client=FakeLlmClient())
+        request = MapAiAgentRequest(
+            action="ANALYZE_OBJECT",
+            message="分析当前路线",
+            mapContext=MapAiContext(
+                mode="OBJECT",
+                routeCode="C067140727",
+                year=2026,
+                mapObject={"objectType": "ROAD_ROUTE", "routeCode": "C067140727"},
+            ),
+            options={"traceId": "strategy-hidden-run", "useKnowledge": False},
+        )
+
+        response = await workflow.run(request, tenant_id="default", trace_id=None)
+        payload = json.dumps(response.model_dump(), ensure_ascii=False)
+
+        self.assertNotIn(settings.strategy_version, payload)
+        self.assertNotIn("strategyVersion", payload)
+        self.assertNotIn("orchestratorStrategy", payload)
 
 
 class AdaptiveFakeGateway:

@@ -1,6 +1,6 @@
 from typing import Any, Dict, List
 
-from .evidence import first, tool_summary
+from .evidence import first
 from .intent import normalize_object_type
 from .schemas import MapAiAgentRequest, ToolResult
 
@@ -113,7 +113,6 @@ def disease_advice(obj: Dict[str, Any], tool_results: List[ToolResult], sources:
 
 
 def assessment_advice(obj: Dict[str, Any], tool_results: List[ToolResult]) -> str:
-    summary = tool_summary(tool_results)
     route = first(obj, "routeCode", "route_code") or "-"
     return "\n".join(
         [
@@ -121,7 +120,7 @@ def assessment_advice(obj: Dict[str, Any], tool_results: List[ToolResult]) -> st
             f"- 当前对象：{route} {stake_range(obj)}，年度：{first(obj, 'year') or '-'}。",
             f"- 评定等级：{first(obj, 'grade') or '-'}。",
             f"- 指标值：MQI={first(obj, 'mqi') or '-'}，PQI={first(obj, 'pqi') or '-'}，PCI={first(obj, 'pci') or '-'}，RQI={first(obj, 'rqi') or '-'}，RDI={first(obj, 'rdi') or '-'}。",
-            f"- 单元内病害：已查询 {summary.get('diseaseCount', 0)} 条，重点关注 PCI/PQI 偏低与病害集中分布的关联。",
+            "- 单元内病害：已结合评定结果和病害记录，重点关注 PCI/PQI 偏低与病害集中分布的关联。",
             "",
             "一、主要问题",
             "该对象为道路技术状况评定结果单元，应结合 MQI/PQI/PCI 判断综合技术状况、路面使用性能和路面损坏状况。",
@@ -139,12 +138,11 @@ def assessment_advice(obj: Dict[str, Any], tool_results: List[ToolResult]) -> st
 
 
 def route_advice(obj: Dict[str, Any], tool_results: List[ToolResult]) -> str:
-    summary = tool_summary(tool_results)
     return "\n".join(
         [
             "### 当前路线专项分析",
             f"- 当前路线：{first(obj, 'routeCode', 'route_code') or '-'}。",
-            f"- 系统已查询评定结果 {summary.get('assessmentCount', 0)} 条、病害 {summary.get('diseaseCount', 0)} 条。",
+            "- 已结合评定结果和病害记录识别低分单元、病害热点、连续破损区间和重复修补区间。",
             "一、主要问题",
             "路线级分析应重点识别低分单元、病害热点、连续破损区间和重复修补区间。",
             "",
@@ -157,12 +155,11 @@ def route_advice(obj: Dict[str, Any], tool_results: List[ToolResult]) -> str:
 
 
 def section_advice(obj: Dict[str, Any], tool_results: List[ToolResult]) -> str:
-    summary = tool_summary(tool_results)
     return "\n".join(
         [
             "### 当前路段专项分析",
             f"- 当前路段：{first(obj, 'routeCode', 'route_code') or '-'} {stake_range(obj)}。",
-            f"- 系统已查询评定结果 {summary.get('assessmentCount', 0)} 条、病害 {summary.get('diseaseCount', 0)} 条。",
+            "- 已结合评定结果和病害记录判断病害连续性、低分关联和处置优先级。",
             "一、主要问题",
             "路段级分析应关注病害是否沿桩号连续分布、是否与排水、基层或重复修补有关。",
             "",

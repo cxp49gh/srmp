@@ -73,3 +73,36 @@ test('AiTrace snapshot accepts live running trace', () => {
   assert.equal(snapshot.summary.toolTotalCount, 2)
   assert.equal(snapshot.evidence.businessCount, 4)
 })
+
+test('AiTrace snapshot redacts internal strategy metadata from user-facing diagnostics', () => {
+  const snapshot = toAiExecutionSnapshot({
+    trace: {
+      traceId: 'trace-secret',
+      status: 'SUCCESS',
+      steps: [
+        {
+          name: 'quality_guard',
+          label: '回答质量保护',
+          status: 'SUCCESS',
+          data: {
+            strategyVersion: 'phase50.11-config-health-guard-v1',
+            visible: '保留'
+          }
+        }
+      ],
+      quality: {
+        strategyVersion: 'phase50.11-config-health-guard-v1',
+        changed: []
+      }
+    },
+    answerMeta: {
+      orchestratorStrategy: 'phase50.11-config-health-guard-v1',
+      llmStatus: 'SKIPPED'
+    }
+  })
+
+  const rendered = JSON.stringify(snapshot)
+  assert.doesNotMatch(rendered, /phase50\.11-config-health-guard-v1/)
+  assert.doesNotMatch(rendered, /strategyVersion|orchestratorStrategy/)
+  assert.match(rendered, /保留/)
+})
