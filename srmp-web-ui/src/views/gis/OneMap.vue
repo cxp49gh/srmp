@@ -21,6 +21,7 @@
         :statistics="statistics"
         :layer-counts="layerCounts"
         :layer-errors="layerErrors"
+        :layer-loading="layerLoading"
         :query="query"
         :loading="loading"
         @change="handleLayerChange"
@@ -38,6 +39,11 @@
         <button type="button" title="放大" @click="zoomInMap">+</button>
         <span>级别 {{ currentZoom }}</span>
         <button type="button" title="缩小" @click="zoomOutMap">−</button>
+      </div>
+
+      <div v-if="layers.disease && diseaseLayerInfo.message" class="disease-layer-status srmp-card" :class="diseaseLayerInfo.mode">
+        <strong>病害</strong>
+        <span>{{ diseaseLayerInfo.message }}</span>
       </div>
     </div>
 
@@ -125,7 +131,7 @@ import { styleForMapLayer } from '../../utils/leafletStyle'
 import { addTiandituBasemap, MAP_GEOGRAPHIC_CRS } from '../../utils/mapBasemap'
 import { getMetricGrade, getMetricMeta, getMetricValue } from '../../utils/roadConditionMetrics'
 import type { GeoJsonFeatureCollection } from '../../types/geojson'
-import { ZOOM_MIN_DISEASE_LAYER } from '../../constants/gisDiseaseLayer'
+import { ZOOM_DISEASE_DETAIL_MIN, ZOOM_DISEASE_SUMMARY } from '../../constants/gisDiseaseLayer'
 import { type LayerState } from './components/LayerDrawer.vue'
 import GisLeftWorkbench from './components/GisLeftWorkbench.vue'
 import AgentChatFloat from './components/AgentChatFloat.vue'
@@ -209,6 +215,13 @@ const layerCounts = reactive<Record<string, number>>({
   assessment: 0
 })
 const layerErrors = reactive<Record<string, string>>({})
+const layerLoading = reactive<Record<string, boolean>>({})
+const layerLoadingSeq = reactive<Record<string, number>>({})
+const diseaseLayerInfo = reactive({
+  mode: '',
+  total: 0,
+  message: ''
+})
 
 let map: LeafletMap
 const layerMap = new Map<string, GeoJSON>()
@@ -221,6 +234,9 @@ let rectangleStart: L.LatLng | null = null
 let regionSummaryRequestSeq = 0
 let layerChangeTimer: ReturnType<typeof window.setTimeout> | null = null
 let diseaseViewportTimer: ReturnType<typeof window.setTimeout> | null = null
+let diseaseRequestSeq = 0
+let diseaseLayerViewMode: '' | 'cluster' | 'detail' = ''
+let diseaseLastMoveZoom = 11
 let regionLiveTraceTimer: ReturnType<typeof window.setInterval> | null = null
 let mapDisposed = false
 const objectDetailRequestGuard = createLatestRequestGuard()
@@ -351,13 +367,19 @@ onMounted(async () => {
   addTiandituBasemap(map)
 
   currentZoom.value = map.getZoom()
+  diseaseLastMoveZoom = currentZoom.value
   map.on('zoomend', () => {
     currentZoom.value = map.getZoom()
-    scheduleDiseaseViewportReload()
+    scheduleDiseaseViewportReload('zoom')
   })
   map.on('moveend', () => {
     void loadStatistics()
-    scheduleDiseaseViewportReload()
+    const zoom = map.getZoom()
+    if (zoom !== diseaseLastMoveZoom) {
+      diseaseLastMoveZoom = zoom
+      return
+    }
+    scheduleDiseaseViewportReload('move')
   })
   map.on('mousedown', handleRegionMouseDown)
   map.on('mousemove', handleRegionMouseMove)
@@ -421,11 +443,35 @@ function hasProjectSelected(): boolean {
   return Boolean(query.projectId && String(query.projectId).trim())
 }
 
-function diseaseZoomEligible(): boolean {
-  return Boolean(map && !mapDisposed && map.getZoom() >= ZOOM_MIN_DISEASE_LAYER)
+function diseaseTargetMode(): 'hidden' | 'cluster' | 'detail' {
+  if (!map || mapDisposed) return 'hidden'
+  const zoom = map.getZoom()
+  if (zoom < ZOOM_DISEASE_SUMMARY) return 'hidden'
+  if (zoom >= ZOOM_DISEASE_DETAIL_MIN) return 'detail'
+  return 'cluster'
 }
 
-/** 病害图层：叠加当前视窗 bbox（调用方需已保证缩放不低于 ZOOM_MIN_DISEASE_LAYER） */
+function diseaseLayerLoadable(): boolean {
+  return diseaseTargetMode() !== 'hidden'
+}
+
+function diseaseNeedsViewportReload(reason: 'zoom' | 'move' | 'sync' = 'sync'): boolean {
+  const mode = diseaseTargetMode()
+  if (mode === 'hidden') return false
+  if (mode === 'detail') return true
+  if (reason === 'move') return true
+  if (map.getZoom() === ZOOM_DISEASE_SUMMARY) return true
+  return diseaseLayerViewMode !== 'cluster'
+}
+
+function diseaseNeedsSyncLoad(): boolean {
+  const mode = diseaseTargetMode()
+  if (mode === 'hidden') return false
+  if (!layerMap.has('disease') && diseaseLayerViewMode !== mode) return true
+  return diseaseLayerViewMode !== '' && diseaseLayerViewMode !== mode
+}
+
+/** 病害图层：叠加当前视窗 bbox 与 zoom，由后端决定 summary / cluster / detail。 */
 function diseaseLayerQuery(): GisLayerQuery {
   const base = layerQuery()
   if (mapDisposed || typeof map === 'undefined' || !map) return base
@@ -435,37 +481,44 @@ function diseaseLayerQuery(): GisLayerQuery {
   const e = b.getEast()
   const n = b.getNorth()
   if (![w, s, e, n].every((v) => Number.isFinite(v))) return base
-  return { ...base, minLng: w, minLat: s, maxLng: e, maxLat: n }
+  const mode = diseaseTargetMode()
+  const zoom = mode === 'cluster' ? ZOOM_DISEASE_SUMMARY : map.getZoom()
+  return { ...base, minLng: w, minLat: s, maxLng: e, maxLat: n, zoom }
 }
 
-function scheduleDiseaseViewportReload() {
+function scheduleDiseaseViewportReload(reason: 'zoom' | 'move' | 'sync' = 'sync') {
   if (!hasProjectSelected()) {
     if (diseaseViewportTimer) {
       window.clearTimeout(diseaseViewportTimer)
       diseaseViewportTimer = null
     }
     removeLayerByKey('disease')
+    resetDiseaseLayerInfo()
     return
   }
   if (!layers.disease || mapDisposed || typeof map === 'undefined' || !map) return
-  if (!diseaseZoomEligible()) {
+  if (!diseaseLayerLoadable()) {
     if (diseaseViewportTimer) {
       window.clearTimeout(diseaseViewportTimer)
       diseaseViewportTimer = null
     }
     removeLayerByKey('disease')
+    resetDiseaseLayerInfo()
     return
   }
+  if (!diseaseNeedsViewportReload(reason)) return
   if (diseaseViewportTimer) window.clearTimeout(diseaseViewportTimer)
   diseaseViewportTimer = window.setTimeout(() => {
     diseaseViewportTimer = null
     if (!map || mapDisposed || !layers.disease) return
-    if (!diseaseZoomEligible()) {
+    if (!diseaseLayerLoadable()) {
       removeLayerByKey('disease')
+      resetDiseaseLayerInfo()
       return
     }
+    if (!diseaseNeedsViewportReload(reason)) return
     void loadLayerSafely('disease', () => getDiseases(diseaseLayerQuery()))
-  }, 600)
+  }, 300)
 }
 
 async function handleSearch(nextQuery?: GisLayerQuery) {
@@ -538,19 +591,22 @@ async function reloadLayers(options: ReloadLayerOptions = {}) {
     clearLayers({ clearSelection: options.clearSelection !== false })
     resetLayerCounts()
     resetLayerErrors()
+    resetLayerLoading()
 
     const tasks: Promise<void>[] = []
     const params = layerQuery()
 
     if (!hasProjectSelected()) {
       removeLayerByKey('disease')
+      resetDiseaseLayerInfo()
     } else {
       if (layers.roadRoute) tasks.push(loadLayerSafely('roadRoute', () => getRoadRoutes(params)))
       if (layers.roadSection) tasks.push(loadLayerSafely('roadSection', () => getRoadSections(params)))
-      if (layers.disease && diseaseZoomEligible()) {
+      if (layers.disease && diseaseLayerLoadable()) {
         tasks.push(loadLayerSafely('disease', () => getDiseases(diseaseLayerQuery())))
       } else if (layers.disease) {
         removeLayerByKey('disease')
+        resetDiseaseLayerInfo()
       }
       if (layers.assessment) tasks.push(loadLayerSafely('assessment', () => getAssessmentResults(params)))
     }
@@ -588,11 +644,14 @@ async function syncVisibleLayers() {
     if (!layers.roadSection) removeLayerByKey('roadSection')
     else if (!layerMap.has('roadSection')) tasks.push(loadLayerSafely('roadSection', () => getRoadSections(params)))
 
-    if (!layers.disease) removeLayerByKey('disease')
-    else if (!layerMap.has('disease') && diseaseZoomEligible()) {
-      tasks.push(loadLayerSafely('disease', () => getDiseases(diseaseLayerQuery())))
-    } else if (layers.disease && !diseaseZoomEligible()) {
+    if (!layers.disease) {
       removeLayerByKey('disease')
+      resetDiseaseLayerInfo()
+    } else if (diseaseNeedsSyncLoad()) {
+      tasks.push(loadLayerSafely('disease', () => getDiseases(diseaseLayerQuery())))
+    } else if (layers.disease && !diseaseLayerLoadable()) {
+      removeLayerByKey('disease')
+      resetDiseaseLayerInfo()
     }
 
     if (!layers.assessment) removeLayerByKey('assessment')
@@ -614,6 +673,7 @@ function removeLayerByKey(layerKey: string) {
   layerMap.delete(layerKey)
   layerCounts[layerKey] = 0
   delete layerErrors[layerKey]
+  layerLoading[layerKey] = false
   if (selectedLayer && layer === selectedLayer) {
     selectedLayer = null
   }
@@ -624,6 +684,7 @@ function clearLayers(options: { clearSelection?: boolean } = {}) {
     map.removeLayer(layer)
   })
   layerMap.clear()
+  resetDiseaseLayerInfo()
   selectedLayer = null
   clearAiSourceHighlight()
   if (options.clearSelection !== false) {
@@ -644,6 +705,114 @@ function resetLayerErrors() {
   Object.keys(layerErrors).forEach((key) => delete layerErrors[key])
 }
 
+function resetLayerLoading() {
+  Object.keys(layerLoading).forEach((key) => {
+    layerLoading[key] = false
+  })
+}
+
+function resetDiseaseLayerInfo() {
+  diseaseLayerInfo.mode = ''
+  diseaseLayerInfo.total = 0
+  diseaseLayerInfo.message = ''
+  layerCounts.disease = 0
+  diseaseLayerViewMode = ''
+}
+
+function updateDiseaseLayerInfo(collection: GeoJsonFeatureCollection | null | undefined) {
+  const mode = String((collection as any)?.mode || '')
+  const total = Number((collection as any)?.total ?? 0)
+  const count = Number.isFinite(total) ? total : 0
+  diseaseLayerInfo.mode = mode
+  diseaseLayerInfo.total = count
+  const message = String((collection as any)?.message || '').trim()
+  if (message) {
+    diseaseLayerInfo.message = message
+    return
+  }
+  if (mode === 'summary') diseaseLayerInfo.message = `当前范围病害 ${count} 条，请放大地图查看`
+  else if (mode === 'cluster') diseaseLayerInfo.message = `当前范围病害 ${count} 条，已按 14 级总和显示`
+  else if (mode === 'detail') diseaseLayerInfo.message = `当前范围病害 ${count} 条`
+  else if (mode === 'too_many') diseaseLayerInfo.message = `当前范围病害 ${count} 条，请继续放大查看`
+  else diseaseLayerInfo.message = ''
+}
+
+function diseaseClusterTypeEntries(stats: any) {
+  if (!stats || typeof stats !== 'object') return []
+  if (Array.isArray(stats)) {
+    return stats
+      .map((item) => ({ name: String(item?.name || '未分类'), count: Number(item?.count || 0) }))
+      .filter((item) => item.count > 0)
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh-Hans-CN'))
+  }
+  return Object.entries(stats)
+    .map(([name, value]) => ({ name: String(name || '未分类'), count: Number(value || 0) }))
+    .filter((item) => item.count > 0)
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh-Hans-CN'))
+}
+
+function diseaseClusterPopupHtml(properties: Record<string, any>) {
+  const count = Number(properties?.count || 0)
+  const entries = diseaseClusterTypeEntries(properties?.diseaseStats || properties?.diseaseNameStats || properties?.diseaseTypeStats)
+  const rows = entries.slice(0, 8).map((item) => (
+    `<div class="cluster-popup-row"><span>${escapeHtml(item.name)}</span><strong>${item.count}</strong></div>`
+  )).join('')
+  const more = entries.length > 8
+    ? `<div class="cluster-popup-more">其余 ${entries.length - 8} 类</div>`
+    : ''
+  const body = rows || '<div class="cluster-popup-empty">暂无类型统计</div>'
+  return `<div class="disease-cluster-dialog"><div class="cluster-popup-title"><span>具体病害统计</span><strong>${count}</strong></div>${body}${more}</div>`
+}
+
+function diseaseDisplayText(properties: Record<string, any> = {}) {
+  return String(firstValue(
+    properties.diseaseName,
+    properties.disease_name,
+    properties.diseaseType,
+    properties.disease_type,
+    properties.diseaseCategory,
+    properties.disease_category,
+    ''
+  ))
+}
+
+function diseaseMarkerKind(properties: Record<string, any> = {}) {
+  const text = diseaseDisplayText(properties)
+  if (/龟裂|块裂|网裂/.test(text)) return 'mesh'
+  if (/横向|纵向|裂缝|裂|缝/.test(text)) return 'crack'
+  if (/车辙/.test(text)) return 'rut'
+  if (/坑|槽|沉陷|松散|拥包/.test(text)) return 'pothole'
+  if (/修补|补|泛油/.test(text)) return 'patch'
+  return 'point'
+}
+
+function diseaseSeveritySize(properties: Record<string, any> = {}) {
+  const severity = String(properties.severity || '').toUpperCase()
+  if (['HEAVY', 'SEVERE', 'SERIOUS'].includes(severity)) return 30
+  if (severity === 'MEDIUM') return 25
+  return 21
+}
+
+function safeCssColor(value: any) {
+  const color = String(value || '').trim()
+  if (/^#[0-9a-fA-F]{3,8}$/.test(color)) return color
+  if (/^rgba?\([\d\s.,%]+\)$/.test(color)) return color
+  return '#f97316'
+}
+
+function diseaseDetailIcon(properties: Record<string, any> = {}) {
+  const kind = diseaseMarkerKind(properties)
+  const size = diseaseSeveritySize(properties)
+  const color = safeCssColor(properties.color)
+  const title = escapeHtml(diseaseDisplayText(properties) || '病害')
+  return L.divIcon({
+    className: `disease-detail-icon disease-detail-${kind}`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    html: `<span class="disease-marker-core" style="--disease-color:${color};" title="${title}"></span>`
+  })
+}
+
 function layerKeyText(layerKey: string) {
   const labels: Record<string, string> = {
     roadRoute: '路网',
@@ -659,13 +828,19 @@ function errorMessage(error: any) {
 }
 
 async function loadLayerSafely(layerKey: string, loader: () => Promise<GeoJsonFeatureCollection>) {
+  const loadingSeq = (layerLoadingSeq[layerKey] || 0) + 1
+  layerLoadingSeq[layerKey] = loadingSeq
+  layerLoading[layerKey] = true
   try {
     await loadLayer(layerKey, loader)
     delete layerErrors[layerKey]
   } catch (error: any) {
     layerCounts[layerKey] = 0
     layerErrors[layerKey] = errorMessage(error)
+    if (layerKey === 'disease') resetDiseaseLayerInfo()
     throw error
+  } finally {
+    if (layerLoadingSeq[layerKey] === loadingSeq) layerLoading[layerKey] = false
   }
 }
 
@@ -679,15 +854,47 @@ async function settleLayerTasks(tasks: Promise<void>[], actionName: string) {
 }
 
 async function loadLayer(layerKey: string, loader: () => Promise<GeoJsonFeatureCollection>) {
+  const requestSeq = layerKey === 'disease' ? ++diseaseRequestSeq : 0
   const collection: any = await loader()
   if (mapDisposed) return
-  layerCounts[layerKey] = Array.isArray(collection?.features) ? collection.features.length : 0
+  if (!Boolean((layers as any)[layerKey])) return
+  if (layerKey === 'disease' && requestSeq !== diseaseRequestSeq) return
+
+  removeLayerByKey(layerKey)
+
+  const featureCount = Array.isArray(collection?.features) ? collection.features.length : 0
+  layerCounts[layerKey] = layerKey === 'disease' && Number.isFinite(Number(collection?.total))
+    ? Number(collection.total)
+    : featureCount
+
+  if (layerKey === 'disease') {
+    const responseMode = String(collection?.mode || '')
+    diseaseLayerViewMode = responseMode === 'detail' ? 'detail' : responseMode === 'cluster' ? 'cluster' : diseaseTargetMode() === 'detail' ? 'detail' : 'cluster'
+    updateDiseaseLayerInfo(collection)
+  }
+
   if (!collection || !collection.features || collection.features.length === 0) return
 
   const geoLayer = L.geoJSON(collection as any, {
     style: (feature: any) => styleForMapLayer(layerKey, feature?.properties || feature, query.indexCode || 'MQI'),
     pointToLayer: (feature, latlng) => {
       const style = styleForMapLayer(layerKey, feature?.properties || feature, query.indexCode || 'MQI') as any
+      if (layerKey === 'disease' && feature?.properties?.cluster) {
+        const count = Number(feature.properties.count || 0)
+        return L.circleMarker(latlng, {
+          radius: Math.max(10, Math.min(24, 8 + Math.sqrt(count))),
+          color: '#ffffff',
+          weight: 2,
+          fillColor: style.fillColor || feature.properties.color || '#f97316',
+          fillOpacity: 0.88
+        })
+      }
+      if (layerKey === 'disease') {
+        return L.marker(latlng, {
+          icon: diseaseDetailIcon(feature?.properties || {}),
+          keyboard: false
+        })
+      }
       return L.circleMarker(latlng, {
         radius: style.radius || 5,
         color: style.color || '#2563eb',
@@ -698,6 +905,28 @@ async function loadLayer(layerKey: string, loader: () => Promise<GeoJsonFeatureC
     },
     onEachFeature: (feature: any, layer: L.Layer) => {
       ;(layer as any)._srmpLayerKey = layerKey
+      if (layerKey === 'disease' && feature?.properties?.cluster && (layer as any).bindTooltip) {
+        const compactContent = String(feature.properties.count || 0)
+        ;(layer as any).bindTooltip(compactContent, {
+          permanent: true,
+          direction: 'center',
+          className: 'disease-cluster-label'
+        })
+        if ((layer as any).bindPopup) {
+          ;(layer as any).bindPopup(diseaseClusterPopupHtml(feature.properties), {
+            closeButton: false,
+            autoPan: false,
+            offset: [0, -12],
+            className: 'disease-cluster-popup'
+          })
+        }
+        layer.on('mouseover', () => {
+          if ((layer as any).openPopup) (layer as any).openPopup()
+        })
+        layer.on('mouseout', () => {
+          if ((layer as any).closePopup) (layer as any).closePopup()
+        })
+      }
       layer.on('click', () => handleFeatureClick(layerKey, feature, layer))
     }
   })
@@ -709,6 +938,11 @@ async function loadLayer(layerKey: string, loader: () => Promise<GeoJsonFeatureC
 async function handleFeatureClick(layerKey: string, feature: any, layer: L.Layer) {
   if (regionMode.value !== 'NONE') return
   const properties = normalizeFeatureProperties(layerKey, feature)
+
+  if (properties.cluster || properties.objectType === 'DISEASE_CLUSTER') {
+    zoomDiseaseCluster(layer, properties)
+    return
+  }
 
   contextScope.value = 'OBJECT'
   selectedFeatureProperties.value = properties
@@ -940,6 +1174,7 @@ function objectTypeText(type: string) {
     ROAD_SECTION: '路段',
     EVALUATION_UNIT: '评定单元',
     DISEASE: '病害',
+    DISEASE_CLUSTER: '病害聚合',
     ASSESSMENT_RESULT: '评定结果'
   }
   return map[type] || '地图对象'
@@ -1662,7 +1897,14 @@ function zoomToLayer(layer: L.Layer) {
     map.fitBounds(anyLayer.getBounds(), { padding: [80, 80], maxZoom: 17 })
     return
   }
-  if (anyLayer.getLatLng) map.setView(anyLayer.getLatLng(), Math.max(map.getZoom(), 16))
+  if (anyLayer.getLatLng) map.setView(anyLayer.getLatLng(), Math.max(map.getZoom() + 2, 15))
+}
+
+function zoomDiseaseCluster(layer: L.Layer, properties: Record<string, any>) {
+  const anyLayer: any = layer
+  const latlng = anyLayer.getLatLng ? anyLayer.getLatLng() : null
+  if (!latlng) return
+  map.setView(latlng, ZOOM_DISEASE_DETAIL_MIN, { animate: true })
 }
 
 function zoomInMap() {
@@ -1811,7 +2053,8 @@ function fitViewportToQueryRoadRoutes() {
 }
 
 .left-map-stack:has(.gis-left-workbench.collapsed) .map-legend-fixed,
-.left-map-stack:has(.gis-left-workbench.collapsed) .map-zoom-panel {
+.left-map-stack:has(.gis-left-workbench.collapsed) .map-zoom-panel,
+.left-map-stack:has(.gis-left-workbench.collapsed) .disease-layer-status {
   display: none;
 }
 
@@ -1848,6 +2091,212 @@ function fitViewportToQueryRoadRoutes() {
   font-weight: 700;
   text-align: center;
   white-space: nowrap;
+}
+
+.disease-layer-status {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-left: 4px solid #2563eb;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.1);
+  color: #334155;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.disease-layer-status strong {
+  color: #0f172a;
+}
+
+.disease-layer-status.summary {
+  border-left-color: #64748b;
+}
+
+.disease-layer-status.cluster {
+  border-left-color: #f97316;
+}
+
+.disease-layer-status.detail {
+  border-left-color: #16a34a;
+}
+
+.disease-layer-status.too_many {
+  border-left-color: #dc2626;
+}
+
+:deep(.disease-cluster-label) {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+:deep(.disease-detail-icon) {
+  border: 0;
+  background: transparent;
+}
+
+:deep(.disease-marker-core) {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 6px 10px rgba(15, 23, 42, 0.22));
+}
+
+:deep(.disease-detail-point .disease-marker-core) {
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: var(--disease-color);
+}
+
+:deep(.disease-detail-crack .disease-marker-core)::before,
+:deep(.disease-detail-crack .disease-marker-core)::after {
+  position: absolute;
+  left: 8%;
+  width: 84%;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--disease-color);
+  content: "";
+}
+
+:deep(.disease-detail-crack .disease-marker-core)::before {
+  top: 38%;
+  transform: rotate(-18deg);
+}
+
+:deep(.disease-detail-crack .disease-marker-core)::after {
+  top: 55%;
+  transform: rotate(14deg);
+}
+
+:deep(.disease-detail-pothole .disease-marker-core) {
+  border: 2px solid #fff;
+  border-radius: 6px;
+  background: var(--disease-color);
+  transform: rotate(8deg);
+}
+
+:deep(.disease-detail-rut .disease-marker-core)::before,
+:deep(.disease-detail-rut .disease-marker-core)::after {
+  position: absolute;
+  top: 10%;
+  width: 5px;
+  height: 80%;
+  border-radius: 999px;
+  background: var(--disease-color);
+  content: "";
+}
+
+:deep(.disease-detail-rut .disease-marker-core)::before {
+  left: 30%;
+}
+
+:deep(.disease-detail-rut .disease-marker-core)::after {
+  right: 30%;
+}
+
+:deep(.disease-detail-mesh .disease-marker-core) {
+  border: 2px solid #fff;
+  border-radius: 5px;
+  background:
+    linear-gradient(45deg, transparent 42%, rgba(255, 255, 255, 0.85) 43%, rgba(255, 255, 255, 0.85) 48%, transparent 49%),
+    linear-gradient(-45deg, transparent 42%, rgba(255, 255, 255, 0.85) 43%, rgba(255, 255, 255, 0.85) 48%, transparent 49%),
+    var(--disease-color);
+}
+
+:deep(.disease-detail-patch .disease-marker-core) {
+  border: 2px solid #fff;
+  border-radius: 4px;
+  background: var(--disease-color);
+  transform: rotate(45deg) scale(0.82);
+}
+
+:deep(.disease-cluster-popup) {
+  pointer-events: none;
+}
+
+:deep(.disease-cluster-popup .leaflet-popup-content-wrapper) {
+  overflow: hidden;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.2);
+}
+
+:deep(.disease-cluster-popup .leaflet-popup-content) {
+  width: 220px !important;
+  margin: 0;
+}
+
+:deep(.disease-cluster-popup .leaflet-popup-tip) {
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: rgba(255, 255, 255, 0.98);
+}
+
+:deep(.disease-cluster-dialog) {
+  color: #0f172a;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+:deep(.disease-cluster-dialog .cluster-popup-title) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #f8fafc 0%, #eef6ff 100%);
+  color: #475569;
+  font-weight: 700;
+}
+
+:deep(.disease-cluster-dialog .cluster-popup-title strong) {
+  color: #dc2626;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+:deep(.disease-cluster-dialog .cluster-popup-row) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 12px;
+  border-top: 1px solid #f1f5f9;
+}
+
+:deep(.disease-cluster-dialog .cluster-popup-row span) {
+  min-width: 0;
+  overflow: hidden;
+  color: #334155;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:deep(.disease-cluster-dialog .cluster-popup-row strong) {
+  min-width: 30px;
+  color: #0f172a;
+  font-weight: 800;
+  text-align: right;
+}
+
+:deep(.disease-cluster-dialog .cluster-popup-more),
+:deep(.disease-cluster-dialog .cluster-popup-empty) {
+  padding: 8px 12px 10px;
+  border-top: 1px solid #f1f5f9;
+  color: #64748b;
 }
 
 :deep(.leaflet-control-attribution) {

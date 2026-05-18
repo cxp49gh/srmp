@@ -54,11 +54,39 @@ export function layerStyle(properties: Record<string, any> = {}, indexCode?: str
       : properties.color || gradeColor(metricGrade || properties.grade || properties.severity)
   return {
     color,
-    weight: objectType === 'ROAD_ROUTE' ? 5 : 4,
+    weight: objectType === 'ROAD_ROUTE' ? 5 : objectType === 'DISEASE' ? diseaseLineWeight(properties) : 4,
     opacity: 0.86,
     fillColor: color,
-    fillOpacity: objectType === 'DISEASE' ? 0.82 : 0.35
+    fillOpacity: objectType === 'DISEASE' ? 0.28 : 0.35,
+    dashArray: objectType === 'DISEASE' ? diseaseDashArray(properties) : undefined
   }
+}
+
+function diseaseText(properties: Record<string, any> = {}) {
+  return String(
+    properties.diseaseName ||
+    properties.disease_name ||
+    properties.diseaseType ||
+    properties.disease_type ||
+    properties.diseaseCategory ||
+    properties.disease_category ||
+    ''
+  )
+}
+
+function diseaseLineWeight(properties: Record<string, any> = {}) {
+  const text = diseaseText(properties)
+  if (/裂|缝/.test(text)) return 5
+  if (/车辙|沉陷|坑|槽|松散|拥包/.test(text)) return 6
+  if (/龟裂|块裂|网裂/.test(text)) return 4
+  return 5
+}
+
+function diseaseDashArray(properties: Record<string, any> = {}) {
+  const text = diseaseText(properties)
+  if (/横向|纵向|裂|缝/.test(text)) return '10 6'
+  if (/龟裂|块裂|网裂/.test(text)) return '3 5'
+  return undefined
 }
 
 export function styleForMapLayer(

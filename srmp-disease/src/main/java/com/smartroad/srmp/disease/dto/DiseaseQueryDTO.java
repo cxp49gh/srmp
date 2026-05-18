@@ -27,4 +27,7 @@ public class DiseaseQueryDTO extends PageQuery {
     private Double minLat;
     private Double maxLng;
     private Double maxLat;
+
+    /** 当前地图缩放级别，用于 GIS 病害图层分级返回 summary / cluster / detail。 */
+    private Double zoom;
 }

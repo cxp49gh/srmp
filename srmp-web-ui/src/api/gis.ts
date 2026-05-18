@@ -22,6 +22,7 @@ export interface GisLayerQuery {
   minLat?: number
   maxLng?: number
   maxLat?: number
+  zoom?: number
 }
 
 export interface MapViewport {

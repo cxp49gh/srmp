@@ -33,10 +33,15 @@
         <div class="group-title">资产与业务</div>
         <label v-for="item in assetLayerItems" :key="item.key" class="layer-item">
           <el-checkbox v-model="localLayers[item.key]" @change="emitLayerChange">{{ item.label }}</el-checkbox>
-          <span class="layer-count">{{ layerCount(item.key) }}</span>
+          <span class="layer-count" :class="{ loading: layerLoading(item.key), error: layerError(item.key) }">
+            <span v-if="layerLoading(item.key)" class="loading-dot"></span>
+            {{ layerStatusText(item.key) }}
+          </span>
         </label>
         <p class="tier-hint">「评定」用于开关地图上的指标专题图层；路段粒度仍由顶部工具栏「路段专题」与「查询」决定。</p>
-        <p class="disease-zoom-hint">病害图层需在地图缩放至 {{ ZOOM_MIN_DISEASE_LAYER }} 级及以上时，才按当前视野加载。</p>
+        <p class="disease-zoom-hint">
+          病害图层在 {{ ZOOM_DISEASE_SUMMARY }} 级显示总和；15-{{ ZOOM_DISEASE_SUMMARY_FREEZE_MAX }} 级沿用该结果；{{ ZOOM_DISEASE_DETAIL_MIN }} 级起显示明细。
+        </p>
       </section>
 
       <section class="stats-section">
@@ -64,7 +69,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import type { GisLayerQuery } from '../../../api/gis'
-import { ZOOM_MIN_DISEASE_LAYER } from '../../../constants/gisDiseaseLayer'
+import { ZOOM_DISEASE_DETAIL_MIN, ZOOM_DISEASE_SUMMARY, ZOOM_DISEASE_SUMMARY_FREEZE_MAX } from '../../../constants/gisDiseaseLayer'
 import type { LayerState } from './LayerDrawer.vue'
 import { formatMetricValue, getGradeMeta, getMetricGrade, getMetricMeta, getMetricValue, gradeFromScore, gradeLabel } from '../../../utils/roadConditionMetrics'
 
@@ -73,6 +78,7 @@ const props = defineProps<{
   statistics: Record<string, any>
   layerCounts?: Record<string, number>
   layerErrors?: Record<string, string>
+  layerLoading?: Record<string, boolean>
   query?: GisLayerQuery
   loading?: boolean
 }>()
@@ -149,6 +155,20 @@ function layerCount(key: keyof LayerState) {
   const count = props.layerCounts?.[String(key)]
   if (count === undefined || count === null) return '-'
   return count
+}
+
+function layerLoading(key: keyof LayerState) {
+  return Boolean(props.layerLoading?.[String(key)])
+}
+
+function layerError(key: keyof LayerState) {
+  return Boolean(props.layerErrors?.[String(key)])
+}
+
+function layerStatusText(key: keyof LayerState) {
+  if (layerLoading(key)) return '查询中'
+  if (layerError(key)) return '异常'
+  return layerCount(key)
 }
 
 function unwrapPayload(value: any) {
@@ -324,13 +344,47 @@ function formatPercent(value: any) {
 }
 
 .layer-count {
-  min-width: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 42px;
   padding: 1px 7px;
   border-radius: 999px;
   text-align: center;
   color: #475569;
   background: #f1f5f9;
   font-size: 12px;
+}
+
+.layer-count.loading {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
+.layer-count.error {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+.loading-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: loadingPulse 0.9s ease-in-out infinite;
+}
+
+@keyframes loadingPulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .stat-grid {
