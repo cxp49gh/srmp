@@ -32,6 +32,7 @@
               <AiEvidencePanel
                 :message="item"
                 :map-context="mapContext"
+                :question="userQuestionBefore(index)"
                 embedded
                 :default-expanded="true"
                 @locate-source="$emit('locate-source', $event)"
@@ -125,6 +126,16 @@ const latestAssistantIndex = computed(() => {
   }
   return -1
 })
+
+function userQuestionBefore(index: number) {
+  for (let i = index - 1; i >= 0; i -= 1) {
+    const item = props.messages[i]
+    if (item?.role === 'user') {
+      return String(item.content || '')
+    }
+  }
+  return ''
+}
 
 watch(
   () => [props.messages.length, props.loading, props.solutionLoading],

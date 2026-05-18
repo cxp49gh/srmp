@@ -113,15 +113,11 @@
             {{ item.from_status || '-' }} -> {{ item.to_status }} | {{ item.action || '-' }}
           </div>
         </div>
-        <el-empty v-if="sources.length === 0" description="暂无来源" />
-        <div v-for="item in sources" :key="item.id" class="source-item">
-          <div class="source-title">
-            <strong>{{ item.source_title }}</strong>
-            <el-tag size="small">{{ item.source_type }}</el-tag>
-          </div>
-          <p>{{ item.source_url || item.source_id }}</p>
-          <div>{{ item.content_excerpt }}</div>
-        </div>
+        <AiSourceList
+          :sources="normalizedSources"
+          :question="feedbackQuestion"
+          :business-context="feedbackBusinessContext"
+        />
       </el-card>
     </div>
 
@@ -138,9 +134,10 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import AgentPageShell from './components/AgentPageShell.vue'
+import AiSourceList from './components/AiSourceList.vue'
 import SolutionQualityPanel from './components/SolutionQualityPanel.vue'
 import TemplateMetaCard from './components/TemplateMetaCard.vue'
 import {
@@ -176,6 +173,25 @@ const statusTimeline = ref<Record<string, any>[]>([])
 const checking = ref(false)
 const versionDrawerVisible = ref(false)
 const statusUpdating = ref(false)
+
+const normalizedSources = computed(() =>
+  sources.value.map((item) => ({
+    ...item,
+    title: item.source_title || item.title,
+    content: item.content_excerpt || item.content,
+    sourceType: item.source_type || item.sourceType,
+    url: item.source_url || item.url
+  }))
+)
+
+const feedbackQuestion = computed(() => detail.value?.title || selected.value?.title || '方案任务引用来源')
+
+const feedbackBusinessContext = computed(() => ({
+  taskId: selected.value?.id,
+  routeCode: detail.value?.route_code || detail.value?.routeCode || query.routeCode,
+  year: detail.value?.year || query.year,
+  scope: 'SOLUTION_TASK'
+}))
 
 onMounted(loadTasks)
 

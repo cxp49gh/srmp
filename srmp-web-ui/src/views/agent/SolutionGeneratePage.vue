@@ -74,30 +74,46 @@
 
       <el-card class="source-card">
         <template #header>引用来源</template>
-        <el-empty v-if="sources.length === 0" description="暂无来源" />
-        <div v-for="item in sources" :key="item.id" class="source-item">
-          <div class="source-title">
-            <strong>{{ item.source_title }}</strong>
-            <el-tag size="small">{{ item.source_type }}</el-tag>
-          </div>
-          <p>{{ item.source_url || item.source_id }}</p>
-          <div>{{ item.content_excerpt }}</div>
-        </div>
+        <AiSourceList
+          :sources="normalizedSources"
+          :question="lastQuestion"
+          :business-context="businessContext"
+        />
       </el-card>
     </div>
   </AgentPageShell>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import AgentPageShell from './components/AgentPageShell.vue'
+import AiSourceList from './components/AiSourceList.vue'
 import { generateSolution, getSolutionTaskSources, listSolutionTemplates } from '../../api/solution'
 
 const templates = ref<Record<string, any>[]>([])
 const result = ref<Record<string, any> | null>(null)
 const sources = ref<Record<string, any>[]>([])
+const lastQuestion = ref('方案生成')
 const generating = ref(false)
+
+const normalizedSources = computed(() =>
+  sources.value.map((item) => ({
+    ...item,
+    title: item.source_title || item.title,
+    content: item.content_excerpt || item.content,
+    sourceType: item.source_type || item.sourceType,
+    url: item.source_url || item.url,
+    metadata: item.metadata || {}
+  }))
+)
+
+const businessContext = computed(() => ({
+  routeCode: form.routeCode,
+  year: form.year,
+  solutionType: form.solutionType,
+  scope: 'SOLUTION_GENERATE'
+}))
 
 const form = reactive({
   solutionType: 'ROAD_ASSESSMENT_REPORT',

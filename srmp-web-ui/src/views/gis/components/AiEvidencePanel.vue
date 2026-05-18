@@ -69,22 +69,56 @@
       <div v-if="knowledgeTool?.fallbackReason" class="fallback">
         降级原因：{{ knowledgeTool.fallbackReason }}
       </div>
+
+      <div v-if="enableFeedback" class="feedback-bar">
+        <el-button size="small" @click="openFeedback('MISSING_KNOWLEDGE')">知识缺失反馈</el-button>
+        <el-button size="small" type="warning" plain @click="openFeedback('SOURCE_INACCURATE')">来源不准确反馈</el-button>
+      </div>
     </div>
+
+    <el-dialog v-model="feedbackVisible" :title="feedbackTitle" width="520px" destroy-on-close>
+      <el-form label-width="88px">
+        <el-form-item label="用户问题">
+          <el-input :model-value="question" type="textarea" :rows="2" readonly />
+        </el-form-item>
+        <el-form-item label="补充说明">
+          <el-input v-model="feedbackRemark" type="textarea" :rows="3" placeholder="请描述缺失的资料或来源为何不准确" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="feedbackVisible = false">取消</el-button>
+        <el-button type="primary" :loading="feedbackSubmitting" @click="submitFeedback">提交</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { createAiKnowledgeFeedback, type AiFeedbackType } from '../../../api/knowledgeFeedback'
 import { copyText } from '../../../utils/clipboard'
+import {
+  categoryLabel,
+  categoryTagType,
+  mergeAiSources
+} from '../../../utils/aiSourceDisplay'
 import { hasLocatableTarget, mapTargetLabel, sourceToMapTarget, type GisSourceMapTarget } from '../../../utils/gisUnifiedContext'
 
-const props = defineProps<{
-  message: Record<string, any>
-  mapContext?: Record<string, any>
-  embedded?: boolean
-  defaultExpanded?: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    message: Record<string, any>
+    mapContext?: Record<string, any>
+    embedded?: boolean
+    defaultExpanded?: boolean
+    question?: string
+    enableFeedback?: boolean
+  }>(),
+  {
+    question: '',
+    enableFeedback: true
+  }
+)
 
 const emit = defineEmits<{
   (e: 'locate-source', value: GisSourceMapTarget): void
@@ -95,6 +129,15 @@ const expanded = ref(props.defaultExpanded === true)
 
 const sources = computed(() => Array.isArray(props.message.sources) ? props.message.sources : [])
 const toolResults = computed(() => Array.isArray(props.message.toolResults) ? props.message.toolResults : [])
+const displaySources = computed(() => mergeAiSources(sources.value, toolResults.value))
+
+const feedbackVisible = ref(false)
+const feedbackType = ref<AiFeedbackType>('MISSING_KNOWLEDGE')
+const feedbackRemark = ref('')
+const feedbackSubmitting = ref(false)
+const feedbackTitle = computed(() =>
+  feedbackType.value === 'MISSING_KNOWLEDGE' ? '知识缺失反馈' : '答案来源不准确反馈'
+)
 const sourceCount = computed(() => sources.value.length)
 const toolCount = computed(() => toolResults.value.length)
 const locatableSourceCount = computed(() => sources.value.filter((source: any) => hasLocatableTarget(sourceToMapTarget(source))).length)
@@ -129,6 +172,29 @@ function sourceTitle(source: any) {
   return section ? `${title} / ${section}` : title
 }
 
+function openFeedback(type: AiFeedbackType) {
+  feedbackType.value = type
+  feedbackRemark.value = ''
+  feedbackVisible.value = true
+}
+
+async function submitFeedback() {
+  feedbackSubmitting.value = true
+  try {
+    await createAiKnowledgeFeedback({
+      feedbackType: feedbackType.value,
+      question: props.question,
+      remark: feedbackRemark.value.trim(),
+      businessContext: props.mapContext,
+      citedSources: displaySources.value.map((item) => item.raw)
+    })
+    ElMessage.success('反馈已提交')
+    feedbackVisible.value = false
+  } finally {
+    feedbackSubmitting.value = false
+  }
+}
+
 function targetLabel(source: any) {
   return mapTargetLabel(sourceToMapTarget(source))
 }
@@ -147,8 +213,9 @@ function askWithSource(source: any) {
 
 async function copySource(source: any) {
   try {
+    const title = source.title || source.docTitle || source.documentTitle || '知识片段'
     await copyText(JSON.stringify({
-      title: sourceTitle(source),
+      title,
       mapTarget: sourceToMapTarget(source),
       raw: source
     }, null, 2))
@@ -329,5 +396,29 @@ function formatScore(value: any) {
 .fallback {
   margin-top: 8px;
   color: #b45309;
+}
+
+.source-meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 0 24px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.source-excerpt {
+  margin: 6px 0 0 24px;
+  color: #475569;
+  line-height: 1.45;
+}
+
+.feedback-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
 }
 </style>

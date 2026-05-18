@@ -74,26 +74,13 @@
 
       <el-card class="source-card">
         <template #header>引用来源</template>
-
-        <div class="source-section">
-          <h3>知识库来源</h3>
-          <el-empty v-if="knowledgeSources.length === 0" description="暂无知识库来源" />
-          <div v-for="item in knowledgeSources" :key="item.chunkId || item.title" class="source-item">
-            <strong>{{ item.title }}</strong>
-            <p>{{ item.heading || item.sourceType }}</p>
-            <div>{{ item.content }}</div>
-          </div>
-        </div>
-
-        <div class="source-section">
-          <h3>Outline 来源</h3>
-          <el-empty v-if="outlineSources.length === 0" description="暂无 Outline 来源" />
-          <div v-for="item in outlineSources" :key="item.id || item.title" class="source-item">
-            <strong>{{ item.title }}</strong>
-            <p>{{ item.url || 'Outline' }}</p>
-            <div>{{ item.text }}</div>
-          </div>
-        </div>
+        <AiSourceList
+          :sources="activeSources"
+          :tool-results="activeToolResults"
+          :outline-sources="activeOutlineSources"
+          :question="lastQuestion"
+          :business-context="businessContext"
+        />
       </el-card>
     </div>
     <AiTraceDrawer
@@ -107,8 +94,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import AgentPageShell from './components/AgentPageShell.vue'
+import AiSourceList from './components/AiSourceList.vue'
 import AiTraceButton from './components/AiTraceButton.vue'
 import AiTraceDrawer from './components/AiTraceDrawer.vue'
 import { mapAgentRun } from '../../api/agent'
@@ -138,10 +126,19 @@ const options = ref<Record<string, any>>({
 const message = ref('')
 const loading = ref(false)
 const messages = ref<ChatMessage[]>([])
-const knowledgeSources = ref<any[]>([])
-const outlineSources = ref<any[]>([])
+const activeSources = ref<any[]>([])
+const activeToolResults = ref<any[]>([])
+const activeOutlineSources = ref<any[]>([])
+const lastQuestion = ref('')
 const traceDrawerVisible = ref(false)
 const activeExecution = ref<Record<string, any> | null>(null)
+
+const businessContext = computed(() => ({
+  routeCode: context.value.routeCode,
+  year: context.value.year,
+  indexCode: context.value.indexCode,
+  scope: 'AI_CHAT'
+}))
 
 function quickAsk(text: string) {
   message.value = text
@@ -153,6 +150,7 @@ async function send() {
   if (!text) return
 
   messages.value.push({ role: 'user', content: text })
+  lastQuestion.value = text
   message.value = ''
   loading.value = true
 
@@ -183,8 +181,9 @@ async function send() {
       sources
     })
 
-    knowledgeSources.value = result?.knowledgeSources || result?.sources || data.knowledgeSources || data.sources || []
-    outlineSources.value = data.outlineSources || []
+    activeSources.value = sources
+    activeToolResults.value = result?.toolResults || data.toolResults || []
+    activeOutlineSources.value = data.outlineSources || (result as any)?.outlineSources || []
   } catch (error: any) {
     messages.value.push({
       role: 'assistant',
@@ -264,27 +263,5 @@ function openTrace(execution: Record<string, any>) {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-}
-
-.source-section + .source-section {
-  margin-top: 20px;
-}
-
-.source-section h3 {
-  margin: 0 0 10px;
-  font-size: 15px;
-}
-
-.source-item {
-  padding: 10px;
-  background: #f8fafc;
-  border-radius: 10px;
-  margin-bottom: 10px;
-  font-size: 13px;
-}
-
-.source-item p {
-  margin: 4px 0;
-  color: #64748b;
 }
 </style>
