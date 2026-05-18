@@ -1,6 +1,6 @@
 <template>
-  <div v-if="hasEvidence" class="ai-evidence-panel">
-    <div class="evidence-header" @click="expanded = !expanded">
+  <div v-if="hasEvidence" class="ai-evidence-panel" :class="{ embedded }">
+    <div v-if="!embedded" class="evidence-header" @click="expanded = !expanded">
       <span>依据与调用</span>
       <el-tag v-if="sourceCount" size="small" type="info" effect="plain">来源 {{ sourceCount }}</el-tag>
       <el-tag v-if="locatableSourceCount" size="small" type="success" effect="plain">地图 {{ locatableSourceCount }}</el-tag>
@@ -8,7 +8,7 @@
       <span class="toggle">{{ expanded ? '收起' : '展开' }}</span>
     </div>
 
-    <div v-if="expanded" class="evidence-body">
+    <div v-if="expanded || embedded" class="evidence-body">
       <div class="evidence-grid">
         <div>
           <span class="label">地图上下文</span>
@@ -82,6 +82,8 @@ import { hasLocatableTarget, mapTargetLabel, sourceToMapTarget, type GisSourceMa
 const props = defineProps<{
   message: Record<string, any>
   mapContext?: Record<string, any>
+  embedded?: boolean
+  defaultExpanded?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -89,7 +91,7 @@ const emit = defineEmits<{
   (e: 'ask-with-source', value: Record<string, any>): void
 }>()
 
-const expanded = ref(false)
+const expanded = ref(props.defaultExpanded === true)
 
 const sources = computed(() => Array.isArray(props.message.sources) ? props.message.sources : [])
 const toolResults = computed(() => Array.isArray(props.message.toolResults) ? props.message.toolResults : [])
@@ -172,6 +174,13 @@ function formatScore(value: any) {
   overflow: hidden;
 }
 
+.ai-evidence-panel.embedded {
+  margin-top: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
 .evidence-header {
   display: flex;
   align-items: center;
@@ -191,6 +200,11 @@ function formatScore(value: any) {
 .evidence-body {
   padding: 8px 10px 10px;
   border-top: 1px solid #e2e8f0;
+}
+
+.embedded .evidence-body {
+  padding: 0;
+  border-top: 0;
 }
 
 .evidence-grid {

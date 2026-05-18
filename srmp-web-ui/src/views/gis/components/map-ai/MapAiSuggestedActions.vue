@@ -13,11 +13,11 @@
       <el-button
         v-if="isHeavyAction(item.action)"
         size="small"
-        text
+        plain
         :disabled="item.disabled"
         @click="$emit('preview-plan', item)"
       >
-        计划
+        查看计划
       </el-button>
     </span>
   </div>

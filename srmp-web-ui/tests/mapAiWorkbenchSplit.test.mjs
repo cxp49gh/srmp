@@ -25,6 +25,7 @@ test('MapAiWorkbench exposes plan preview and assistant action events', () => {
   const content = read('src/views/gis/components/map-ai/MapAiWorkbench.vue')
 
   assert.match(content, /@preview-plan="\$emit\('preview-plan', \$event\)"/)
+  assert.match(content, /@run-action="\$emit\('run-action', \$event\)"/)
   assert.match(content, /@generate-default-solution="\$emit\('generate-default-solution'\)"/)
   assert.match(content, /@locate-source="\$emit\('locate-source', \$event\)"/)
   assert.match(content, /@ask-with-source="\$emit\('ask-with-source', \$event\)"/)
@@ -61,16 +62,36 @@ test('map AI result panels stay inside the scrollable conversation area', () => 
   const workbenchContent = read('src/views/gis/components/map-ai/MapAiWorkbench.vue')
 
   assert.match(workbenchContent, /<MapAiConversation[\s\S]*>\s*<template #message-tail>[\s\S]*<MapAiActionResultPanel\b/)
-  assert.match(workbenchContent, /<template #message-tail>[\s\S]*<MapAiSuggestedActions\b[\s\S]*<\/template>\s*<\/MapAiConversation>/)
+  assert.match(workbenchContent, /<template #message-tail>[\s\S]*<MapAiActionResultPanel\b[\s\S]*<slot name="message-tail" \/>[\s\S]*<\/template>\s*<\/MapAiConversation>/)
+  assert.doesNotMatch(workbenchContent, /<template #message-tail>[\s\S]*<MapAiSuggestedActions\b/)
 })
 
 test('map AI wait panel is rendered inside the scrollable conversation area', () => {
   const floatContent = read('src/views/gis/components/AgentChatFloat.vue')
   const workbenchContent = read('src/views/gis/components/map-ai/MapAiWorkbench.vue')
 
-  assert.match(workbenchContent, /<MapAiSuggestedActions\b[\s\S]*\/>\s*<slot name="message-tail" \/>/)
+  assert.match(workbenchContent, /<MapAiActionResultPanel\b[\s\S]*\/>\s*<slot name="message-tail" \/>/)
   assert.match(floatContent, /<MapAiWorkbench[\s\S]*>\s*<template #message-tail>[\s\S]*<section v-if="aiBusy" class="ai-wait-panel"/)
   assert.doesNotMatch(floatContent, /<\/MapAiWorkbench>\s*<section v-if="aiBusy" class="ai-wait-panel"/)
+})
+
+test('assistant suggested actions are integrated into the latest answer card', () => {
+  const workbenchContent = read('src/views/gis/components/map-ai/MapAiWorkbench.vue')
+  const conversationContent = read('src/views/gis/components/map-ai/MapAiConversation.vue')
+  const suggestedActionsContent = read('src/views/gis/components/map-ai/MapAiSuggestedActions.vue')
+
+  assert.match(workbenchContent, /:latest-suggested-actions="latestSuggestedActions"/)
+  assert.match(workbenchContent, /@run-action="\$emit\('run-action', \$event\)"/)
+  assert.match(workbenchContent, /@preview-plan="\$emit\('preview-plan', \$event\)"/)
+  assert.match(conversationContent, /import MapAiSuggestedActions from '\.\/MapAiSuggestedActions\.vue'/)
+  assert.match(conversationContent, /<section v-if="hasAssistantNextActions\(item, index\)" class="assistant-next-actions">/)
+  assert.match(conversationContent, /<MapAiSuggestedActions[\s\S]*:actions="latestSuggestedActions"[\s\S]*@run-action="\$emit\('run-action', \$event\)"[\s\S]*@preview-plan="\$emit\('preview-plan', \$event\)"/)
+  assert.match(conversationContent, /function hasAssistantNextActions\(item: Record<string, any>, index: number\)[\s\S]*shouldShowAssistantActions\(item, index\) \|\| shouldShowObjectSolutionAction\(item, index\)/)
+  assert.match(conversationContent, /function shouldShowAssistantActions\(item: Record<string, any>, index: number\)/)
+  assert.match(conversationContent, /index === latestAssistantIndex\.value/)
+  assert.match(suggestedActionsContent, /v-if="isHeavyAction\(item\.action\)"[\s\S]*plain[\s\S]*查看计划/)
+  assert.doesNotMatch(suggestedActionsContent, /v-if="isHeavyAction\(item\.action\)"[\s\S]*text[\s\S]*>\s*计划\s*<\/el-button>/)
+  assert.doesNotMatch(conversationContent, /class="assistant-action-row"/)
 })
 
 test('map AI conversation scrolls new action results into view', () => {
@@ -89,80 +110,136 @@ test('map AI panel compacts nonessential analysis text on short viewports', () =
   assert.match(content, /@media\s*\(max-height:\s*700px\)\s*\{[\s\S]*\.analysis-metrics\s*\{[\s\S]*display:\s*none;/)
 })
 
-test('map AI diagnostics render as a compact summary by default', () => {
+test('map AI analysis is a default header panel before settings and diagnostics', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
-  assert.match(content, /const diagnosticsExpanded = ref\(false\)/)
-  assert.match(content, /class="diagnostics-summary"/)
-  assert.match(content, /v-if="quickDiagnostics && diagnosticsExpanded" class="diagnostics-grid"/)
-  assert.doesNotMatch(content, /v-else-if="quickDiagnostics" class="diagnostics-grid"/)
+  assert.match(content, /import \{ ChatDotRound, MapLocation, Monitor, Setting \} from '@element-plus\/icons-vue'/)
+  assert.match(content, /const showAnalysisPanel = ref\(true\)/)
+  assert.match(content, /<strong>AI 养护助手<\/strong>[\s\S]*class="header-icon-btn analysis-icon-button"[\s\S]*aria-label="一张图分析"[\s\S]*@click="toggleAnalysisPanel"[\s\S]*class="header-icon-btn settings-icon-button"/)
+  assert.match(content, /<el-icon><MapLocation \/><\/el-icon>/)
+  assert.match(content, /<section v-if="showAnalysisPanel" class="analysis-workbench"/)
+  assert.match(content, /function toggleAnalysisPanel\(\)[\s\S]*showToolsPanel\.value = false[\s\S]*showDiagnosticsPanel\.value = false/)
 })
 
-test('map AI diagnostics stay inside the data source drawer', () => {
+test('map AI diagnostics use a header icon and render full details without a second fold', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
-  assert.match(content, /<div v-if="showToolsPanel" class="option-row compact-options utility-panel">[\s\S]*<section v-if="quickDiagnostics \|\| diagnosticsError" class="diagnostics-panel compact-diagnostics">/)
+  assert.match(content, /import \{ ChatDotRound, MapLocation, Monitor, Setting \} from '@element-plus\/icons-vue'/)
+  assert.match(content, /const showDiagnosticsPanel = ref\(false\)/)
+  assert.match(content, /class="header-icon-btn diagnostics-icon-button"[\s\S]*aria-label="状态诊断"[\s\S]*@click="toggleDiagnosticsPanel"/)
+  assert.match(content, /<el-icon><Monitor \/><\/el-icon>/)
+  assert.match(content, /<section v-if="showDiagnosticsPanel" class="diagnostics-panel header-diagnostics-panel">/)
+  assert.match(content, /class="diagnostics-summary"/)
+  assert.match(content, /v-if="quickDiagnostics" class="diagnostics-grid"/)
+  assert.doesNotMatch(content, /diagnosticsExpanded|收起详情/)
+  assert.doesNotMatch(content, /v-if="quickDiagnostics && diagnosticsExpanded" class="diagnostics-grid"/)
+})
+
+test('map AI diagnostics stay outside the settings drawer', () => {
+  const content = read('src/views/gis/components/AgentChatFloat.vue')
+
+  assert.match(content, /<section v-if="showToolsPanel" class="settings-panel header-settings-panel">[\s\S]*<div class="settings-head">[\s\S]*<strong>设置<\/strong>[\s\S]*<span>当前依据：\{\{ optionSummary \}\}<\/span>[\s\S]*<div class="settings-grid">[\s\S]*<el-checkbox v-model="useAgentTools">Agent工具<\/el-checkbox>[\s\S]*<\/section>\s*<section v-if="showDiagnosticsPanel" class="diagnostics-panel header-diagnostics-panel">/)
   assert.match(content, /<strong>系统状态<\/strong>/)
+  assert.doesNotMatch(content, /<el-button size="small" plain :loading="diagnosticsLoading" @click="loadQuickDiagnostics">状态诊断<\/el-button>/)
   assert.doesNotMatch(content, /LangGraph 状态|Runtime UP|Tool OK|LLM 关闭/)
   assert.doesNotMatch(content, /<\/div>\s*<section v-if="quickDiagnostics \|\| diagnosticsError" class="diagnostics-panel">/)
 })
 
-test('map AI analysis header keeps diagnostics and plan out of the default title actions', () => {
+test('map AI analysis header avoids redundant metric tag and keeps plan inline', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
-  const titleActions = content.match(/<div class="analysis-title-actions">([\s\S]*?)<\/div>/)?.[1] || ''
+  const titleRow = content.match(/<div class="analysis-title-row">([\s\S]*?)<\/div>\s*<\/div>/)?.[0] || ''
 
-  assert.match(content, /<div class="analysis-title-actions">\s*<el-tag size="small" effect="plain">\{\{ activeMetricMeta\.shortName \}\}<\/el-tag>\s*<\/div>/)
-  assert.doesNotMatch(titleActions, /状态诊断|执行计划|el-button/)
-  assert.match(content, /<el-dropdown-item command="preview-plan" divided>查看执行计划<\/el-dropdown-item>/)
-  assert.match(content, /if \(command === 'preview-plan'\) \{[\s\S]*previewCurrentPlan\(\)/)
+  assert.doesNotMatch(titleRow, /analysis-title-actions|activeMetricMeta\.shortName|el-tag/)
+  assert.doesNotMatch(titleRow, /综合\s*MQI|状态诊断|执行计划|el-button/)
+  assert.match(content, /<el-button size="small" plain @click="previewCurrentPlan">查看计划<\/el-button>/)
 })
 
 test('map AI optional controls collapse data source settings by default', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
-  assert.match(content, /<div class="assistant-utility-row">[\s\S]*class="utility-trigger primary settings-trigger"[\s\S]*设置[\s\S]*快捷提问[\s\S]*<\/div>/)
-  assert.match(content, /<span class="settings-summary">当前依据：\{\{ optionSummary \}\}<\/span>/)
-  assert.doesNotMatch(content, /<button type="button" class="utility-trigger primary"[\s\S]*数据源：\{\{ optionSummary \}\}/)
+  assert.match(content, /import \{ ChatDotRound, MapLocation, Monitor, Setting \} from '@element-plus\/icons-vue'/)
+  assert.match(content, /<div class="title-main-row">[\s\S]*<strong>AI 养护助手<\/strong>[\s\S]*class="header-icon-btn settings-icon-button"[\s\S]*aria-label="设置"[\s\S]*@click="toggleSettingsPanel"/)
+  assert.match(content, /<el-icon><Setting \/><\/el-icon>/)
+  assert.match(content, /function toggleSettingsPanel\(\)[\s\S]*showAnalysisPanel\.value = false[\s\S]*showDiagnosticsPanel\.value = false/)
+  assert.match(content, /async function toggleDiagnosticsPanel\(\)[\s\S]*showAnalysisPanel\.value = false[\s\S]*showToolsPanel\.value = false/)
+  assert.match(content, /<section v-if="showToolsPanel" class="settings-panel header-settings-panel">[\s\S]*<div class="settings-head">[\s\S]*<strong>设置<\/strong>[\s\S]*<span>当前依据：\{\{ optionSummary \}\}<\/span>[\s\S]*<div class="settings-grid">/)
+  assert.match(content, /\.settings-panel,\s*\.diagnostics-panel,[\s\S]*\.ai-wait-panel\s*\{/)
+  assert.match(content, /\.settings-grid\s*\{[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/)
+  assert.doesNotMatch(content, /class="utility-trigger primary settings-trigger"/)
+  assert.doesNotMatch(content, /<div class="assistant-utility-row">[\s\S]*设置[\s\S]*<\/div>/)
   assert.doesNotMatch(content, /<div class="fold-panel">[\s\S]*快捷提问[\s\S]*<\/div>\s*<div v-if="showQuickPanel"/)
 })
 
-test('map AI quick suggestions only appear before the first conversation turn', () => {
+test('map AI analysis exposes all operations inline instead of a more menu', () => {
+  const content = read('src/views/gis/components/AgentChatFloat.vue')
+  const analysisSection = content.match(/<section v-if="showAnalysisPanel" class="analysis-workbench"[\s\S]*?<\/section>/)?.[0] || ''
+
+  assert.match(analysisSection, /<el-button size="small" plain @click="previewCurrentPlan">查看计划<\/el-button>/)
+  assert.match(analysisSection, /<el-button size="small" plain @click="copyCurrentContext">复制上下文<\/el-button>/)
+  assert.match(analysisSection, /v-for="action in secondarySolutionActions"[\s\S]*@click="generateSolutionDraft\(action\.type\)"/)
+  assert.match(analysisSection, /v-if="contextMode === 'REGION'" size="small" plain @click="suggestForCurrentRegion">生成区域追问<\/el-button>/)
+  assert.match(analysisSection, /v-if="contextMode === 'OBJECT'" size="small" plain @click="emit\('close-detail'\)">取消对象<\/el-button>/)
+  assert.match(analysisSection, /v-if="contextMode === 'REGION'" size="small" plain @click="emit\('clear-region'\)">清除区域<\/el-button>/)
+  assert.doesNotMatch(analysisSection, /<el-dropdown|更多操作|el-dropdown-item/)
+  assert.doesNotMatch(content, /function handleContextCommand/)
+})
+
+test('map AI quick suggestions remain available after a conversation starts', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
-  assert.match(content, /const showQuickEntry = computed\(\(\) => messages\.value\.length === 0\)/)
-  assert.match(content, /<button v-if="showQuickEntry" type="button" class="utility-trigger" @click="showQuickPanel = !showQuickPanel">/)
-  assert.match(content, /<div v-if="showQuickPanel && showQuickEntry" class="quick-list compact-quick-list utility-panel">/)
+  assert.match(content, /class="header-icon-btn quick-icon-button"[\s\S]*aria-label="快捷提问"[\s\S]*@click="toggleQuickPanel"/)
+  assert.match(content, /<el-icon><ChatDotRound \/><\/el-icon>/)
+  assert.match(content, /<section v-if="showQuickPanel" class="quick-panel header-quick-panel">[\s\S]*<div class="quick-list compact-quick-list">/)
+  assert.match(content, /function quickAsk\(text: string\)[\s\S]*showQuickPanel\.value = false[\s\S]*send\(\)/)
+  assert.match(content, /function toggleQuickPanel\(\)[\s\S]*showAnalysisPanel\.value = false[\s\S]*showToolsPanel\.value = false[\s\S]*showDiagnosticsPanel\.value = false/)
+  assert.doesNotMatch(content, /showQuickEntry/)
+  assert.doesNotMatch(content, /messages\.value\.length === 0/)
+  assert.doesNotMatch(content, /class="assistant-utility-row quick-utility-row"/)
   assert.doesNotMatch(content, /报告草稿/)
 })
 
-test('map AI analysis explanation is collapsed by default', () => {
+test('map AI analysis details render directly without a drawer', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
-  assert.match(content, /<details class="analysis-detail-drawer">[\s\S]*<summary>范围与指标<\/summary>[\s\S]*\{\{ operationHint \}\}[\s\S]*<\/details>/)
-  assert.doesNotMatch(content, /<div class="analysis-action-hint">\{\{ operationHint \}\}<\/div>/)
+  assert.match(content, /<div class="analysis-summary">\{\{ analysisScopeDescription \}\}<\/div>/)
+  assert.match(content, /<div v-if="analysisMetricItems\.length" class="analysis-metrics">/)
+  assert.match(content, /<div class="analysis-action-hint">\{\{ operationHint \}\}<\/div>/)
+  assert.doesNotMatch(content, /<details class="analysis-detail-drawer">/)
+  assert.doesNotMatch(content, /<summary>详情<\/summary>/)
 })
 
-test('map AI analysis card keeps range and metrics inside one collapsed details drawer', () => {
+test('map AI analysis card avoids duplicated chips and keeps direct summary metrics', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
 
-  assert.match(content, /<details class="analysis-detail-drawer">[\s\S]*<summary>范围与指标<\/summary>[\s\S]*<div class="analysis-summary">\{\{ analysisScopeDescription \}\}<\/div>[\s\S]*<div v-if="analysisMetricItems\.length" class="analysis-metrics">/)
-  assert.doesNotMatch(content, /<\/details>\s*<div class="analysis-summary">\{\{ analysisScopeDescription \}\}<\/div>/)
+  assert.match(content, /<span class="analysis-compact-scope">\{\{ analysisCompactScope \}\}<\/span>/)
+  assert.match(content, /<section v-if="showAnalysisPanel" class="analysis-workbench"[\s\S]*<span class="analysis-compact-scope">\{\{ analysisCompactScope \}\}<\/span>[\s\S]*<div class="analysis-summary">\{\{ analysisScopeDescription \}\}<\/div>[\s\S]*<div v-if="analysisMetricItems\.length" class="analysis-metrics">/)
+  assert.doesNotMatch(content, /class="analysis-context-line detail-context-line"/)
+  assert.doesNotMatch(content, /<div class="analysis-context-line">/)
 })
 
-test('assistant operational details are collapsed below the answer by default', () => {
+test('assistant answer keeps one collapsed audit entry below a unified answer card', () => {
   const content = read('src/views/gis/components/map-ai/MapAiConversation.vue')
 
-  assert.match(content, /<details v-if="item\.role === 'assistant' && hasAssistantDetails\(item\)" class="assistant-detail-drawer">/)
-  assert.match(content, /<summary class="assistant-detail-summary">[\s\S]*依据与调用[\s\S]*<\/summary>[\s\S]*<div v-if="item\.meta" class="message-meta">/)
-  assert.match(content, /<details[\s\S]*<AiEvidencePanel[\s\S]*<AiTraceButton[\s\S]*<\/details>/)
+  assert.match(content, /<article v-if="item\.role === 'assistant'" class="assistant-response-card">/)
+  assert.match(content, /<div class="content assistant-answer-content" v-html="renderMarkdown\(item\.content\)" \/>/)
+  assert.match(content, /<details v-if="hasAssistantDetails\(item\)" class="assistant-audit-drawer">/)
+  assert.match(content, /<summary class="assistant-audit-summary">[\s\S]*<span>依据 \/ 调用 \/ 执行<\/span>[\s\S]*<em>\{\{ assistantDetailsSummary\(item\) \}\}<\/em>[\s\S]*<\/summary>/)
+  assert.match(content, /<details[\s\S]*class="assistant-audit-body"[\s\S]*<AiEvidencePanel[\s\S]*embedded[\s\S]*:default-expanded="true"[\s\S]*<AiTraceButton[\s\S]*label="查看执行过程"[\s\S]*<\/details>/)
+  assert.doesNotMatch(content, /assistant-detail-drawer|assistant-detail-summary/)
 })
 
-test('assistant details use concise human-facing labels', () => {
+test('assistant audit details avoid nested evidence headers', () => {
   const content = read('src/views/gis/components/map-ai/MapAiConversation.vue')
+  const evidenceContent = read('src/views/gis/components/AiEvidencePanel.vue')
 
-  assert.match(content, /<span>依据与调用<\/span>/)
+  assert.match(content, /<span>依据 \/ 调用 \/ 执行<\/span>/)
+  assert.match(evidenceContent, /embedded\?: boolean/)
+  assert.match(evidenceContent, /defaultExpanded\?: boolean/)
+  assert.match(evidenceContent, /<div v-if="!embedded" class="evidence-header" @click="expanded = !expanded">/)
+  assert.match(evidenceContent, /<div v-if="expanded \|\| embedded" class="evidence-body">/)
   assert.match(content, /formatAssistantStatus\(item\.meta\.llmStatus\)/)
   assert.doesNotMatch(content, /依据与调用详情/)
+  assert.doesNotMatch(content, /class="message-meta"/)
   assert.doesNotMatch(content, /LLM \$\{item\.meta\.llmStatus\}/)
 })
 
