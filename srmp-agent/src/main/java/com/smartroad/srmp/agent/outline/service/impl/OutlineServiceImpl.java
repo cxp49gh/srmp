@@ -22,12 +22,31 @@ public class OutlineServiceImpl implements OutlineService {
     @Override
     public Map status() {
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("enabled", properties.getEnabled());
-        result.put("usable", properties.usable());
+        boolean enabled = Boolean.TRUE.equals(properties.getEnabled());
+        boolean usable = properties.usable();
+        boolean syncEnabled = Boolean.TRUE.equals(properties.getSyncEnabled());
+        result.put("enabled", enabled);
+        result.put("usable", usable);
         result.put("baseUrl", properties.getBaseUrl());
-        result.put("syncEnabled", properties.getSyncEnabled());
+        result.put("syncEnabled", syncEnabled);
         result.put("defaultCollectionId", properties.getDefaultCollectionId());
+        if (!enabled) {
+            result.put("message", "Outline 功能未启用，请联系管理员开启");
+        } else if (!usable) {
+            result.put("message", "Outline 配置不完整或不可访问，请检查 baseUrl、Token、网络");
+        } else if (!syncEnabled) {
+            result.put("message", "当前只允许在线搜索，不允许同步入库");
+        }
+        Map<String, Object> diagnostics = new LinkedHashMap<>();
+        diagnostics.put("hasBaseUrl", notBlank(properties.getBaseUrl()));
+        diagnostics.put("hasApiToken", notBlank(properties.getApiToken()));
+        diagnostics.put("hasDefaultCollection", notBlank(properties.getDefaultCollectionId()));
+        result.put("diagnostics", diagnostics);
         return result;
+    }
+
+    private boolean notBlank(String value) {
+        return value != null && value.trim().length() > 0;
     }
 
     @Override
@@ -58,7 +77,7 @@ public class OutlineServiceImpl implements OutlineService {
                 result.setId(document.path("id").asText(null));
                 result.setTitle(document.path("title").asText(""));
                 result.setText(firstText(item, document));
-                result.setUrl(document.path("url").asText(null));
+                result.setUrl(outlineUrl(document.path("url").asText(null)));
                 result.setScore(item.path("ranking").asDouble(1.0));
                 list.add(result);
             }
@@ -89,8 +108,24 @@ public class OutlineServiceImpl implements OutlineService {
         result.put("id", data.path("id").asText());
         result.put("title", data.path("title").asText());
         result.put("text", data.path("text").asText());
-        result.put("url", data.path("url").asText(null));
+        result.put("url", outlineUrl(data.path("url").asText(null)));
         return result;
+    }
+
+    private String outlineUrl(String rawUrl) {
+        if (!notBlank(rawUrl)) {
+            return null;
+        }
+        String url = rawUrl.trim();
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            return url;
+        }
+        String baseUrl = properties == null ? "" : properties.getBaseUrl();
+        if (!notBlank(baseUrl)) {
+            return url;
+        }
+        String base = baseUrl.trim().replaceAll("/+$", "");
+        return url.startsWith("/") ? base + url : base + "/" + url;
     }
 
     private JsonNode post(String path, Map<String, Object> body) {

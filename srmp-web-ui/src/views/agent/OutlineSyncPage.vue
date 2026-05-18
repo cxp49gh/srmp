@@ -7,11 +7,15 @@
       <el-card shadow="never"><div class="stat-value" :class="Number(value(stats, 'pendingEmbeddingChunkCount') || 0) > 0 ? 'warning' : 'success'">{{ value(stats, 'pendingEmbeddingChunkCount') || 0 }}</div><div class="stat-label">待补向量</div></el-card>
     </div>
 
-    <el-alert v-if="Number(value(stats, 'pendingEmbeddingChunkCount') || 0) > 0" type="warning" show-icon class="mb" :title="`还有 ${value(stats, 'pendingEmbeddingChunkCount')} 个 OUTLINE chunk 未生成向量，RAG 可能降级为关键词检索。`" />
+    <el-alert v-if="Number(value(stats, 'pendingEmbeddingChunkCount') || 0) > 0" type="warning" show-icon class="mb" :title="`还有 ${value(stats, 'pendingEmbeddingChunkCount')} 个 OUTLINE chunk 未生成向量，RAG 可能降级为关键词检索。`">
+      <template #default>
+        <el-button type="warning" size="small" :loading="vectorizing" class="mt" @click="doVectorize(false)">立即补向量</el-button>
+      </template>
+    </el-alert>
 
     <div class="toolbar">
-      <el-button type="primary" :loading="syncing" @click="doSync">同步到知识库</el-button>
-      <el-button :loading="syncing" @click="doDryRun">Dry Run 预演</el-button>
+      <el-button type="primary" :loading="syncing" @click="doSync">{{ form.dryRun ? 'Dry Run 预演' : '同步到知识库' }}</el-button>
+      <el-button :loading="syncing" @click="doDryRun">仅 Dry Run</el-button>
       <el-button type="success" :loading="vectorizing" @click="doVectorize(false)">补向量</el-button>
       <el-button :loading="vectorizing" @click="doVectorize(true)">强制重建向量</el-button>
       <el-button @click="loadAll">刷新全部</el-button>
@@ -30,6 +34,7 @@
         <el-form label-width="100px">
           <el-form-item label="Collection"><el-select v-model="form.collectionId" disabled filterable placeholder="使用后端配置的 Collection" style="width: 100%"><el-option v-for="item in fixedCollectionOptions" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item>
           <el-form-item label="同步数量"><el-input-number v-model="form.limit" :min="1" :max="2000" /></el-form-item>
+          <el-form-item label="Dry Run"><el-switch v-model="form.dryRun" /><span class="hint-inline">预演不写知识库</span></el-form-item>
           <el-form-item label="强制更新"><el-switch v-model="form.force" /></el-form-item>
           <el-form-item label="清理过期"><el-switch v-model="form.cleanupMissing" /></el-form-item>
           <el-form-item label="向量批量"><el-input-number v-model="vectorizeLimit" :min="1" :max="2000" /></el-form-item>
@@ -38,13 +43,48 @@
       </el-card>
 
       <el-card class="middle-card">
-        <template #header><div class="card-header"><span>文档预览</span><div class="header-actions"><el-tag size="small" type="info">已选 {{ selectedDocumentIds.length }}</el-tag><el-button size="small" :disabled="selectedDocumentIds.length === 0" @click="clearSelectedDocuments">清空选择</el-button><el-button size="small" @click="loadDocuments">刷新</el-button></div></div></template>
-        <el-empty v-if="documents.length === 0" description="暂无文档" />
-        <el-table v-else ref="docTableRef" :data="documents" border height="calc(100vh - 300px)" row-key="id" size="small" @selection-change="handleDocumentSelection">
+        <template #header>
+          <div class="card-header">
+            <span>文档预览</span>
+            <div class="header-actions">
+              <el-tag size="small" type="info">已选 {{ selectedDocumentIds.length }}</el-tag>
+              <el-button size="small" :disabled="selectedDocumentIds.length === 0" @click="clearSelectedDocuments">清空选择</el-button>
+              <el-button size="small" :loading="documentsLoading" @click="loadDocuments">刷新</el-button>
+            </div>
+          </div>
+        </template>
+        <div v-loading="documentsLoading" class="doc-preview-body" element-loading-text="正在加载文档列表…">
+          <div class="doc-filter">
+          <el-input
+            v-model="documentKeyword"
+            clearable
+            placeholder="搜索文档标题 / 文档 ID / 本地状态"
+            :disabled="documentsLoading"
+            @clear="documentKeyword = ''"
+          />
+          <span class="hint">{{ documentsLoading ? '正在加载…' : `显示 ${filteredDocuments.length} / ${documents.length}` }}</span>
+        </div>
+        <el-empty v-if="!documentsLoading && documents.length === 0" description="暂无文档" />
+        <el-empty v-else-if="filteredDocuments.length === 0" description="没有匹配的文档" />
+        <el-table v-else ref="docTableRef" :data="filteredDocuments" border height="calc(100vh - 350px)" row-key="id" size="small" @selection-change="handleDocumentSelection">
           <el-table-column type="selection" width="44" />
-          <el-table-column label="文档标题" min-width="220" show-overflow-tooltip><template #default="{ row }"><div class="doc-title"><strong>{{ value(row, 'title') || '未命名文档' }}</strong><el-link v-if="value(row, 'url')" :href="value(row, 'url')" target="_blank" type="primary">打开</el-link></div><small>{{ value(row, 'id') }}</small></template></el-table-column>
-          <el-table-column label="更新时间" width="180" show-overflow-tooltip><template #default="{ row }">{{ value(row, 'updatedAt', 'updated_at') || '-' }}</template></el-table-column>
+          <el-table-column label="文档标题" min-width="220" show-overflow-tooltip><template #default="{ row }"><div class="doc-title"><strong>{{ value(row, 'title') || '未命名文档' }}</strong><el-link v-if="outlineLink(value(row, 'url'))" :href="outlineLink(value(row, 'url'))" target="_blank" type="primary">打开</el-link></div><small>{{ value(row, 'id') }}</small></template></el-table-column>
+          <el-table-column label="更新时间" width="170" show-overflow-tooltip><template #default="{ row }">{{ formatTime(value(row, 'updatedAt', 'updated_at')) }}</template></el-table-column>
+          <el-table-column label="本地状态" width="110">
+            <template #default="{ row }">
+              <el-tag size="small" :type="kbTagType(row)">{{ kbLabel(row) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="可用于 AI" width="90">
+            <template #default="{ row }">
+              <el-tag size="small" :type="ragReady(row) ? 'success' : 'info'">{{ ragReady(row) ? '是' : '否' }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="Chunk" width="80">
+            <template #default="{ row }">{{ value(row, 'chunkCount', 'chunk_count') || 0 }}/{{ value(row, 'embeddedChunkCount', 'embedded_chunk_count') || 0 }}</template>
+          </el-table-column>
         </el-table>
+        </div>
       </el-card>
 
       <el-card class="right-card">
@@ -72,10 +112,10 @@
         <div class="summary-bar"><div class="summary-item success">成功 {{ statusCount.SUCCESS || 0 }}</div><div class="summary-item skipped">跳过 {{ statusCount.SKIPPED || 0 }}</div><div class="summary-item failed">失败 {{ statusCount.FAILED || 0 }}</div><div class="summary-item">总计 {{ details.length }}</div></div>
         <div class="detail-toolbar"><el-radio-group v-model="detailStatus" size="small" @change="loadDetails"><el-radio-button label="">全部</el-radio-button><el-radio-button label="FAILED">失败</el-radio-button><el-radio-button label="SUCCESS">成功</el-radio-button><el-radio-button label="SKIPPED">跳过</el-radio-button></el-radio-group><div><el-button size="small" @click="loadDetails">刷新明细</el-button><el-button v-if="Number(value(selectedTask, 'failCount', 'fail_count') || 0) > 0" size="small" type="warning" :loading="retrying" @click="retryFailed(selectedTask)">重试失败文档</el-button></div></div>
         <el-table :data="details" border height="calc(100vh - 300px)" size="small" row-key="id">
-          <el-table-column type="expand"><template #default="{ row }"><div class="detail-expand"><el-descriptions :column="2" border size="small"><el-descriptions-item label="Outline ID">{{ value(row, 'outlineDocumentId', 'outline_document_id') }}</el-descriptions-item><el-descriptions-item label="Knowledge Document">{{ value(row, 'knowledgeDocumentId', 'knowledge_document_id') || '-' }}</el-descriptions-item><el-descriptions-item label="URL" :span="2"><el-link v-if="value(row, 'outlineUrl', 'outline_url')" :href="value(row, 'outlineUrl', 'outline_url')" target="_blank">{{ value(row, 'outlineUrl', 'outline_url') }}</el-link><span v-else>-</span></el-descriptions-item><el-descriptions-item label="Outline更新时间">{{ value(row, 'outlineUpdatedAt', 'outline_updated_at') || '-' }}</el-descriptions-item><el-descriptions-item label="本地创建时间">{{ value(row, 'createdAt', 'created_at') || '-' }}</el-descriptions-item><el-descriptions-item label="内容字符数">{{ value(row, 'contentChars', 'content_chars') || 0 }}</el-descriptions-item><el-descriptions-item label="Chunk数">{{ value(row, 'chunkCount', 'chunk_count') || 0 }}</el-descriptions-item><el-descriptions-item label="当前Hash" :span="2">{{ value(row, 'contentHash', 'content_hash') || '-' }}</el-descriptions-item><el-descriptions-item label="旧Hash" :span="2">{{ value(row, 'oldContentHash', 'old_content_hash') || '-' }}</el-descriptions-item><el-descriptions-item label="详情说明" :span="2">{{ value(row, 'detailMessage', 'detail_message') || value(row, 'skipReason', 'skip_reason') || '-' }}</el-descriptions-item><el-descriptions-item v-if="value(row, 'errorMessage', 'error_message')" label="错误" :span="2"><span class="error">{{ value(row, 'errorType', 'error_type') }}：{{ value(row, 'errorMessage', 'error_message') }}</span></el-descriptions-item></el-descriptions></div></template></el-table-column>
+          <el-table-column type="expand"><template #default="{ row }"><div class="detail-expand"><el-descriptions :column="2" border size="small"><el-descriptions-item label="Outline ID">{{ value(row, 'outlineDocumentId', 'outline_document_id') }}</el-descriptions-item><el-descriptions-item label="Knowledge Document">{{ value(row, 'knowledgeDocumentId', 'knowledge_document_id') || '-' }}</el-descriptions-item><el-descriptions-item label="URL" :span="2"><el-link v-if="outlineLink(value(row, 'outlineUrl', 'outline_url'))" :href="outlineLink(value(row, 'outlineUrl', 'outline_url'))" target="_blank">{{ outlineLink(value(row, 'outlineUrl', 'outline_url')) }}</el-link><span v-else>-</span></el-descriptions-item><el-descriptions-item label="Outline更新时间">{{ formatTime(value(row, 'outlineUpdatedAt', 'outline_updated_at')) }}</el-descriptions-item><el-descriptions-item label="本地创建时间">{{ formatTime(value(row, 'createdAt', 'created_at')) }}</el-descriptions-item><el-descriptions-item label="内容字符数">{{ value(row, 'contentChars', 'content_chars') || 0 }}</el-descriptions-item><el-descriptions-item label="Chunk数">{{ value(row, 'chunkCount', 'chunk_count') || 0 }}</el-descriptions-item><el-descriptions-item label="当前Hash" :span="2">{{ value(row, 'contentHash', 'content_hash') || '-' }}</el-descriptions-item><el-descriptions-item label="旧Hash" :span="2">{{ value(row, 'oldContentHash', 'old_content_hash') || '-' }}</el-descriptions-item><el-descriptions-item label="详情说明" :span="2">{{ value(row, 'detailMessage', 'detail_message') || value(row, 'skipReason', 'skip_reason') || '-' }}</el-descriptions-item><el-descriptions-item v-if="value(row, 'errorMessage', 'error_message')" label="错误" :span="2"><span class="error">{{ value(row, 'errorType', 'error_type') }}：{{ value(row, 'errorMessage', 'error_message') }}</span></el-descriptions-item></el-descriptions></div></template></el-table-column>
           <el-table-column label="状态" width="100" fixed><template #default="{ row }"><el-tag size="small" :type="tagType(value(row, 'status'))">{{ value(row, 'status') }}</el-tag></template></el-table-column>
           <el-table-column label="动作" width="170"><template #default="{ row }">{{ value(row, 'action') }}</template></el-table-column>
-          <el-table-column label="文档标题" min-width="260" show-overflow-tooltip><template #default="{ row }"><div class="doc-title"><strong>{{ value(row, 'outlineTitle', 'outline_title') || '未命名文档' }}</strong><el-link v-if="value(row, 'outlineUrl', 'outline_url')" :href="value(row, 'outlineUrl', 'outline_url')" target="_blank" type="primary">打开</el-link></div><small>{{ value(row, 'outlineDocumentId', 'outline_document_id') }}</small></template></el-table-column>
+          <el-table-column label="文档标题" min-width="260" show-overflow-tooltip><template #default="{ row }"><div class="doc-title"><strong>{{ value(row, 'outlineTitle', 'outline_title') || '未命名文档' }}</strong><el-link v-if="outlineLink(value(row, 'outlineUrl', 'outline_url'))" :href="outlineLink(value(row, 'outlineUrl', 'outline_url'))" target="_blank" type="primary">打开</el-link></div><small>{{ value(row, 'outlineDocumentId', 'outline_document_id') }}</small></template></el-table-column>
           <el-table-column label="Chunk" width="80"><template #default="{ row }">{{ value(row, 'chunkCount', 'chunk_count') || 0 }}</template></el-table-column>
           <el-table-column label="字符数" width="90"><template #default="{ row }">{{ value(row, 'contentChars', 'content_chars') || 0 }}</template></el-table-column>
           <el-table-column label="耗时ms" width="90"><template #default="{ row }">{{ value(row, 'costMs', 'cost_ms') || 0 }}</template></el-table-column>
@@ -83,19 +123,44 @@
         </el-table>
       </template>
     </el-drawer>
+
+    <el-card class="verify-card">
+      <template #header>本地知识库检索验证（OUTLINE）</template>
+      <el-alert type="info" show-icon :closable="false" class="mb" title="使用本地知识库检索验证 RAG，请勿使用 Outline 在线搜索代替。" />
+      <el-form :inline="true">
+        <el-form-item label="关键词">
+          <el-input v-model="verifyQuery" placeholder="文档标题或关键词" style="width: 280px" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="verifying" @click="runVerify">验证检索</el-button>
+        </el-form-item>
+      </el-form>
+      <el-empty v-if="verifyResults.length === 0" description="暂无验证结果" />
+      <el-table v-else :data="verifyResults" border size="small">
+        <el-table-column label="标题" min-width="200" show-overflow-tooltip prop="title" />
+        <el-table-column label="Chunk" min-width="120" show-overflow-tooltip prop="heading" />
+        <el-table-column label="分数" width="80" prop="score" />
+        <el-table-column label="片段" min-width="240" show-overflow-tooltip prop="content" />
+      </el-table>
+    </el-card>
   </AgentPageShell>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import AgentPageShell from './components/AgentPageShell.vue'
+import { searchKnowledge, type KnowledgeSearchResult } from '../../api/knowledge'
 import { getOutlineCollections, getOutlineKnowledgeStats, getOutlineStatus, getOutlineSyncTaskDetails, getOutlineSyncTasks, listOutlineDocuments, retryOutlineFailedTask, syncOutline, vectorizeOutline, type OutlineCollection, type OutlineDocument } from '../../api/outline'
+import { outlineKbSyncLabel, outlineKbSyncTagType, outlineRagReady } from '../../utils/outlineHelpers'
+import { formatDateTime } from '../../utils/dateFormat'
 const status = ref<Record<string, any>>({})
 const stats = ref<Record<string, any>>({})
 const collections = ref<OutlineCollection[]>([])
 const documents = ref<OutlineDocument[]>([])
+const documentsLoading = ref(true)
 const selectedDocuments = ref<OutlineDocument[]>([])
+const documentKeyword = ref('')
 const docTableRef = ref<any>()
 const tasks = ref<Record<string, any>[]>([])
 const details = ref<Record<string, any>[]>([])
@@ -106,7 +171,10 @@ const vectorizing = ref(false)
 const detailVisible = ref(false)
 const detailStatus = ref('')
 const vectorizeLimit = ref(500)
-const form = reactive({ collectionId: '', limit: 500, force: false, cleanupMissing: false })
+const form = reactive({ collectionId: '', limit: 500, force: false, dryRun: false, cleanupMissing: false })
+const verifyQuery = ref('')
+const verifyResults = ref<KnowledgeSearchResult[]>([])
+const verifying = ref(false)
 const defaultCollectionId = computed(() => String(value(status.value, 'defaultCollectionId', 'default_collection_id') || ''))
 const fixedCollectionOptions = computed(() => {
   if (!defaultCollectionId.value) return collections.value
@@ -114,24 +182,117 @@ const fixedCollectionOptions = computed(() => {
   return exists ? collections.value : [{ id: defaultCollectionId.value, name: defaultCollectionId.value }, ...collections.value]
 })
 const selectedDocumentIds = computed(() => selectedDocuments.value.map((item) => item.id).filter(Boolean))
+const filteredDocuments = computed(() => {
+  const keyword = documentKeyword.value.trim().toLowerCase()
+  if (!keyword) return documents.value
+  return documents.value.filter((row) => {
+    const fields = [
+      value(row, 'title'),
+      value(row, 'id'),
+      kbLabel(row),
+      value(row, 'kbSyncStatus', 'kb_sync_status'),
+      value(row, 'knowledgeDocumentId', 'knowledge_document_id')
+    ]
+    return fields.some((field) => String(field || '').toLowerCase().includes(keyword))
+  })
+})
 const statusCount = computed(() => { const stat: Record<string, number> = { SUCCESS: 0, SKIPPED: 0, FAILED: 0 }; details.value.forEach((item) => { const s = String(value(item, 'status') || ''); stat[s] = (stat[s] || 0) + 1 }); return stat })
 onMounted(loadAll)
 async function loadAll() { await loadStatus(); await Promise.allSettled([loadStats(), loadCollections(), loadDocuments(), loadTasks()]) }
 async function loadStatus() { status.value = await getOutlineStatus(); form.collectionId = defaultCollectionId.value }
 async function loadStats() { stats.value = await getOutlineKnowledgeStats() }
 async function loadCollections() { collections.value = await getOutlineCollections() }
-async function loadDocuments() { documents.value = await listOutlineDocuments({ collectionId: form.collectionId || undefined, limit: Math.min(form.limit, 100), offset: 0 }); clearSelectedDocuments() }
-async function loadTasks() { tasks.value = await getOutlineSyncTasks(30) }
-async function doSync() { await runSync(false) }
-async function doDryRun() { await runSync(true) }
-async function runSync(dryRun: boolean) { syncing.value = true; try { const documentIds = selectedDocumentIds.value; const result = await syncOutline({ collectionId: form.collectionId || undefined, limit: form.limit, force: form.force, dryRun, cleanupMissing: form.cleanupMissing, documentIds: documentIds.length > 0 ? documentIds : undefined }); ElMessage.success(`${dryRun ? '预演' : '同步'}完成：状态 ${value(result, 'status')}，成功 ${value(result, 'successCount', 'success_count') || 0}，跳过 ${value(result, 'skipCount', 'skip_count') || 0}，失败 ${value(result, 'failCount', 'fail_count') || 0}`); await Promise.allSettled([loadTasks(), loadStats()]); if (value(result, 'id')) await openTask(result) } finally { syncing.value = false } }
-async function doVectorize(force: boolean) { vectorizing.value = true; try { const result = await vectorizeOutline({ force, dryRun: false, limit: vectorizeLimit.value }); ElMessage.success(`补向量完成：total=${value(result, 'total') || 0} success=${value(result, 'success') || 0} failed=${value(result, 'failed') || 0}`); await loadStats() } finally { vectorizing.value = false } }
+async function loadDocuments() {
+  documentsLoading.value = true
+  try {
+    documents.value = await listOutlineDocuments({
+      collectionId: form.collectionId || undefined,
+      limit: Math.min(form.limit, 100),
+      offset: 0
+    })
+    clearSelectedDocuments()
+  } finally {
+    documentsLoading.value = false
+  }
+}
+async function loadTasks() { tasks.value = await getOutlineSyncTasks({ limit: 30 }) }
+async function doSync() { await runSync(form.dryRun) }
+async function doDryRun() { form.dryRun = true; await runSync(true) }
+async function runSync(dryRun: boolean) {
+  if (form.force && !dryRun) {
+    await ElMessageBox.confirm('将强制重新同步选中文档，可能重建 chunk 和 embedding。确认继续？', '高风险操作', { type: 'warning' })
+  }
+  if (form.cleanupMissing && !dryRun) {
+    await ElMessageBox.confirm('将清理 Collection 中已缺失的本地 OUTLINE 文档。确认继续？', '高风险操作', { type: 'warning' })
+  }
+  syncing.value = true
+  try {
+    const documentIds = selectedDocumentIds.value
+    const result = await syncOutline({
+      collectionId: form.collectionId || undefined,
+      limit: form.limit,
+      force: form.force,
+      dryRun,
+      cleanupMissing: form.cleanupMissing,
+      documentIds: documentIds.length > 0 ? documentIds : undefined
+    })
+    ElMessage.success(`${dryRun ? 'Dry Run 预演' : '同步'}完成：状态 ${value(result, 'status')}，成功 ${value(result, 'successCount', 'success_count') || 0}，跳过 ${value(result, 'skipCount', 'skip_count') || 0}，失败 ${value(result, 'failCount', 'fail_count') || 0}`)
+    await Promise.allSettled([loadTasks(), loadStats(), loadDocuments()])
+    if (value(result, 'id')) await openTask(result)
+  } finally {
+    syncing.value = false
+  }
+}
+async function doVectorize(force: boolean) {
+  if (force) {
+    await ElMessageBox.confirm('将强制重建所有 OUTLINE chunk 的 embedding，耗时较长。确认继续？', '高风险操作', { type: 'warning' })
+  }
+  vectorizing.value = true
+  try {
+    const result = await vectorizeOutline({ force, dryRun: false, limit: vectorizeLimit.value })
+    ElMessage.success(`补向量完成：total=${value(result, 'total') || 0} success=${value(result, 'success') || 0} failed=${value(result, 'failed') || 0}`)
+    await Promise.allSettled([loadStats(), loadDocuments()])
+  } finally {
+    vectorizing.value = false
+  }
+}
+function kbLabel(row: Record<string, any>) {
+  return outlineKbSyncLabel(String(value(row, 'kbSyncStatus', 'kb_sync_status') || 'NOT_SYNCED'))
+}
+function kbTagType(row: Record<string, any>) {
+  return outlineKbSyncTagType(String(value(row, 'kbSyncStatus', 'kb_sync_status') || 'NOT_SYNCED'))
+}
+function ragReady(row: Record<string, any>) {
+  return outlineRagReady(row)
+}
+async function runVerify() {
+  const q = verifyQuery.value.trim()
+  if (!q) {
+    ElMessage.warning('请输入检索关键词')
+    return
+  }
+  verifying.value = true
+  try {
+    verifyResults.value = await searchKnowledge({ query: q, sourceType: 'OUTLINE', topK: 8 })
+  } finally {
+    verifying.value = false
+  }
+}
 async function openTask(item: Record<string, any>) { selectedTask.value = item; detailVisible.value = true; detailStatus.value = ''; await loadDetails() }
 async function loadDetails() { const id = value(selectedTask.value, 'id'); if (!id) return; details.value = await getOutlineSyncTaskDetails(String(id), { status: detailStatus.value || undefined, limit: 1000 }) }
 async function retryFailed(item: Record<string, any>) { const id = value(item, 'id'); if (!id) return; retrying.value = true; try { const result = await retryOutlineFailedTask(String(id), true); ElMessage.success(`重试完成：状态 ${value(result, 'status')}，成功 ${value(result, 'successCount', 'success_count') || 0}，失败 ${value(result, 'failCount', 'fail_count') || 0}`); await Promise.allSettled([loadTasks(), loadStats()]); if (value(result, 'id')) await openTask(result) } finally { retrying.value = false } }
 function handleDocumentSelection(rows: OutlineDocument[]) { selectedDocuments.value = rows }
 function clearSelectedDocuments() { selectedDocuments.value = []; docTableRef.value?.clearSelection?.() }
 function value(obj: any, ...keys: string[]) { if (!obj) return ''; for (const key of keys) { const v = obj[key]; if (v !== undefined && v !== null && String(v).trim() !== '') return v } return '' }
+const formatTime = formatDateTime
+function outlineLink(raw: any) {
+  const url = String(raw || '').trim()
+  if (!url) return ''
+  if (url.startsWith('http://') || url.startsWith('https://')) return url
+  const base = String(value(status.value, 'baseUrl', 'base_url') || '').replace(/\/+$/, '')
+  if (!base) return url
+  return url.startsWith('/') ? `${base}${url}` : `${base}/${url}`
+}
 function truthy(v: any) { return v === true || v === 'true' || v === 1 || v === '1' }
 function tagType(status: any) { const s = String(status || ''); if (s === 'SUCCESS' || s === 'DRY_RUN') return 'success'; if (s === 'FAILED') return 'danger'; if (s === 'PARTIAL_SUCCESS' || s === 'DRY_RUN_PARTIAL') return 'warning'; if (s === 'RUNNING') return 'warning'; if (s === 'SKIPPED') return 'info'; return 'info' }
 </script>
@@ -145,6 +306,9 @@ function tagType(status: any) { const s = String(status || ''); if (s === 'SUCCE
 .sync-page { display: grid; grid-template-columns: 360px minmax(360px, 1fr) 460px; gap: 16px; }
 .left-card, .middle-card, .right-card { min-height: calc(100vh - 240px); }
 .card-header, .task-title, .detail-toolbar, .doc-title, .header-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.doc-preview-body { min-height: 280px; }
+.doc-filter { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.doc-filter .el-input { flex: 1; min-width: 180px; }
 .mb { margin-bottom: 16px; }
 .doc-item, .task-item { padding: 12px; background: #f8fafc; border-radius: 10px; margin-bottom: 10px; font-size: 13px; }
 .task-item { cursor: pointer; }
@@ -160,5 +324,8 @@ function tagType(status: any) { const s = String(status || ''); if (s === 'SUCCE
 .summary-item.skipped { background: #f8fafc; color: #475569; }
 .summary-item.failed { background: #fef2f2; color: #dc2626; }
 .detail-expand { padding: 14px; background: #f8fafc; }
+.verify-card { margin-top: 16px; }
+.hint-inline { margin-left: 8px; color: #94a3b8; font-size: 12px; }
+.mt { margin-top: 8px; }
 small { color: #94a3b8; }
 </style>

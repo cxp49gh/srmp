@@ -40,7 +40,7 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
                 dto.setId(item.path("id").asText(null));
                 dto.setName(item.path("name").asText(""));
                 dto.setDescription(item.path("description").asText(""));
-                dto.setUrl(item.path("url").asText(null));
+                dto.setUrl(outlineUrl(item.path("url").asText(null)));
                 result.add(dto);
             }
         }
@@ -66,7 +66,81 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
                 result.add(dto);
             }
         }
+        enrichDocumentsWithKnowledgeStatus(result, TenantContextHolder.getTenantId());
         return result;
+    }
+
+    private void enrichDocumentsWithKnowledgeStatus(List<OutlineDocumentDTO> documents, String tenantId) {
+        if (documents == null || documents.isEmpty() || !notBlank(tenantId)) {
+            return;
+        }
+        List<String> sourceIds = new ArrayList<>();
+        for (OutlineDocumentDTO doc : documents) {
+            if (notBlank(doc.getId())) {
+                sourceIds.add(doc.getId().trim());
+            }
+        }
+        if (sourceIds.isEmpty()) {
+            return;
+        }
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("tenantId", tenantId)
+                .addValue("sourceType", "OUTLINE")
+                .addValue("sourceIds", sourceIds);
+        List<Map<String, Object>> rows = namedParameterJdbcTemplate.queryForList(
+                "select d.source_id, d.id as knowledge_document_id, d.status, " +
+                        "count(c.id) as chunk_count, " +
+                        "sum(case when c.embedding is not null then 1 else 0 end) as embedded_chunk_count " +
+                        "from ai_knowledge_document d " +
+                        "left join ai_knowledge_chunk c on c.tenant_id=d.tenant_id and c.document_id=d.id " +
+                        "where d.tenant_id=:tenantId and d.source_type=:sourceType and d.source_id in (:sourceIds) " +
+                        "group by d.source_id, d.id, d.status",
+                params);
+        Map<String, Map<String, Object>> bySourceId = new LinkedHashMap<>();
+        for (Map<String, Object> row : rows) {
+            String sourceId = row.get("source_id") == null ? null : String.valueOf(row.get("source_id"));
+            if (notBlank(sourceId)) {
+                bySourceId.put(sourceId, row);
+            }
+        }
+        for (OutlineDocumentDTO doc : documents) {
+            Map<String, Object> kb = bySourceId.get(doc.getId());
+            if (kb == null) {
+                doc.setKbSyncStatus("NOT_SYNCED");
+                doc.setRagReady(false);
+                continue;
+            }
+            doc.setKnowledgeDocumentId(kb.get("knowledge_document_id") == null ? null : String.valueOf(kb.get("knowledge_document_id")));
+            int chunkCount = toInt(kb.get("chunk_count"));
+            int embeddedCount = toInt(kb.get("embedded_chunk_count"));
+            doc.setChunkCount(chunkCount);
+            doc.setEmbeddedChunkCount(embeddedCount);
+            String docStatus = kb.get("status") == null ? "" : String.valueOf(kb.get("status"));
+            if (!"ACTIVE".equalsIgnoreCase(docStatus)) {
+                doc.setKbSyncStatus("INACTIVE");
+                doc.setRagReady(false);
+            } else if (chunkCount > 0 && embeddedCount >= chunkCount) {
+                doc.setKbSyncStatus("RAG_READY");
+                doc.setRagReady(true);
+            } else {
+                doc.setKbSyncStatus("PENDING_VECTOR");
+                doc.setRagReady(false);
+            }
+        }
+    }
+
+    private int toInt(Object value) {
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        if (value == null) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     @Override
@@ -427,15 +501,31 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
         dto.setCollectionId(node.path("collectionId").asText(null));
         dto.setTitle(node.path("title").asText(""));
         dto.setText(node.path("text").asText(""));
-        dto.setUrl(node.path("url").asText(null));
+        dto.setUrl(outlineUrl(node.path("url").asText(null)));
         dto.setUpdatedAt(node.path("updatedAt").asText(null));
         return dto;
+    }
+
+    private String outlineUrl(String rawUrl) {
+        if (!notBlank(rawUrl)) {
+            return null;
+        }
+        String url = rawUrl.trim();
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            return url;
+        }
+        String baseUrl = properties == null ? "" : properties.getBaseUrl();
+        if (!notBlank(baseUrl)) {
+            return url;
+        }
+        String base = baseUrl.trim().replaceAll("/+$", "");
+        return url.startsWith("/") ? base + url : base + "/" + url;
     }
 
     private int normalizeLimit(Integer limit) {
         int size = limit == null ? 50 : limit;
         if (size <= 0) size = 50;
-        return Math.min(size, 200);
+        return Math.min(size, 100);
     }
 
     private int normalizeTaskLimit(Integer limit) {

@@ -37,6 +37,16 @@ public class OutlineAutoSyncController {
         return R.ok(outlineAutoSyncService.updateConfig(id, request));
     }
 
+    @PostMapping("/configs/{id}/stop")
+    public R<Map<String, Object>> stopConfig(@PathVariable String id) {
+        return R.ok(outlineAutoSyncService.stopConfig(id));
+    }
+
+    @DeleteMapping("/configs/{id}")
+    public R<Map<String, Object>> deleteConfig(@PathVariable String id) {
+        return R.ok(outlineAutoSyncService.deleteConfig(id));
+    }
+
     @PostMapping("/configs/{id}/run")
     public R<Map<String, Object>> runNow(@PathVariable String id, @RequestBody(required = false) OutlineAutoSyncRunRequest request) {
         return R.ok(outlineAutoSyncService.runNow(id, request));

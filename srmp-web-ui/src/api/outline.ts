@@ -3,7 +3,19 @@ import request, { longRequest } from '../utils/request'
 export interface OutlineSearchRequest { query: string; limit?: number }
 export interface OutlineSearchResult { id: string; title: string; text?: string; url?: string; score?: number }
 export interface OutlineCollection { id: string; name: string; description?: string; url?: string }
-export interface OutlineDocument { id: string; collectionId?: string; title: string; text?: string; url?: string; updatedAt?: string }
+export interface OutlineDocument {
+  id: string
+  collectionId?: string
+  title: string
+  text?: string
+  url?: string
+  updatedAt?: string
+  knowledgeDocumentId?: string
+  kbSyncStatus?: 'NOT_SYNCED' | 'INACTIVE' | 'PENDING_VECTOR' | 'RAG_READY'
+  chunkCount?: number
+  embeddedChunkCount?: number
+  ragReady?: boolean
+}
 
 export interface OutlineSyncRequest {
   collectionId?: string
@@ -23,8 +35,15 @@ export function listOutlineDocuments(data: { collectionId?: string; limit?: numb
   return request.post('/api/outline/documents/list', data)
 }
 export function syncOutline(data: OutlineSyncRequest): Promise<Record<string, any>> { return longRequest.post('/api/outline/sync', data) }
-export function getOutlineSyncTasks(limit = 20): Promise<Record<string, any>[]> {
-  return request.get('/api/outline/sync-tasks', { params: { limit } })
+export function getOutlineSyncTasks(params?: {
+  limit?: number
+  status?: string
+  collectionId?: string
+  dryRun?: boolean
+  from?: string
+  to?: string
+}): Promise<Record<string, any>[]> {
+  return request.get('/api/outline/sync-tasks', { params: { limit: params?.limit ?? 20, ...params } })
 }
 export function getOutlineSyncTask(id: string): Promise<Record<string, any>> { return request.get(`/api/outline/sync-tasks/${id}`) }
 export function getOutlineSyncTaskDetails(id: string, params?: { status?: string; limit?: number }): Promise<Record<string, any>[]> {
@@ -48,6 +67,8 @@ export interface OutlineAutoSyncConfigRequest {
   name?: string
   enabled?: boolean
   collectionId?: string
+  syncScope?: 'COLLECTION' | 'SINGLE_DOCUMENT' | 'MULTIPLE_DOCUMENTS' | string
+  documentIds?: string[]
   intervalMinutes?: number
   force?: boolean
   cleanupMissing?: boolean
@@ -79,6 +100,14 @@ export function updateOutlineAutoSyncConfig(id: string, data: OutlineAutoSyncCon
   return request.put(`/api/outline/auto-sync/configs/${id}`, data)
 }
 
+export function stopOutlineAutoSyncConfig(id: string): Promise<Record<string, any>> {
+  return request.post(`/api/outline/auto-sync/configs/${id}/stop`)
+}
+
+export function deleteOutlineAutoSyncConfig(id: string): Promise<Record<string, any>> {
+  return request.delete(`/api/outline/auto-sync/configs/${id}`)
+}
+
 export function runOutlineAutoSyncNow(id: string, data?: OutlineAutoSyncRunRequest): Promise<Record<string, any>> {
   return longRequest.post(`/api/outline/auto-sync/configs/${id}/run`, data || { triggerType: 'MANUAL' })
 }
@@ -95,4 +124,8 @@ export function testOutlineAutoSyncWebhook(secret: string, payload: Record<strin
   return longRequest.post('/api/outline/auto-sync/webhook', payload, {
     headers: { 'X-Outline-Webhook-Secret': secret }
   })
+}
+
+export function getOutlineGovernanceDashboard(): Promise<Record<string, any>> {
+  return request.get('/api/outline/governance/dashboard')
 }

@@ -11,6 +11,8 @@ public interface OutlineAutoSyncService {
     Map<String, Object> config(String id);
     Map<String, Object> saveConfig(OutlineAutoSyncConfigRequest request);
     Map<String, Object> updateConfig(String id, OutlineAutoSyncConfigRequest request);
+    Map<String, Object> stopConfig(String id);
+    Map<String, Object> deleteConfig(String id);
     Map<String, Object> runNow(String id, OutlineAutoSyncRunRequest request);
     List<Map<String, Object>> runs(String configId, Integer limit);
     Map<String, Object> handleWebhook(String secret, Map<String, Object> payload);

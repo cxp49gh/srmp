@@ -770,6 +770,8 @@ CREATE TABLE IF NOT EXISTS outline_auto_sync_config (
     name                  VARCHAR(200),
     enabled               BOOLEAN DEFAULT FALSE,
     collection_id          VARCHAR(128),
+    sync_scope             VARCHAR(32) DEFAULT 'COLLECTION',
+    document_ids           JSONB DEFAULT '[]'::jsonb,
     interval_minutes       INTEGER DEFAULT 60,
     force                 BOOLEAN DEFAULT FALSE,
     cleanup_missing        BOOLEAN DEFAULT FALSE,
