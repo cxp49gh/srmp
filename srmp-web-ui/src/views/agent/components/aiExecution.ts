@@ -16,6 +16,8 @@ export interface AiExecutionTool {
   count?: number | string
   costMs?: number
   error?: string
+  fallbackReason?: string
+  diagnostic?: string
 }
 
 export interface AiExecutionSnapshot {
@@ -174,7 +176,7 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     },
     quality,
     raw: sanitizeInternalDiagnostics(compactRaw(input)) as Record<string, any>,
-    warnings: buildWarnings(answerMeta, steps, summary.sourceCount, sources.length)
+    warnings: buildWarnings(answerMeta, steps, summary.sourceCount, sources.length, tools)
   }
 }
 
@@ -303,20 +305,25 @@ function sanitizeInternalDiagnostics(value: any): any {
 function normalizeTools(tools: any[]): AiExecutionTool[] {
   return tools.map((tool, index) => {
     const item = asRecord(tool)
+    const data = firstRecord(item.data, item.detail, item.details)
     const name = stringValue(item.name || item.tool || item.toolName || item.type || `tool-${index}`) || `tool-${index}`
     const status = String(item.status || '').toUpperCase()
     const success = item.success !== false && status !== 'FAILED' && status !== 'ERROR'
+    const fallbackReason = stringValue(item.fallbackReason || item.fallback_reason || item.reason || data.fallbackReason || data.fallback_reason || data.reason)
+    const diagnostic = knowledgeFallbackDisplayText(fallbackReason)
     return {
       name,
       success,
-      count: item.count ?? item.hitCount ?? item.resultCount ?? item.total,
+      count: item.count ?? item.hitCount ?? item.resultCount ?? item.total ?? data.count ?? data.hitCount,
       costMs: numberValue(item.costMs ?? item.cost_ms ?? item.elapsedMs),
-      error: stringValue(item.error || item.errorMessage || item.message)
+      error: stringValue(item.error || item.errorMessage || item.message),
+      fallbackReason,
+      diagnostic
     }
   })
 }
 
-function buildWarnings(answerMeta: Record<string, any>, steps: AiExecutionStep[], sourceCount?: number, actualSources = 0): string[] {
+function buildWarnings(answerMeta: Record<string, any>, steps: AiExecutionStep[], sourceCount?: number, actualSources = 0, tools: AiExecutionTool[] = []): string[] {
   const warnings: string[] = []
   const llmStep = steps.find((step) => step.key === 'llm_answer' || step.label.includes('LLM') || step.label.includes('大模型'))
   if (answerMeta.llmSuccess === true && llmStep && llmStep.status !== 'SUCCESS') {
@@ -327,6 +334,12 @@ function buildWarnings(answerMeta: Record<string, any>, steps: AiExecutionStep[]
   }
   if (!Object.keys(answerMeta).length) {
     warnings.push('未返回 answerMeta，可能是旧任务、旧接口或未经过 LangGraph 管线。')
+  }
+  const knowledgeTool = tools.find((tool) => tool.name === 'knowledge.retrieve' && tool.diagnostic)
+  if (knowledgeTool?.diagnostic) {
+    const reason = String(knowledgeTool.fallbackReason || '').toLowerCase()
+    const prefix = reason === 'no embedded chunks' ? '知识库向量未就绪' : '知识库检索提示'
+    warnings.push(`${prefix}：${knowledgeTool.diagnostic}`)
   }
   return warnings
 }
@@ -379,6 +392,18 @@ function booleanValue(value: any): boolean | undefined {
   if (value === undefined || value === null || value === '') return undefined
   if (typeof value === 'boolean') return value
   return String(value).toLowerCase() === 'true'
+}
+
+function knowledgeFallbackDisplayText(value: any): string {
+  const reason = String(value ?? '').trim()
+  if (!reason) return ''
+  const normalized = reason.toLowerCase()
+  if (normalized === 'no embedded chunks') {
+    return '暂无可用向量切片，AI 已尝试关键词检索；请在 AI 运维总览执行补向量或同步入库。'
+  }
+  if (normalized === 'query is empty') return '知识库检索词为空，知识库未参与本次回答。'
+  if (normalized.includes('pgvector')) return '向量检索扩展不可用，AI 已尝试关键词检索；请检查 pgvector 与向量配置。'
+  return `知识检索已切换兜底策略：${reason}`
 }
 
 function compactRaw(input: AiExecutionInput): Record<string, any> {

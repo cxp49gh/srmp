@@ -74,6 +74,7 @@
             <el-tag size="small" :type="tool.success ? 'success' : 'danger'">{{ tool.success ? 'SUCCESS' : 'FAILED' }}</el-tag>
             <span class="muted">count={{ tool.count ?? '-' }}</span>
             <span v-if="tool.costMs !== undefined" class="muted">{{ tool.costMs }}ms</span>
+            <span v-if="tool.diagnostic" class="diagnostic">{{ tool.diagnostic }}</span>
             <span v-if="tool.error" class="error">{{ tool.error }}</span>
           </div>
           <div v-if="snapshot.evidence.sources.length" class="source-summary">
@@ -184,6 +185,12 @@ function formatJson(value: any) {
 .error {
   margin-top: 6px;
   color: #dc2626;
+  word-break: break-all;
+}
+
+.diagnostic {
+  color: #b45309;
+  font-size: 12px;
   word-break: break-all;
 }
 

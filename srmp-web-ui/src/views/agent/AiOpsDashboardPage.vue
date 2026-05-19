@@ -38,15 +38,16 @@
           <div v-if="value(embedding, ['errorMessage'])" class="metric-error">{{ value(embedding, ['errorMessage']) }}</div>
         </el-card>
 
-        <el-card shadow="never" class="metric-card">
+        <el-card shadow="never" class="metric-card" :class="healthClass(!ragReadiness.requiresAction)">
           <div class="metric-head">
             <span>知识库</span>
-            <el-tag size="small" :type="knowledgeVectorReady ? 'success' : 'warning'">{{ knowledgeVectorReady ? 'VECTOR' : 'CHECK' }}</el-tag>
+            <el-tag size="small" :type="ragReadiness.tagType">{{ ragReadiness.statusLabel }}</el-tag>
           </div>
           <div class="metric-value">{{ value(knowledgeStats, ['documentCount']) || 0 }} 文档</div>
           <div class="metric-desc">
             Chunk：{{ value(knowledgeStats, ['chunkCount']) || 0 }}；已向量：{{ value(knowledgeStats, ['embeddedChunkCount']) || 0 }}
           </div>
+          <div v-if="ragReadiness.requiresAction" class="metric-error">{{ ragReadiness.title }}</div>
         </el-card>
 
         <el-card shadow="never" class="metric-card" :class="Number(value(outlineStats, ['pendingEmbeddingChunkCount']) || 0) > 0 ? 'warn' : 'ok'">
@@ -73,6 +74,29 @@
           </template>
 
           <el-alert
+            v-if="ragReadiness.requiresAction"
+            :type="ragReadiness.tagType === 'danger' ? 'error' : 'warning'"
+            show-icon
+            class="mb"
+            :title="ragReadiness.title"
+            :description="ragReadiness.detail"
+          >
+            <div class="alert-actions">
+              <el-button
+                v-if="ragReadiness.actions.includes('VECTORIZE_OUTLINE')"
+                size="small"
+                type="warning"
+                plain
+                :loading="vectorizing"
+                @click="vectorizeOutlineNow"
+              >
+                补 Outline 向量
+              </el-button>
+              <el-button v-if="ragReadiness.actions.includes('SYNC_OUTLINE')" size="small" @click="go('/agent/outline/sync')">去同步入库</el-button>
+              <el-button v-if="ragReadiness.actions.includes('VERIFY_KNOWLEDGE')" size="small" @click="go('/agent/knowledge-vector')">验证知识库检索</el-button>
+            </div>
+          </el-alert>
+          <el-alert
             v-if="!llmHealthy"
             type="error"
             show-icon
@@ -85,13 +109,6 @@
             show-icon
             class="mb"
             title="Embedding 当前不可用或维度异常，RAG 可能退化为关键词检索。"
-          />
-          <el-alert
-            v-if="Number(value(outlineStats, ['pendingEmbeddingChunkCount']) || 0) > 0"
-            type="warning"
-            show-icon
-            class="mb"
-            :title="`Outline 仍有 ${value(outlineStats, ['pendingEmbeddingChunkCount'])} 个 chunk 待补向量，可点击右上角补向量。`"
           />
           <el-alert
             v-if="timeoutWarning"
@@ -115,7 +132,7 @@
             <el-button @click="go('/agent/langgraph-ops')">LangGraph 编排</el-button>
             <el-button @click="go('/agent/knowledge-vector')">向量知识库验证</el-button>
             <el-button @click="go('/agent/rag-eval')">RAG 质量评测</el-button>
-            <el-button @click="go('/agent/outline-auto-sync')">Outline 自动同步</el-button>
+            <el-button @click="go('/agent/outline/auto-sync')">Outline 自动同步</el-button>
             <el-button @click="go('/agent/solution-tasks')">方案任务闭环</el-button>
           </div>
         </el-card>
@@ -146,7 +163,7 @@
           <template #header>
             <div class="card-header">
               <span>Outline 自动同步</span>
-              <el-button size="small" @click="go('/agent/outline-auto-sync')">进入配置</el-button>
+              <el-button size="small" @click="go('/agent/outline/auto-sync')">进入配置</el-button>
             </div>
           </template>
           <div class="outline-summary">
@@ -203,6 +220,7 @@ import {
 } from '../../api/outline'
 import { listAiTraces } from '../../api/trace'
 import { copyToClipboard } from '../../utils/clipboard'
+import { buildKnowledgeReadiness } from '../../utils/aiKnowledgeReadiness'
 
 const router = useRouter()
 const loading = ref(false)
@@ -221,7 +239,7 @@ const traces = ref<Record<string, any>[]>([])
 
 const llmHealthy = computed(() => Boolean(value(llm, ['available', 'success', 'enabled'])) && !value(llm, ['errorMessage', 'error_message']))
 const embeddingHealthy = computed(() => Boolean(value(embedding, ['available'])) && !value(embedding, ['errorMessage', 'error_message']))
-const knowledgeVectorReady = computed(() => Boolean(value(knowledgeStats, ['vectorEnabled'])) || Number(value(knowledgeStats, ['embeddedChunkCount']) || 0) > 0)
+const ragReadiness = computed(() => buildKnowledgeReadiness({ knowledgeStats, outlineStats, embedding }))
 const enabledConfigCount = computed(() => configs.value.filter((item) => truthy(value(item, ['enabled']))).length)
 const llmStatusText = computed(() => llmHealthy.value ? 'OK' : (value(llm, ['status']) || 'CHECK'))
 const embeddingStatusText = computed(() => embeddingHealthy.value ? 'OK' : (value(embedding, ['errorType']) || 'CHECK'))
@@ -233,7 +251,7 @@ const timeoutWarning = computed(() => {
   }
   return ''
 })
-const todoEmpty = computed(() => llmHealthy.value && embeddingHealthy.value && !timeoutWarning.value && Number(value(outlineStats, ['pendingEmbeddingChunkCount']) || 0) <= 0)
+const todoEmpty = computed(() => llmHealthy.value && embeddingHealthy.value && !ragReadiness.value.requiresAction && !timeoutWarning.value && Number(value(outlineStats, ['pendingEmbeddingChunkCount']) || 0) <= 0)
 
 async function loadAll() {
   loading.value = true
@@ -299,6 +317,7 @@ async function copySummary() {
   const summary = [
     `LLM: ${llmStatusText.value} ${value(llm, ['provider']) || ''}/${value(llm, ['model']) || ''}`,
     `Embedding: ${embeddingStatusText.value} ${value(embedding, ['provider']) || ''}/${value(embedding, ['model']) || ''}`,
+    `RAG: ${ragReadiness.value.status} - ${ragReadiness.value.title}`,
     `Knowledge: documents=${value(knowledgeStats, ['documentCount']) || 0}, chunks=${value(knowledgeStats, ['chunkCount']) || 0}, embedded=${value(knowledgeStats, ['embeddedChunkCount']) || 0}`,
     `Outline: documents=${value(outlineStats, ['documentCount']) || 0}, chunks=${value(outlineStats, ['chunkCount']) || 0}, pendingEmbedding=${value(outlineStats, ['pendingEmbeddingChunkCount']) || 0}`,
     timeoutWarning.value ? `Warning: ${timeoutWarning.value}` : ''
@@ -430,6 +449,13 @@ onMounted(loadAll)
 
 .mb {
   margin-bottom: 10px;
+}
+
+.alert-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
 }
 
 .shortcut-grid {

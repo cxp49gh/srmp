@@ -162,3 +162,37 @@ test('AiTrace snapshot normalizes persisted ai trace rows for ops troubleshootin
   assert.equal(snapshot.answerMeta.llmStatus, 'FAILED')
   assert.equal(snapshot.answerMeta.errorMessage, 'LLM 返回为空')
 })
+
+test('AiTrace snapshot turns knowledge retrieval fallback into admin repair advice', () => {
+  const snapshot = toAiExecutionSnapshot({
+    trace: {
+      traceId: 'trace-knowledge-fallback',
+      status: 'SUCCESS',
+      steps: [
+        {
+          step_name: 'tool_execute',
+          step_label: '执行只读工具',
+          status: 'SUCCESS',
+          step_data: {
+            toolResults: [
+              {
+                toolName: 'knowledge.retrieve',
+                success: true,
+                data: {
+                  fallbackReason: 'no embedded chunks'
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    answerMeta: { llmStatus: 'SUCCESS', llmSuccess: true }
+  })
+
+  assert.equal(snapshot.tools[0].name, 'knowledge.retrieve')
+  assert.equal(snapshot.tools[0].success, true)
+  assert.match(snapshot.tools[0].diagnostic, /暂无可用向量切片/)
+  assert.match(snapshot.warnings.join('\n'), /知识库向量未就绪/)
+  assert.match(snapshot.warnings.join('\n'), /补向量或同步入库/)
+})
