@@ -43,7 +43,9 @@ public class AiTraceServiceImpl implements AiTraceService {
     @Override public Map<String,Object> detail(String traceId) {
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("tenantId", TenantContextHolder.getTenantId()).addValue("traceId", traceId);
         List<Map<String,Object>> list = namedParameterJdbcTemplate.queryForList("select id,tenant_id,trace_id,request_type,user_message,mode,status,total_cost_ms,fallback,error_message,created_at from ai_trace_log where tenant_id=:tenantId and trace_id=:traceId order by created_at desc limit 1", p);
-        if (list.isEmpty()) return new LinkedHashMap<>(); Map<String,Object> data = new LinkedHashMap<>(list.get(0)); data.put("steps", steps(traceId)); return data;
+        if (list.isEmpty()) return new LinkedHashMap<>();
+        Map<String,Object> data = new LinkedHashMap<>(list.get(0));
+        return AiTraceDiagnostics.enrich(data, steps(traceId));
     }
     @Override public List<Map<String,Object>> steps(String traceId) {
         List<Map<String,Object>> rows = namedParameterJdbcTemplate.queryForList("select id,tenant_id,trace_id,step_name,step_label,status,cost_ms,hit_count,error_message,step_data,created_at from ai_trace_step where tenant_id=:tenantId and trace_id=:traceId order by created_at asc, id asc", new MapSqlParameterSource().addValue("tenantId", TenantContextHolder.getTenantId()).addValue("traceId", traceId));
