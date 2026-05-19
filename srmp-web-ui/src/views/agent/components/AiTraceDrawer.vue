@@ -18,7 +18,7 @@
         <el-descriptions-item label="RecordId">{{ snapshot.summary.recordId || '-' }}</el-descriptions-item>
       </el-descriptions>
 
-      <AnswerSourceAlert :meta="snapshot.answerMeta" allow-empty />
+      <AnswerSourceAlert v-if="shouldShowAnswerSourceAlert(snapshot)" :meta="snapshot.answerMeta" allow-empty />
 
       <section v-if="snapshot.currentStep" class="trace-section current-step">
         <h3>当前步骤</h3>
@@ -142,6 +142,16 @@ function timelineType(status: string) {
 
 function formatJson(value: any) {
   return JSON.stringify(value || {}, null, 2)
+}
+
+function shouldShowAnswerSourceAlert(value: any) {
+  if (value?.answerMeta && Object.keys(value.answerMeta).length) return true
+  return !isRunningSnapshot(value)
+}
+
+function isRunningSnapshot(value: any) {
+  const status = String(value?.summary?.status || value?.currentStep?.status || '').toUpperCase()
+  return ['RUNNING', 'PROCESSING', 'PENDING', 'QUEUED'].includes(status)
 }
 </script>
 

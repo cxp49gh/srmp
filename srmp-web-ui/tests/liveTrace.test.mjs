@@ -74,6 +74,35 @@ test('AiTrace snapshot accepts live running trace', () => {
   assert.equal(snapshot.evidence.businessCount, 4)
 })
 
+test('AiTrace snapshot does not warn about missing answerMeta while execution is running', () => {
+  const snapshot = toAiExecutionSnapshot({
+    trace: {
+      traceId: 'trace-running-no-meta',
+      status: 'RUNNING',
+      currentStep: { name: 'answer_generate', label: '生成回答', status: 'RUNNING', elapsedMs: 1200 },
+      steps: [{ name: 'tool_execute', label: '执行只读工具', status: 'SUCCESS', elapsedMs: 80, count: 1 }]
+    }
+  })
+
+  assert.equal(snapshot.summary.status, 'RUNNING')
+  assert.equal(snapshot.currentStep.status, 'RUNNING')
+  assert.doesNotMatch(snapshot.warnings.join('\n'), /未返回 answerMeta/)
+  assert.doesNotMatch(snapshot.warnings.join('\n'), /旧任务|旧接口|LangGraph/)
+})
+
+test('AiTrace snapshot still warns about missing answerMeta after a terminal trace finishes', () => {
+  const snapshot = toAiExecutionSnapshot({
+    trace: {
+      traceId: 'trace-success-no-meta',
+      status: 'SUCCESS',
+      steps: [{ name: 'answer_generate', label: '生成回答', status: 'SUCCESS', elapsedMs: 300 }]
+    }
+  })
+
+  assert.equal(snapshot.summary.status, 'SUCCESS')
+  assert.match(snapshot.warnings.join('\n'), /未返回 answerMeta/)
+})
+
 test('AiTrace snapshot redacts internal strategy metadata from user-facing diagnostics', () => {
   const snapshot = toAiExecutionSnapshot({
     trace: {

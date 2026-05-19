@@ -176,7 +176,7 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     },
     quality,
     raw: sanitizeInternalDiagnostics(compactRaw(input)) as Record<string, any>,
-    warnings: buildWarnings(answerMeta, steps, summary.sourceCount, sources.length, tools)
+    warnings: buildWarnings(answerMeta, steps, summary.sourceCount, sources.length, tools, summary.status, currentStep)
   }
 }
 
@@ -323,7 +323,15 @@ function normalizeTools(tools: any[]): AiExecutionTool[] {
   })
 }
 
-function buildWarnings(answerMeta: Record<string, any>, steps: AiExecutionStep[], sourceCount?: number, actualSources = 0, tools: AiExecutionTool[] = []): string[] {
+function buildWarnings(
+  answerMeta: Record<string, any>,
+  steps: AiExecutionStep[],
+  sourceCount?: number,
+  actualSources = 0,
+  tools: AiExecutionTool[] = [],
+  status?: string,
+  currentStep?: AiExecutionStep | null
+): string[] {
   const warnings: string[] = []
   const llmStep = steps.find((step) => step.key === 'llm_answer' || step.label.includes('LLM') || step.label.includes('大模型'))
   if (answerMeta.llmSuccess === true && llmStep && llmStep.status !== 'SUCCESS') {
@@ -332,7 +340,7 @@ function buildWarnings(answerMeta: Record<string, any>, steps: AiExecutionStep[]
   if (typeof sourceCount === 'number' && actualSources > 0 && sourceCount !== actualSources) {
     warnings.push('来源数量与实际来源列表数量存在差异。')
   }
-  if (!Object.keys(answerMeta).length) {
+  if (!Object.keys(answerMeta).length && !isExecutionInProgress(status, currentStep)) {
     warnings.push('未返回 answerMeta，可能是旧任务、旧接口或未经过 LangGraph 管线。')
   }
   const knowledgeTool = tools.find((tool) => tool.name === 'knowledge.retrieve' && tool.diagnostic)
@@ -342,6 +350,11 @@ function buildWarnings(answerMeta: Record<string, any>, steps: AiExecutionStep[]
     warnings.push(`${prefix}：${knowledgeTool.diagnostic}`)
   }
   return warnings
+}
+
+function isExecutionInProgress(status?: string, currentStep?: AiExecutionStep | null): boolean {
+  const values = [status, currentStep?.status].map((item) => String(item || '').toUpperCase())
+  return values.some((item) => ['RUNNING', 'PROCESSING', 'PENDING', 'QUEUED'].includes(item))
 }
 
 function countSources(sources: Record<string, any>[], type: string): number {

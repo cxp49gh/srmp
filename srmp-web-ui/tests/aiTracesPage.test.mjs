@@ -30,3 +30,12 @@ test('AI traces page builds a unified snapshot from persisted trace detail', () 
   assert.match(content, /function extractAnswerMeta/)
   assert.match(content, /function extractToolResults/)
 })
+
+test('AI trace drawer hides empty answerMeta notice while execution is still running', () => {
+  const content = read('src/views/agent/components/AiTraceDrawer.vue')
+
+  assert.match(content, /v-if="shouldShowAnswerSourceAlert\(snapshot\)"/)
+  assert.match(content, /function shouldShowAnswerSourceAlert/)
+  assert.match(content, /isRunningSnapshot/)
+  assert.doesNotMatch(content, /<AnswerSourceAlert :meta="snapshot\.answerMeta" allow-empty \/>/)
+})
