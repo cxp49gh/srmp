@@ -4,7 +4,7 @@
       <span>依据与调用</span>
       <el-tag v-if="sourceCount" size="small" type="info" effect="plain">来源 {{ sourceCount }}</el-tag>
       <el-tag v-if="locatableSourceCount" size="small" type="success" effect="plain">地图 {{ locatableSourceCount }}</el-tag>
-      <el-tag v-if="toolCount" size="small" :type="knowledgeTool?.fallback ? 'warning' : 'success'" effect="plain">工具 {{ toolCount }}</el-tag>
+      <el-tag v-if="toolCount" size="small" :type="toolStatusTagType" effect="plain">工具 {{ toolCount }}</el-tag>
       <span class="toggle">{{ expanded ? '收起' : '展开' }}</span>
     </div>
 
@@ -66,8 +66,8 @@
         </div>
       </div>
 
-      <div v-if="knowledgeTool?.fallbackReason" class="fallback">
-        降级原因：{{ knowledgeTool.fallbackReason }}
+      <div v-if="knowledgeFallbackNotice" class="fallback">
+        知识库状态：{{ knowledgeFallbackNotice }}
       </div>
 
       <div v-if="enableFeedback" class="feedback-bar">
@@ -140,6 +140,8 @@ const feedbackTitle = computed(() =>
 )
 const sourceCount = computed(() => sources.value.length)
 const toolCount = computed(() => toolResults.value.length)
+const failedToolCount = computed(() => toolResults.value.filter((tool: any) => isFailedTool(tool)).length)
+const toolStatusTagType = computed(() => failedToolCount.value ? 'warning' : 'success')
 const locatableSourceCount = computed(() => sources.value.filter((source: any) => hasLocatableTarget(sourceToMapTarget(source))).length)
 
 const hasEvidence = computed(() => {
@@ -152,9 +154,12 @@ const knowledgeTool = computed(() => {
   const data = tool.data || {}
   return {
     ...tool,
-    ...data
+    ...data,
+    fallbackReason: firstNonEmpty(data.fallbackReason, data.fallback_reason, tool.fallbackReason, tool.fallback_reason, data.reason, tool.reason)
   }
 })
+
+const knowledgeFallbackNotice = computed(() => knowledgeFallbackText(knowledgeTool.value?.fallbackReason))
 
 const contextLabel = computed(() => {
   const ctx: any = props.mapContext || {}
@@ -165,6 +170,25 @@ const contextLabel = computed(() => {
   const mode = ctx.mode || ctx.contextScope || (region.objectType ? 'REGION' : (obj.objectType ? 'OBJECT' : '-'))
   return `${mode}｜${route}${disease ? `｜${disease}` : ''}`
 })
+
+function isFailedTool(tool: any) {
+  const status = String(tool?.status || tool?.state || '').toUpperCase()
+  return tool?.success === false || ['FAILED', 'ERROR', 'TIMEOUT'].includes(status)
+}
+
+function firstNonEmpty(...values: any[]) {
+  return values.find((value) => String(value ?? '').trim())
+}
+
+function knowledgeFallbackText(value: any) {
+  const reason = String(value ?? '').trim()
+  if (!reason) return ''
+  const normalized = reason.toLowerCase()
+  if (normalized === 'no embedded chunks') return '暂无可用向量切片，已尝试关键词检索；不影响业务数据分析。'
+  if (normalized === 'query is empty') return '本次问题未形成有效知识库检索词，知识库未参与。'
+  if (normalized.includes('pgvector')) return '向量检索扩展不可用，已尝试关键词检索；不影响业务数据分析。'
+  return `知识检索已切换兜底策略：${reason}`
+}
 
 function sourceTitle(source: any) {
   const title = source.title || source.docTitle || source.documentTitle || source.sourceTitle || '知识片段'

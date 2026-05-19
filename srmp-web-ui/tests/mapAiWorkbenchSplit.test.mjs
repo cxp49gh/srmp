@@ -260,6 +260,17 @@ test('assistant audit details avoid nested evidence headers', () => {
   assert.doesNotMatch(content, /LLM \$\{item\.meta\.llmStatus\}/)
 })
 
+test('assistant evidence panel labels knowledge fallback as retrieval status', () => {
+  const evidenceContent = read('src/views/gis/components/AiEvidencePanel.vue')
+
+  assert.match(evidenceContent, /knowledgeFallbackNotice/)
+  assert.match(evidenceContent, /知识库状态/)
+  assert.match(evidenceContent, /暂无可用向量切片/)
+  assert.match(evidenceContent, /不影响业务数据分析/)
+  assert.doesNotMatch(evidenceContent, /降级原因/)
+  assert.doesNotMatch(evidenceContent, /knowledgeTool\?\.fallback \? 'warning' : 'success'/)
+})
+
 test('assistant collapsed detail summary avoids technical runtime labels', () => {
   const content = read('src/views/gis/components/map-ai/MapAiConversation.vue')
 
