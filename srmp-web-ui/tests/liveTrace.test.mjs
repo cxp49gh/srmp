@@ -106,3 +106,59 @@ test('AiTrace snapshot redacts internal strategy metadata from user-facing diagn
   assert.doesNotMatch(rendered, /strategyVersion|orchestratorStrategy/)
   assert.match(rendered, /保留/)
 })
+
+test('AiTrace snapshot normalizes persisted ai trace rows for ops troubleshooting', () => {
+  const snapshot = toAiExecutionSnapshot({
+    trace: {
+      trace_id: 'ai-db-trace',
+      request_type: 'MAP_OBJECT_SOLUTION',
+      status: 'FAILED',
+      total_cost_ms: 1234,
+      fallback: true,
+      steps: [
+        {
+          id: '1',
+          step_name: 'evidence_fuse',
+          step_label: '融合 GIS 与知识库证据',
+          status: 'SUCCESS',
+          cost_ms: 25,
+          step_data: {
+            toolSuccessCount: 1,
+            toolFailedCount: 1,
+            businessHitCount: 8,
+            knowledgeHitCount: 2,
+            toolSummary: [
+              { toolName: 'gis.queryDiseases', success: true, hitCount: 8, costMs: 12 },
+              { toolName: 'knowledge.retrieve', success: false, hitCount: 0, error: 'timeout' }
+            ]
+          }
+        },
+        {
+          id: '2',
+          step_name: 'llm_answer',
+          step_label: '大模型回答',
+          status: 'FAILED',
+          error_message: 'LLM 返回为空',
+          step_data: {
+            llmStatus: 'FAILED',
+            errorType: 'EMPTY_RESPONSE',
+            errorMessage: 'LLM 返回为空'
+          }
+        }
+      ]
+    }
+  })
+
+  assert.equal(snapshot.summary.traceId, 'ai-db-trace')
+  assert.equal(snapshot.summary.requestType, 'MAP_OBJECT_SOLUTION')
+  assert.equal(snapshot.summary.costMs, 1234)
+  assert.equal(snapshot.summary.toolTotalCount, 2)
+  assert.equal(snapshot.summary.toolSuccessCount, 1)
+  assert.equal(snapshot.summary.toolFailedCount, 1)
+  assert.equal(snapshot.evidence.businessCount, 8)
+  assert.equal(snapshot.evidence.knowledgeCount, 2)
+  assert.equal(snapshot.tools[1].name, 'knowledge.retrieve')
+  assert.equal(snapshot.tools[1].success, false)
+  assert.equal(snapshot.answerMeta.llmStatus, 'FAILED')
+  assert.equal(snapshot.answerMeta.errorMessage, 'LLM 返回为空')
+})
