@@ -48,3 +48,12 @@ test('AI trace drawer renders evidence source rows for admin troubleshooting', (
   assert.match(content, /sourceExcerpt\(source\)/)
   assert.match(content, /sourceType\(source\)/)
 })
+
+test('AI traces page shows loading state before empty state', () => {
+  const content = read('src/views/agent/AiTracesPage.vue')
+
+  assert.match(content, /const tracesLoading = ref\(false\)/)
+  assert.match(content, /v-loading="tracesLoading"/)
+  assert.match(content, /v-if="!tracesLoading && traces\.length === 0"/)
+  assert.match(content, /finally\s*\{\s*tracesLoading\.value = false\s*\}/)
+})

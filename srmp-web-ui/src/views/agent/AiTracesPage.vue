@@ -1,11 +1,11 @@
 <template>
   <AgentPageShell title="AI 调用监控" description="按 traceId 快速定位模型、工具、证据和失败原因。">
     <div class="page-grid">
-      <el-card class="left-card">
+      <el-card class="left-card" v-loading="tracesLoading">
         <template #header>
           <div class="card-header">
             <span>调用列表</span>
-            <el-button size="small" @click="loadTraces">刷新</el-button>
+            <el-button size="small" :loading="tracesLoading" @click="loadTraces">刷新</el-button>
           </div>
         </template>
 
@@ -30,11 +30,11 @@
             <el-input v-model="query.toolName" clearable placeholder="工具名" style="width: 180px" />
           </el-form-item>
           <el-form-item>
-            <el-button type="primary" @click="loadTraces">查询</el-button>
+            <el-button type="primary" :loading="tracesLoading" @click="loadTraces">查询</el-button>
           </el-form-item>
         </el-form>
 
-        <el-empty v-if="traces.length === 0" description="暂无 trace" />
+        <el-empty v-if="!tracesLoading && traces.length === 0" description="暂无 trace" />
         <div
           v-for="item in traces"
           :key="traceIdOf(item)"
@@ -189,6 +189,7 @@ import { getAiExecution, listAiExecutions } from '../../api/trace'
 
 const query = reactive({ status: '', keyword: '', projectId: '', routeCode: '', toolName: '', limit: 50 })
 const traces = ref<Record<string, any>[]>([])
+const tracesLoading = ref(false)
 const selected = ref<Record<string, any> | null>(null)
 const detail = ref<Record<string, any> | null>(null)
 const traceDrawerVisible = ref(false)
@@ -243,7 +244,12 @@ const failureReason = computed(() => {
 onMounted(loadTraces)
 
 async function loadTraces() {
-  traces.value = await listAiExecutions(query)
+  tracesLoading.value = true
+  try {
+    traces.value = await listAiExecutions(query)
+  } finally {
+    tracesLoading.value = false
+  }
 }
 
 async function selectTrace(item: Record<string, any>) {
