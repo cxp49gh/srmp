@@ -65,10 +65,14 @@ public class AiExecutionServiceImpl implements AiExecutionService {
             if (!rows.isEmpty()) {
                 Map<String, Object> detail = toDetail(rows.get(0));
                 String executionId = safe(rows.get(0).get("id"));
-                detail.put("steps", steps(p));
-                detail.put("toolResults", toolCalls(p, executionId));
-                detail.put("sources", evidence(p));
-                detail.put("evidence", evidenceSummary((List<Map<String, Object>>) detail.get("sources"), (List<Map<String, Object>>) detail.get("toolResults")));
+                List<Map<String, Object>> steps = steps(p);
+                List<Map<String, Object>> tools = toolCalls(p, executionId);
+                List<Map<String, Object>> sources = evidence(p);
+                detail.put("steps", steps);
+                detail.put("toolResults", tools);
+                detail.put("sources", sources);
+                refreshDetailSummaryCounts(detail, tools, sources);
+                detail.put("evidence", evidenceSummary(sources, tools));
                 detail.put("legacy", false);
                 return detail;
             }
@@ -307,6 +311,22 @@ public class AiExecutionServiceImpl implements AiExecutionService {
         return evidence;
     }
 
+    static void refreshDetailSummaryCounts(Map<String, Object> detail, List<Map<String, Object>> tools, List<Map<String, Object>> sources) {
+        int total = tools == null ? 0 : tools.size();
+        int success = 0;
+        for (Map<String, Object> tool : tools == null ? Collections.<Map<String, Object>>emptyList() : tools) {
+            Object explicitSuccess = tool.get("success");
+            String status = safeString(tool.get("status"));
+            if (Boolean.TRUE.equals(explicitSuccess) || ("".equals(status) && !Boolean.FALSE.equals(explicitSuccess)) || "SUCCESS".equalsIgnoreCase(status)) {
+                success++;
+            }
+        }
+        detail.put("toolTotalCount", total);
+        detail.put("toolSuccessCount", success);
+        detail.put("toolFailedCount", Math.max(0, total - success));
+        detail.put("sourceCount", sources == null ? 0 : sources.size());
+    }
+
     private boolean hasExecutionOnlyFilter(Map<String, Object> query) {
         return notBlank(query.get("projectId")) || notBlank(query.get("routeCode")) || notBlank(query.get("objectType")) ||
                 notBlank(query.get("action")) || notBlank(query.get("intent")) || notBlank(query.get("toolName")) ||
@@ -346,6 +366,10 @@ public class AiExecutionServiceImpl implements AiExecutionService {
     }
 
     private String safe(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private static String safeString(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
     }
 
