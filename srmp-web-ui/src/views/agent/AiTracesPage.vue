@@ -69,7 +69,16 @@
           </div>
         </template>
 
-        <el-empty v-if="!detailLoading && !detail" description="请选择 trace" />
+        <el-empty v-if="!detailLoading && !detail && !detailError" description="请选择 trace" />
+        <el-alert
+          v-if="detailError"
+          class="mb"
+          type="error"
+          show-icon
+          :closable="false"
+          title="详情加载失败"
+          :description="detailError"
+        />
         <template v-else-if="detail">
           <section class="summary-grid">
             <div class="summary-cell">
@@ -191,6 +200,7 @@ const query = reactive({ status: '', keyword: '', projectId: '', routeCode: '', 
 const traces = ref<Record<string, any>[]>([])
 const tracesLoading = ref(false)
 const detailLoading = ref(false)
+const detailError = ref('')
 const selected = ref<Record<string, any> | null>(null)
 const detail = ref<Record<string, any> | null>(null)
 const traceDrawerVisible = ref(false)
@@ -263,6 +273,7 @@ async function selectDefaultTrace(items: Record<string, any>[]) {
     detailRequestSeq += 1
     selected.value = null
     detail.value = null
+    detailError.value = ''
     detailLoading.value = false
     return
   }
@@ -277,11 +288,15 @@ async function selectTrace(item: Record<string, any>) {
   const requestSeq = ++detailRequestSeq
   selected.value = item
   detail.value = null
+  detailError.value = ''
   detailLoading.value = true
   try {
     const loadedDetail = await getAiExecution(traceIdOf(item))
     if (requestSeq !== detailRequestSeq) return
     detail.value = loadedDetail
+  } catch (error) {
+    if (requestSeq !== detailRequestSeq) return
+    detailError.value = detailErrorMessage(error)
   } finally {
     if (requestSeq === detailRequestSeq) {
       detailLoading.value = false
@@ -412,6 +427,11 @@ function stringValue(...values: any[]) {
     if (value !== undefined && value !== null && value !== '') return String(value)
   }
   return ''
+}
+
+function detailErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message) return error.message
+  return '详情接口未返回有效结果，请稍后重试或复制 traceId 排查。'
 }
 
 function scopeBrief(scope: Record<string, any>) {

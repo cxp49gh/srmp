@@ -73,7 +73,7 @@ test('AI traces page shows detail loading state while fetching selected trace', 
 
   assert.match(content, /const detailLoading = ref\(false\)/)
   assert.match(content, /<el-card class="middle-card" v-loading="detailLoading">/)
-  assert.match(content, /<el-empty v-if="!detailLoading && !detail" description="请选择 trace" \/>/)
+  assert.match(content, /<el-empty v-if="!detailLoading && !detail && !detailError" description="请选择 trace" \/>/)
   assert.match(content, /<template v-else-if="detail">/)
   assert.match(content, /detail\.value = null[\s\S]*detailLoading\.value = true[\s\S]*const loadedDetail = await getAiExecution\(traceIdOf\(item\)\)[\s\S]*detail\.value = loadedDetail/)
   assert.match(content, /finally\s*\{\s*if \(requestSeq === detailRequestSeq\) \{\s*detailLoading\.value = false\s*\}/)
@@ -88,4 +88,14 @@ test('AI traces page ignores stale detail responses after switching traces', () 
   assert.match(content, /if \(requestSeq !== detailRequestSeq\) return/)
   assert.match(content, /detail\.value = loadedDetail/)
   assert.match(content, /if \(requestSeq === detailRequestSeq\) \{\s*detailLoading\.value = false\s*\}/)
+})
+
+test('AI traces page shows detail error state instead of select prompt on failed detail request', () => {
+  const content = read('src/views/agent/AiTracesPage.vue')
+
+  assert.match(content, /const detailError = ref\(''\)/)
+  assert.match(content, /<el-empty v-if="!detailLoading && !detail && !detailError" description="请选择 trace" \/>/)
+  assert.match(content, /<el-alert[\s\S]*v-if="detailError"[\s\S]*title="详情加载失败"[\s\S]*:description="detailError"/)
+  assert.match(content, /catch \(error\)[\s\S]*if \(requestSeq !== detailRequestSeq\) return[\s\S]*detailError\.value = detailErrorMessage\(error\)/)
+  assert.match(content, /function detailErrorMessage\(error: unknown\)/)
 })
