@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from .java_tools import JavaToolGateway
 from .live_trace import LiveTraceStore
+from .observability import _business_scope_from_request
 from .plan_execution import build_plan_execution, normalize_plan_preview
 from .schemas import (
     ActionResult,
@@ -78,7 +79,7 @@ class MapAgentRunWorkflow:
         trace_id: Optional[str],
     ) -> MapAgentRunResponse:
         resolved_trace_id = self._trace_id(request, trace_id)
-        self._start_live_trace(resolved_trace_id, normalize_action(request.action), "solution_generation_graph")
+        self._start_live_trace(resolved_trace_id, normalize_action(request.action), "solution_generation_graph", request)
         self._start_live_step(resolved_trace_id, "solution_generate", "生成方案预览")
         try:
             tool_result = await self.gateway.execute_tool(
@@ -154,7 +155,7 @@ class MapAgentRunWorkflow:
         trace_id: Optional[str],
     ) -> MapAgentRunResponse:
         resolved_trace_id = self._trace_id(request, trace_id)
-        self._start_live_trace(resolved_trace_id, "SAVE_SOLUTION_DRAFT", "draft_save_graph")
+        self._start_live_trace(resolved_trace_id, "SAVE_SOLUTION_DRAFT", "draft_save_graph", request)
         if not bool((request.options or {}).get("confirmed")):
             self._start_live_step(resolved_trace_id, "write_confirmation_check", "写入确认检查")
             response = MapAgentRunResponse(
@@ -277,9 +278,9 @@ class MapAgentRunWorkflow:
         response.trace = dict(response.trace or {})
         response.trace["planExecution"] = plan_execution
 
-    def _start_live_trace(self, trace_id: str, action: str, graph_name: str) -> None:
+    def _start_live_trace(self, trace_id: str, action: str, graph_name: str, request: Optional[MapAgentRunRequest] = None) -> None:
         if self.live_trace_store and trace_id:
-            self.live_trace_store.start_trace(trace_id, action=action, graph_name=graph_name)
+            self.live_trace_store.start_trace(trace_id, action=action, graph_name=graph_name, business_scope=_business_scope_from_request(request))
 
     def _start_live_step(self, trace_id: str, name: str, label: str) -> None:
         if self.live_trace_store and trace_id:

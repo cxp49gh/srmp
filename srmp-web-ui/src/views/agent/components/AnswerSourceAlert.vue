@@ -35,12 +35,12 @@ const alertType = computed(() => {
 })
 
 const title = computed(() => {
-  if (!hasMeta.value) return '未返回 answerMeta'
+  if (!hasMeta.value) return '诊断元数据未写入'
   return meta.value.answerSourceLabel || sourceLabel(meta.value.answerSource)
 })
 
 const notice = computed(() => {
-  if (!hasMeta.value) return '当前结果缺少 answerMeta，可能是旧任务、旧接口或没有经过 LangGraph 管线。'
+  if (!hasMeta.value) return '该记录没有模型来源元数据，可结合业务范围、工具调用和原始诊断继续排查。'
   if (meta.value.notice || meta.value.answerNotice) return meta.value.notice || meta.value.answerNotice
   if (meta.value.llmSuccess && meta.value.answerSource === 'LLM') return '本次回答由大模型成功生成。'
   const reason = meta.value.fallbackReason || meta.value.llmStatus || '大模型未返回有效内容'

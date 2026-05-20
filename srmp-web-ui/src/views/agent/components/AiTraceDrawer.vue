@@ -20,6 +20,20 @@
 
       <AnswerSourceAlert v-if="shouldShowAnswerSourceAlert(snapshot)" :meta="snapshot.answerMeta" allow-empty />
 
+      <section v-if="Object.keys(snapshot.businessScope || {}).length" class="trace-section">
+        <h3>业务范围</h3>
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="项目">{{ snapshot.businessScope.projectId || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="路线">{{ snapshot.businessScope.routeCode || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="年份">{{ snapshot.businessScope.year || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="层级">{{ snapshot.businessScope.sectionTier || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="对象">{{ snapshot.businessScope.objectType || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="对象ID">{{ snapshot.businessScope.objectId || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="方向">{{ snapshot.businessScope.direction || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="桩号">{{ stakeRangeLabel(snapshot.businessScope) }}</el-descriptions-item>
+        </el-descriptions>
+      </section>
+
       <section v-if="snapshot.currentStep" class="trace-section current-step">
         <h3>当前步骤</h3>
         <div class="step-title">
@@ -152,6 +166,13 @@ function shouldShowAnswerSourceAlert(value: any) {
 function isRunningSnapshot(value: any) {
   const status = String(value?.summary?.status || value?.currentStep?.status || '').toUpperCase()
   return ['RUNNING', 'PROCESSING', 'PENDING', 'QUEUED'].includes(status)
+}
+
+function stakeRangeLabel(scope: Record<string, any>) {
+  const start = scope?.startStake ?? scope?.start_stake
+  const end = scope?.endStake ?? scope?.end_stake
+  if (start === undefined && end === undefined) return '-'
+  return `${start ?? '-'} - ${end ?? '-'}`
 }
 </script>
 

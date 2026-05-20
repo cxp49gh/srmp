@@ -3,6 +3,7 @@ package com.smartroad.srmp.agent.tool.impl;
 import com.smartroad.srmp.agent.mapagent.dto.MapAiContext;
 import com.smartroad.srmp.agent.tool.AiToolContext;
 import com.smartroad.srmp.agent.tool.AiToolResult;
+import com.smartroad.srmp.agent.tool.support.AiBusinessScope;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.stereotype.Component;
 
@@ -36,11 +37,12 @@ public class MapDiseaseStakeRangeTool extends AbstractJdbcAiTool {
     public AiToolResult execute(AiToolContext context, Map<String, Object> args) {
         long startTime = System.currentTimeMillis();
         try {
+            AiBusinessScope scope = businessScope(context, args);
             MapAiContext map = context == null ? null : context.getMapContext();
             Map<String, Object> obj = map == null ? null : map.getMapObject();
 
-            BigDecimal startStake = toDecimal(first(obj, "startStake", "start_stake", "startMileage", "start_mileage"));
-            BigDecimal endStake = toDecimal(first(obj, "endStake", "end_stake", "endMileage", "end_mileage"));
+            BigDecimal startStake = scope.getStartStake() == null ? toDecimal(first(obj, "startStake", "start_stake", "startMileage", "start_mileage")) : toDecimal(scope.getStartStake());
+            BigDecimal endStake = scope.getEndStake() == null ? toDecimal(first(obj, "endStake", "end_stake", "endMileage", "end_mileage")) : toDecimal(scope.getEndStake());
             if (startStake == null && endStake == null) {
                 return AiToolResult.success(name(), "当前评定对象缺少起止桩号，无法查询单元内病害", new LinkedHashMap<String, Object>(), 0, System.currentTimeMillis() - startTime);
             }
@@ -52,21 +54,19 @@ public class MapDiseaseStakeRangeTool extends AbstractJdbcAiTool {
                 endStake = tmp;
             }
 
-            MapSqlParameterSource p = baseParams(context);
+            MapSqlParameterSource p = baseParams(context, args);
             p.addValue("startStake", startStake);
             p.addValue("endStake", endStake);
             p.addValue("limit", limit(args));
 
+            String filters = routeFilter("d") + directProjectFilter("d") + directionFilter("d") + stakeOverlapFilter("d");
+            Integer total = namedParameterJdbcTemplate.queryForObject(
+                    "select count(*) from disease_record d where d.tenant_id=:tenantId and d.deleted=false " + filters, p, Integer.class);
             List<Map<String, Object>> rows = namedParameterJdbcTemplate.queryForList(
-                    "select id, route_code, start_stake, end_stake, disease_name, disease_type, severity, quantity, measure_unit " +
-                            "from disease_record " +
-                            "where tenant_id=:tenantId and deleted=false " + routeFilter("") +
-                            " and (" +
-                            "   (start_stake between :startStake and :endStake) " +
-                            "   or (end_stake between :startStake and :endStake) " +
-                            "   or (start_stake <= :startStake and end_stake >= :endStake) " +
-                            " ) " +
-                            "order by case severity when 'HEAVY' then 1 when 'MEDIUM' then 2 else 3 end, start_stake nulls last " +
+                    "select d.id, d.route_code, d.direction, d.start_stake, d.end_stake, d.disease_name, d.disease_type, d.severity, d.quantity, d.measure_unit " +
+                            "from disease_record d " +
+                            "where d.tenant_id=:tenantId and d.deleted=false " + filters +
+                            "order by case d.severity when 'HEAVY' then 1 when 'MEDIUM' then 2 else 3 end, d.start_stake nulls last " +
                             "limit :limit",
                     p
             );
@@ -74,8 +74,13 @@ public class MapDiseaseStakeRangeTool extends AbstractJdbcAiTool {
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("items", rows);
             data.put("count", rows.size());
+            data.put("returnedCount", rows.size());
+            data.put("totalCount", total == null ? rows.size() : total);
+            data.put("truncated", total != null && total > rows.size());
             data.put("startStake", startStake);
             data.put("endStake", endStake);
+            data.put("queryScope", scope.toQueryScope());
+            data.put("scopeWarnings", scope.getScopeWarnings());
             data.put("summary", summarize(rows));
 
             return AiToolResult.success(name(), "查询到评定单元内病害 " + rows.size() + " 条", data, rows.size(), System.currentTimeMillis() - startTime);

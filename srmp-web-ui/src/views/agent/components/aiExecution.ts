@@ -48,6 +48,7 @@ export interface AiExecutionSnapshot {
     sources: Record<string, any>[]
   }
   quality?: Record<string, any>
+  businessScope: Record<string, any>
   raw: Record<string, any>
   warnings: string[]
 }
@@ -133,6 +134,16 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
   const liveSourceSummary = firstRecord(trace?.sourceSummary, trace?.source_summary)
   const evidenceData = extractEvidenceFromSteps(rawSteps)
   const tools = normalizeTools(toolResults)
+  const businessScope = sanitizeInternalDiagnostics(firstRecord(
+    record?.businessScope,
+    record?.business_scope,
+    trace?.businessScope,
+    trace?.business_scope,
+    responseData.businessScope,
+    responseData.business_scope,
+    responsePreview.businessScope,
+    responsePreview.business_scope
+  )) as Record<string, any>
   const quality = sanitizeInternalDiagnostics(firstRecord(
     solution.quality,
     solution.qualityCheck,
@@ -175,6 +186,7 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
       sources
     },
     quality,
+    businessScope,
     raw: sanitizeInternalDiagnostics(compactRaw(input)) as Record<string, any>,
     warnings: buildWarnings(answerMeta, steps, summary.sourceCount, sources.length, tools, summary.status, currentStep)
   }
@@ -314,7 +326,7 @@ function normalizeTools(tools: any[]): AiExecutionTool[] {
     return {
       name,
       success,
-      count: item.count ?? item.hitCount ?? item.resultCount ?? item.total ?? data.count ?? data.hitCount,
+      count: item.count ?? item.returnedCount ?? item.returned_count ?? item.hitCount ?? item.resultCount ?? item.total ?? data.count ?? data.hitCount,
       costMs: numberValue(item.costMs ?? item.cost_ms ?? item.elapsedMs),
       error: stringValue(item.error || item.errorMessage || item.message),
       fallbackReason,
@@ -341,7 +353,7 @@ function buildWarnings(
     warnings.push('来源数量与实际来源列表数量存在差异。')
   }
   if (!Object.keys(answerMeta).length && !isExecutionInProgress(status, currentStep)) {
-    warnings.push('未返回 answerMeta，可能是旧任务、旧接口或未经过 LangGraph 管线。')
+    warnings.push('该记录没有模型来源元数据；请结合业务范围、工具调用和原始诊断继续排查。')
   }
   const knowledgeTool = tools.find((tool) => tool.name === 'knowledge.retrieve' && tool.diagnostic)
   if (knowledgeTool?.diagnostic) {

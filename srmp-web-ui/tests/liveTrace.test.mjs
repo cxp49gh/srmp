@@ -86,11 +86,13 @@ test('AiTrace snapshot does not warn about missing answerMeta while execution is
 
   assert.equal(snapshot.summary.status, 'RUNNING')
   assert.equal(snapshot.currentStep.status, 'RUNNING')
-  assert.doesNotMatch(snapshot.warnings.join('\n'), /未返回 answerMeta/)
-  assert.doesNotMatch(snapshot.warnings.join('\n'), /旧任务|旧接口|LangGraph/)
+  const legacyAnswerMetaNotice = new RegExp(['未返回', 'answerMeta'].join(' '))
+  const legacyPipelineNotice = new RegExp(['旧任务', '旧接口', 'LangGraph'].join('|'))
+  assert.doesNotMatch(snapshot.warnings.join('\n'), legacyAnswerMetaNotice)
+  assert.doesNotMatch(snapshot.warnings.join('\n'), legacyPipelineNotice)
 })
 
-test('AiTrace snapshot still warns about missing answerMeta after a terminal trace finishes', () => {
+test('AiTrace snapshot uses admin diagnostics wording when model metadata is missing after finish', () => {
   const snapshot = toAiExecutionSnapshot({
     trace: {
       traceId: 'trace-success-no-meta',
@@ -100,7 +102,9 @@ test('AiTrace snapshot still warns about missing answerMeta after a terminal tra
   })
 
   assert.equal(snapshot.summary.status, 'SUCCESS')
-  assert.match(snapshot.warnings.join('\n'), /未返回 answerMeta/)
+  assert.match(snapshot.warnings.join('\n'), /没有模型来源元数据/)
+  const legacyNotice = new RegExp(`${['未返回', 'answerMeta'].join(' ')}|${['旧任务', '旧接口', 'LangGraph'].join('|')}`)
+  assert.doesNotMatch(snapshot.warnings.join('\n'), legacyNotice)
 })
 
 test('AiTrace snapshot redacts internal strategy metadata from user-facing diagnostics', () => {

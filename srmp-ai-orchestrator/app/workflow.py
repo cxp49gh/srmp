@@ -11,6 +11,7 @@ from .intent import recognize_intent
 from .java_tools import JavaToolGateway, extract_knowledge_sources
 from .live_trace import LiveTraceStore
 from .llm_client import LlmClient, LlmResult
+from .observability import _business_scope_from_request
 from .plan_execution import build_plan_execution, normalize_plan_preview
 from .plan_preview import build_plan_warnings, build_source_hints, enrich_tool_plan
 from .planner import plan_tools
@@ -215,6 +216,7 @@ class LangGraphWorkflow:
             state.get("trace_id") or "",
             action=action,
             graph_name=self._graph_name_from_action(action),
+            business_scope=_business_scope_from_request(state.get("request")),
         )
 
     def _wrap_node(self, node: str, handler):

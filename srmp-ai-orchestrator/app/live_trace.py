@@ -15,7 +15,7 @@ class LiveTraceStore:
         self._records = OrderedDict()
         self._lock = Lock()
 
-    def start_trace(self, trace_id: str, action: str = "", graph_name: str = "") -> Dict[str, Any]:
+    def start_trace(self, trace_id: str, action: str = "", graph_name: str = "", business_scope: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         trace_id = self._safe_trace_id(trace_id)
         ts = now_ms()
         with self._lock:
@@ -25,6 +25,7 @@ class LiveTraceStore:
                 "toolSummary": {"planned": 0, "completed": 0, "success": 0, "failed": 0},
                 "sourceSummary": {"business": 0, "knowledge": 0, "outline": 0},
                 "answerMeta": {},
+                "businessScope": {},
                 "error": "",
                 "startedAtMs": ts,
             }
@@ -32,6 +33,7 @@ class LiveTraceStore:
                 "status": "RUNNING",
                 "action": action or record.get("action") or "",
                 "graphName": graph_name or record.get("graphName") or "",
+                "businessScope": dict(business_scope or record.get("businessScope") or {}),
                 "currentStep": record.get("currentStep"),
                 "updatedAtMs": ts,
                 "costMs": max(0, ts - int(record.get("startedAtMs") or ts)),
@@ -134,6 +136,7 @@ class LiveTraceStore:
             "toolSummary": {"planned": 0, "completed": 0, "success": 0, "failed": 0},
             "sourceSummary": {"business": 0, "knowledge": 0, "outline": 0},
             "answerMeta": {},
+            "businessScope": {},
             "error": "",
             "startedAtMs": None,
             "updatedAtMs": now_ms(),
@@ -157,6 +160,7 @@ class LiveTraceStore:
                 "toolSummary": {"planned": 0, "completed": 0, "success": 0, "failed": 0},
                 "sourceSummary": {"business": 0, "knowledge": 0, "outline": 0},
                 "answerMeta": {},
+                "businessScope": {},
                 "error": "",
                 "startedAtMs": ts,
                 "updatedAtMs": ts,

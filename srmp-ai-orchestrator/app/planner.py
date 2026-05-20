@@ -36,14 +36,14 @@ def plan_object_tools(calls: List[ToolCall], ctx: Optional[MapAiContext], obj: D
     if object_type == "ROAD_SECTION":
         add(calls, "gis.queryAssessmentResults", context_args(ctx, {"limit": 20}), "路段评定结果查询")
         add(calls, "gis.queryDiseases", context_args(ctx, {"limit": 50}), "路段病害查询")
-        add(calls, "gis.queryDiseasesByStakeRange", stake_args(obj, {"limit": 50}), "路段桩号范围内病害查询")
+        add(calls, "gis.queryDiseasesByStakeRange", stake_args(ctx, obj, {"limit": 50}), "路段桩号范围内病害查询")
         return
     if object_type == "DISEASE":
         add(calls, "gis.queryNearbyObjects", context_args(ctx, {"limit": 20}), "当前病害周边对象查询")
         return
     if object_type == "ASSESSMENT_RESULT":
         add(calls, "gis.queryAssessmentResults", context_args(ctx, {"limit": 20}), "当前评定结果查询")
-        add(calls, "gis.queryDiseasesByStakeRange", stake_args(obj, {"limit": 50}), "评定单元内病害查询")
+        add(calls, "gis.queryDiseasesByStakeRange", stake_args(ctx, obj, {"limit": 50}), "评定单元内病害查询")
 
 
 def should_use_knowledge(options: Dict[str, Any], intent: str) -> bool:
@@ -73,7 +73,26 @@ def dedupe_and_limit(calls: List[ToolCall]) -> List[ToolCall]:
 
 
 def context_args(ctx: Optional[MapAiContext], extra: Dict[str, Any]) -> Dict[str, Any]:
-    base = {"tenantId": ctx.tenantId if ctx else None, "routeCode": ctx.routeCode if ctx else None, "year": ctx.year if ctx else None}
+    obj = ctx.mapObject if ctx and ctx.mapObject else {}
+    raw = obj.get("raw") if isinstance(obj.get("raw"), dict) else {}
+    extra_context = ctx.extra if ctx and isinstance(ctx.extra, dict) else {}
+    raw_context = first_dict(extra_context, "rawContext", "raw_context")
+    query = first_dict(raw_context, "query")
+    base = {
+        "tenantId": ctx.tenantId if ctx else None,
+        "projectId": first_value(extra_context, "projectId", "project_id") or first_value(query, "projectId", "project_id") or first_value(raw_context, "projectId", "project_id"),
+        "routeCode": ctx.routeCode if ctx else None,
+        "year": ctx.year if ctx else None,
+        "sectionTier": first_value(query, "sectionTier", "section_tier") or first_value(extra_context, "sectionTier", "section_tier"),
+        "contextScope": ctx.mode if ctx else None,
+        "objectType": first_value(obj, "objectType", "object_type", "type", "layerType"),
+        "objectId": first_value(obj, "objectId", "object_id", "id"),
+        "assessmentObjectType": first_value(raw, "objectType", "object_type"),
+        "direction": first_value(obj, "direction") or first_value(raw, "direction"),
+        "stakeStart": first_present(first_value(obj, "stakeStart", "startStake", "start_stake"), first_value(raw, "stakeStart", "startStake", "start_stake")),
+        "stakeEnd": first_present(first_value(obj, "stakeEnd", "endStake", "end_stake"), first_value(raw, "stakeEnd", "endStake", "end_stake")),
+        "selectedLayers": ctx.selectedLayers if ctx else None,
+    }
     base.update(extra)
     return base
 
@@ -85,12 +104,13 @@ def region_args(ctx: Optional[MapAiContext], extra: Dict[str, Any]) -> Dict[str,
     return base
 
 
-def stake_args(obj: Dict[str, Any], extra: Dict[str, Any]) -> Dict[str, Any]:
-    base = {
-        "routeCode": first(obj, "routeCode", "route_code", "route", "routeNo", "route_no"),
-        "stakeStart": first(obj, "stakeStart", "startStake", "startStakeNo", "start_stake", "startMileage"),
-        "stakeEnd": first(obj, "stakeEnd", "endStake", "endStakeNo", "end_stake", "endMileage"),
-    }
+def stake_args(ctx: Optional[MapAiContext], obj: Dict[str, Any], extra: Dict[str, Any]) -> Dict[str, Any]:
+    base = context_args(ctx, {})
+    base.update({
+        "routeCode": first(obj, "routeCode", "route_code", "route", "routeNo", "route_no") or base.get("routeCode"),
+        "stakeStart": first_present(first_value(obj, "stakeStart", "startStake", "startStakeNo", "start_stake", "startMileage"), base.get("stakeStart")),
+        "stakeEnd": first_present(first_value(obj, "stakeEnd", "endStake", "endStakeNo", "end_stake", "endMileage"), base.get("stakeEnd")),
+    })
     base.update(extra)
     return base
 
@@ -127,4 +147,29 @@ def first(data: Dict[str, Any], *keys: str) -> Optional[str]:
     raw = data.get("raw")
     if isinstance(raw, dict):
         return first(raw, *keys)
+    return None
+
+
+def first_value(data: Dict[str, Any], *keys: str) -> Optional[Any]:
+    if not isinstance(data, dict):
+        return None
+    for key in keys:
+        value = data.get(key)
+        if value not in (None, ""):
+            return value
+    raw = data.get("raw")
+    if isinstance(raw, dict):
+        return first_value(raw, *keys)
+    return None
+
+
+def first_dict(data: Dict[str, Any], *keys: str) -> Dict[str, Any]:
+    value = first_value(data, *keys)
+    return value if isinstance(value, dict) else {}
+
+
+def first_present(*values: Any) -> Optional[Any]:
+    for value in values:
+        if value not in (None, ""):
+            return value
     return None

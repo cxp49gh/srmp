@@ -103,6 +103,10 @@ public class SolutionGenerateTool implements AiTool {
         putIfPresent(query, "routeCode", firstNonNull(mapContext.get("routeCode"), mapContext.get("route_code")));
         putIfPresent(query, "year", mapContext.get("year"));
         Map<String, Object> extra = mapValue(mapContext.get("extra"));
+        Map<String, Object> rawContext = mapValue(firstNonNull(extra.get("rawContext"), extra.get("raw_context")));
+        Map<String, Object> rawQuery = mapValue(rawContext.get("query"));
+        putIfPresent(query, "projectId", firstNonNull(mapContext.get("projectId"), mapContext.get("project_id"), extra.get("projectId"), extra.get("project_id"), rawQuery.get("projectId"), rawQuery.get("project_id")));
+        putIfPresent(query, "sectionTier", firstNonNull(mapContext.get("sectionTier"), mapContext.get("section_tier"), extra.get("sectionTier"), extra.get("section_tier"), rawQuery.get("sectionTier"), rawQuery.get("section_tier")));
         putIfPresent(query, "indexCode", extra.get("indexCode"));
         putIfPresent(query, "grade", extra.get("grade"));
         return query;

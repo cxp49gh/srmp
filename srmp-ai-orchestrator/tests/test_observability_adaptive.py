@@ -1,7 +1,7 @@
 import unittest
 
 from app.observability import RuntimeAuditStore
-from app.schemas import ActionResult, MapAiAgentRequest, MapAiAgentResponse
+from app.schemas import ActionResult, MapAiAgentRequest, MapAiAgentResponse, MapAiContext
 
 
 class AdaptiveObservabilityTest(unittest.TestCase):
@@ -74,6 +74,41 @@ class AdaptiveObservabilityTest(unittest.TestCase):
         self.assertEqual(1, record["adaptiveAddedToolCount"])
         self.assertEqual(["knowledge.retrieve"], record["adaptiveAddedToolNames"])
         self.assertEqual("业务工具未命中，追加知识检索补充解释依据。", record["adaptivePlanningReason"])
+
+    def test_record_success_flattens_business_scope(self):
+        store = RuntimeAuditStore(max_records=10, persist_enabled=False)
+        request = MapAiAgentRequest(
+            message="分析当前评定对象",
+            mapContext=MapAiContext(
+                tenantId="tenant-a",
+                mode="OBJECT",
+                routeCode="Y016140727",
+                year=2026,
+                mapObject={
+                    "objectType": "ASSESSMENT_RESULT",
+                    "objectId": "assessment-1",
+                    "startStake": 0,
+                    "endStake": 14.072,
+                    "raw": {"object_type": "ROAD_SECTION_LEDGER", "direction": "UP"},
+                },
+                extra={"rawContext": {"query": {"projectId": "project-2026", "sectionTier": "LEDGER"}}},
+            ),
+        )
+
+        record = store.record_success(
+            request=request,
+            response=MapAiAgentResponse(answer="ok", trace={"traceId": "scope-trace"}),
+            tenant_id="tenant-a",
+            trace_id="scope-trace",
+            cost_ms=12,
+        )
+
+        self.assertEqual("project-2026", record["businessScope"]["projectId"])
+        self.assertEqual("LEDGER", record["businessScope"]["sectionTier"])
+        self.assertEqual("ASSESSMENT_RESULT", record["businessScope"]["objectType"])
+        self.assertEqual("assessment-1", record["businessScope"]["objectId"])
+        self.assertEqual("ROAD_SECTION_LEDGER", record["businessScope"]["assessmentObjectType"])
+        self.assertEqual("UP", record["businessScope"]["direction"])
 
     def test_summary_aggregates_adaptive_planning(self):
         store = RuntimeAuditStore(max_records=10, persist_enabled=False)

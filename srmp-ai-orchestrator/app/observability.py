@@ -43,6 +43,35 @@ def _mode_from_request(request: Optional[MapAiAgentRequest]) -> Optional[str]:
     return None
 
 
+def _business_scope_from_request(request: Optional[MapAiAgentRequest]) -> Dict[str, Any]:
+    if not request or not request.mapContext:
+        return {}
+    ctx = request.mapContext
+    obj = ctx.mapObject if isinstance(ctx.mapObject, dict) else {}
+    raw = obj.get("raw") if isinstance(obj.get("raw"), dict) else {}
+    extra = ctx.extra if isinstance(ctx.extra, dict) else {}
+    raw_context = _first_dict(extra, "rawContext", "raw_context")
+    query = _first_dict(raw_context, "query")
+    scope = {
+        "tenantId": ctx.tenantId,
+        "projectId": _first_present(_first_value(extra, "projectId", "project_id"), _first_value(query, "projectId", "project_id"), _first_value(raw_context, "projectId", "project_id")),
+        "routeCode": ctx.routeCode or _first_value(obj, "routeCode", "route_code"),
+        "year": ctx.year or _first_value(query, "year"),
+        "sectionTier": _first_present(_first_value(query, "sectionTier", "section_tier"), _first_value(extra, "sectionTier", "section_tier")),
+        "contextScope": ctx.mode,
+        "objectType": _first_value(obj, "objectType", "object_type", "type", "layerType"),
+        "objectId": _first_value(obj, "objectId", "object_id", "id"),
+        "assessmentObjectType": _first_value(raw, "objectType", "object_type"),
+        "direction": _first_present(_first_value(obj, "direction"), _first_value(raw, "direction")),
+        "startStake": _first_present(_first_value(obj, "stakeStart", "startStake", "start_stake"), _first_value(raw, "stakeStart", "startStake", "start_stake")),
+        "endStake": _first_present(_first_value(obj, "stakeEnd", "endStake", "end_stake"), _first_value(raw, "stakeEnd", "endStake", "end_stake")),
+        "bbox": (ctx.viewport or {}).get("bbox") if isinstance(ctx.viewport, dict) else None,
+        "geometryType": (ctx.geometry or {}).get("type") if isinstance(ctx.geometry, dict) else None,
+        "selectedLayers": ctx.selectedLayers,
+    }
+    return {key: value for key, value in scope.items() if value not in (None, "", [])}
+
+
 class RuntimeAuditStore:
     """轻量级运行时审计缓冲区。
 
@@ -108,6 +137,7 @@ class RuntimeAuditStore:
             or bool(answer_meta.get("fallback") if isinstance(answer_meta, dict) else False)
             or (tool_total > 0 and tool_success == 0)
         )
+        business_scope = _business_scope_from_request(request)
         record = {
             "id": str(uuid.uuid4()),
             "ts": _now_ms(),
@@ -126,6 +156,11 @@ class RuntimeAuditStore:
             "needsConfirmation": action_result.get("status") == "NEEDS_CONFIRMATION",
             "mapMode": _mode_from_request(request),
             "routeCode": _route_from_request(request),
+            "projectId": business_scope.get("projectId"),
+            "sectionTier": business_scope.get("sectionTier"),
+            "objectType": business_scope.get("objectType"),
+            "objectId": business_scope.get("objectId"),
+            "businessScope": business_scope,
             "answerLength": _safe_len(response.answer),
             "costMs": cost_ms,
             "engine": trace.get("engine") if isinstance(trace, dict) else None,
@@ -151,6 +186,7 @@ class RuntimeAuditStore:
         return deepcopy(record)
 
     def record_failure(self, request: Optional[MapAiAgentRequest], tenant_id: Optional[str], trace_id: Optional[str], cost_ms: int, error: Exception) -> Dict[str, Any]:
+        business_scope = _business_scope_from_request(request)
         record = {
             "id": str(uuid.uuid4()),
             "ts": _now_ms(),
@@ -161,6 +197,11 @@ class RuntimeAuditStore:
             "messageLength": _safe_len(request.message if request else None),
             "mapMode": _mode_from_request(request),
             "routeCode": _route_from_request(request),
+            "projectId": business_scope.get("projectId"),
+            "sectionTier": business_scope.get("sectionTier"),
+            "objectType": business_scope.get("objectType"),
+            "objectId": business_scope.get("objectId"),
+            "businessScope": business_scope,
             "costMs": cost_ms,
             "errorType": error.__class__.__name__,
             "errorMessage": str(error)[:500],
@@ -448,6 +489,31 @@ def _first_int(*values: Any) -> int:
         except (TypeError, ValueError):
             continue
     return 0
+
+
+def _first_value(data: Dict[str, Any], *keys: str) -> Optional[Any]:
+    if not isinstance(data, dict):
+        return None
+    for key in keys:
+        value = data.get(key)
+        if value not in (None, ""):
+            return value
+    raw = data.get("raw")
+    if isinstance(raw, dict):
+        return _first_value(raw, *keys)
+    return None
+
+
+def _first_dict(data: Dict[str, Any], *keys: str) -> Dict[str, Any]:
+    value = _first_value(data, *keys)
+    return value if isinstance(value, dict) else {}
+
+
+def _first_present(*values: Any) -> Optional[Any]:
+    for value in values:
+        if value not in (None, ""):
+            return value
+    return None
 
 
 def _audit_status_from_action(action_result_status: str) -> str:

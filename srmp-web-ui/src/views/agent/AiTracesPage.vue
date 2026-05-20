@@ -21,6 +21,15 @@
             <el-input v-model="query.keyword" clearable placeholder="traceId / 问题" style="width: 220px" />
           </el-form-item>
           <el-form-item>
+            <el-input v-model="query.projectId" clearable placeholder="项目ID" style="width: 180px" />
+          </el-form-item>
+          <el-form-item>
+            <el-input v-model="query.routeCode" clearable placeholder="路线编码" style="width: 140px" />
+          </el-form-item>
+          <el-form-item>
+            <el-input v-model="query.toolName" clearable placeholder="工具名" style="width: 180px" />
+          </el-form-item>
+          <el-form-item>
             <el-button type="primary" @click="loadTraces">查询</el-button>
           </el-form-item>
         </el-form>
@@ -39,8 +48,11 @@
           <p>{{ item.user_message || item.userMessage || '-' }}</p>
           <div class="meta-line">
             <span>{{ item.request_type || item.requestType || item.mode || '-' }}</span>
+            <span v-if="item.businessScope?.projectId">项目 {{ item.businessScope.projectId }}</span>
+            <span v-if="item.businessScope?.routeCode">路线 {{ item.businessScope.routeCode }}</span>
             <span>{{ item.total_cost_ms ?? item.totalCostMs ?? 0 }}ms</span>
             <span v-if="isFallback(item)">降级</span>
+            <span v-if="item.legacy">旧记录</span>
             <span v-if="item.created_at || item.createdAt">{{ item.created_at || item.createdAt }}</span>
           </div>
         </div>
@@ -87,7 +99,26 @@
             :title="failureReason"
           />
 
-          <AnswerSourceAlert :meta="selectedExecutionSnapshot?.answerMeta" allow-empty />
+          <AnswerSourceAlert
+            v-if="shouldShowAnswerSourceAlert(selectedExecutionSnapshot)"
+            :meta="selectedExecutionSnapshot?.answerMeta"
+            allow-empty
+          />
+
+          <section v-if="selectedExecutionSnapshot?.businessScope && Object.keys(selectedExecutionSnapshot.businessScope).length" class="detail-section">
+            <div class="section-title">
+              <h3>业务范围</h3>
+              <span>{{ scopeBrief(selectedExecutionSnapshot.businessScope) }}</span>
+            </div>
+            <div class="scope-grid">
+              <div><span>项目</span><strong>{{ selectedExecutionSnapshot.businessScope.projectId || '-' }}</strong></div>
+              <div><span>路线</span><strong>{{ selectedExecutionSnapshot.businessScope.routeCode || '-' }}</strong></div>
+              <div><span>年份</span><strong>{{ selectedExecutionSnapshot.businessScope.year || '-' }}</strong></div>
+              <div><span>层级</span><strong>{{ selectedExecutionSnapshot.businessScope.sectionTier || '-' }}</strong></div>
+              <div><span>对象</span><strong>{{ selectedExecutionSnapshot.businessScope.objectType || '-' }}</strong></div>
+              <div><span>桩号</span><strong>{{ stakeRangeLabel(selectedExecutionSnapshot.businessScope) }}</strong></div>
+            </div>
+          </section>
 
           <section class="detail-section">
             <h3>用户问题</h3>
@@ -154,9 +185,9 @@ import AgentPageShell from './components/AgentPageShell.vue'
 import AiTraceDrawer from './components/AiTraceDrawer.vue'
 import AnswerSourceAlert from './components/AnswerSourceAlert.vue'
 import { toAiExecutionSnapshot } from './components/aiExecution'
-import { getAiTrace, listAiTraces } from '../../api/trace'
+import { getAiExecution, listAiExecutions } from '../../api/trace'
 
-const query = reactive({ status: '', keyword: '', limit: 50 })
+const query = reactive({ status: '', keyword: '', projectId: '', routeCode: '', toolName: '', limit: 50 })
 const traces = ref<Record<string, any>[]>([])
 const selected = ref<Record<string, any> | null>(null)
 const detail = ref<Record<string, any> | null>(null)
@@ -212,12 +243,12 @@ const failureReason = computed(() => {
 onMounted(loadTraces)
 
 async function loadTraces() {
-  traces.value = await listAiTraces(query)
+  traces.value = await listAiExecutions(query)
 }
 
 async function selectTrace(item: Record<string, any>) {
   selected.value = item
-  detail.value = await getAiTrace(traceIdOf(item))
+  detail.value = await getAiExecution(traceIdOf(item))
 }
 
 async function copyTraceId() {
@@ -344,6 +375,23 @@ function stringValue(...values: any[]) {
   }
   return ''
 }
+
+function scopeBrief(scope: Record<string, any>) {
+  return [scope.projectId, scope.routeCode, scope.sectionTier, scope.objectType].filter(Boolean).join(' / ') || '已记录业务范围'
+}
+
+function stakeRangeLabel(scope: Record<string, any>) {
+  const start = scope.startStake ?? scope.start_stake
+  const end = scope.endStake ?? scope.end_stake
+  if (start === undefined && end === undefined) return '-'
+  return `${start ?? '-'} - ${end ?? '-'}`
+}
+
+function shouldShowAnswerSourceAlert(value: any) {
+  if (value?.answerMeta && Object.keys(value.answerMeta).length) return true
+  const status = String(value?.summary?.status || value?.currentStep?.status || '').toUpperCase()
+  return !['RUNNING', 'PROCESSING', 'PENDING', 'QUEUED'].includes(status)
+}
 </script>
 
 <style scoped>
@@ -408,6 +456,31 @@ function stringValue(...values: any[]) {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 12px;
+}
+
+.scope-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.scope-grid div {
+  min-width: 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.scope-grid span {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.scope-grid strong {
+  display: block;
+  margin-top: 4px;
+  word-break: break-all;
 }
 
 .summary-cell {

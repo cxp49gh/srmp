@@ -47,6 +47,20 @@ class LiveTraceStoreTest(unittest.TestCase):
         self.assertEqual("FAILED", failed["steps"][0]["status"])
         self.assertEqual("NOT_FOUND", store.not_found("missing")["status"])
 
+    def test_records_business_scope(self):
+        store = LiveTraceStore(max_records=3)
+        store.start_trace(
+            "trace-scope",
+            action="ANALYZE_OBJECT",
+            graph_name="object_analysis_graph",
+            business_scope={"projectId": "project-2026", "routeCode": "Y016140727", "sectionTier": "LEDGER"},
+        )
+
+        running = store.get("trace-scope")
+
+        self.assertEqual("project-2026", running["businessScope"]["projectId"])
+        self.assertEqual("LEDGER", running["businessScope"]["sectionTier"])
+
     def test_prunes_old_records(self):
         store = LiveTraceStore(max_records=2)
         store.start_trace("trace-a", action="CHAT", graph_name="chat_graph")
