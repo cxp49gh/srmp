@@ -229,3 +229,36 @@ test('AiTrace snapshot turns knowledge retrieval fallback into admin repair advi
   assert.match(snapshot.warnings.join('\n'), /知识库向量未就绪/)
   assert.match(snapshot.warnings.join('\n'), /补向量或同步入库/)
 })
+
+test('AiTrace snapshot turns empty knowledge base fallback into sync advice', () => {
+  const snapshot = toAiExecutionSnapshot({
+    trace: {
+      traceId: 'trace-empty-knowledge',
+      status: 'SUCCESS',
+      steps: [
+        {
+          step_name: 'tool_execute',
+          step_label: '执行只读工具',
+          status: 'SUCCESS',
+          step_data: {
+            toolResults: [
+              {
+                toolName: 'knowledge.retrieve',
+                success: true,
+                data: {
+                  fallbackReason: 'no knowledge chunks'
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    answerMeta: { llmStatus: 'SUCCESS', llmSuccess: true }
+  })
+
+  assert.match(snapshot.tools[0].diagnostic, /本地知识库暂无切片/)
+  assert.match(snapshot.warnings.join('\n'), /知识库暂无切片/)
+  assert.match(snapshot.warnings.join('\n'), /同步 Outline 或导入知识文档/)
+  assert.doesNotMatch(snapshot.warnings.join('\n'), /知识库检索提示/)
+})

@@ -21,6 +21,13 @@ test('maps no embedded chunks to an actionable knowledge vector status', () => {
   )
 })
 
+test('maps no knowledge chunks to an actionable sync status', () => {
+  assert.equal(
+    knowledgeFallbackDisplayText('no knowledge chunks'),
+    '本地知识库暂无切片，AI 只能依赖业务数据；请先同步 Outline 或导入知识文档。'
+  )
+})
+
 test('builds RAG readiness actions when the knowledge base has no embedded chunks', () => {
   const readiness = buildKnowledgeReadiness({
     knowledgeStats: { documentCount: 2, chunkCount: 18, embeddedChunkCount: 0, vectorEnabled: true },

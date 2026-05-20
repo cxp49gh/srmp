@@ -184,6 +184,7 @@ function knowledgeFallbackText(value: any) {
   const reason = String(value ?? '').trim()
   if (!reason) return ''
   const normalized = reason.toLowerCase()
+  if (normalized === 'no knowledge chunks') return '本地知识库暂无切片，当前回答只依赖业务数据；请先同步 Outline 或导入知识文档。'
   if (normalized === 'no embedded chunks') return '暂无可用向量切片，已尝试关键词检索；不影响业务数据分析。'
   if (normalized === 'query is empty') return '本次问题未形成有效知识库检索词，知识库未参与。'
   if (normalized.includes('pgvector')) return '向量检索扩展不可用，已尝试关键词检索；不影响业务数据分析。'

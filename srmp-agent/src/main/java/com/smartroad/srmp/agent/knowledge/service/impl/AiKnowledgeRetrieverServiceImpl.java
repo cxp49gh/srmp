@@ -62,8 +62,12 @@ public class AiKnowledgeRetrieverServiceImpl implements AiKnowledgeRetrieverServ
             if (!vectorEnabled()) {
                 throw new IllegalStateException("pgvector extension not available");
             }
-            if (embeddedCount(tenantId(request)) <= 0) {
-                throw new IllegalStateException("no embedded chunks");
+            String tenantId = tenantId(request);
+            long chunkCount = chunkCount(tenantId);
+            long embeddedCount = embeddedCount(tenantId);
+            String fallbackReason = vectorFallbackReason(chunkCount, embeddedCount);
+            if (fallbackReason.length() > 0) {
+                throw new IllegalStateException(fallbackReason);
             }
             List<AiKnowledgeSearchHit> hits = vectorSearch(request, query, topK);
             response.setHits(hits);
@@ -251,6 +255,21 @@ public class AiKnowledgeRetrieverServiceImpl implements AiKnowledgeRetrieverServ
     private long embeddedCount(String tenantId) {
         MapSqlParameterSource p = new MapSqlParameterSource().addValue("tenantId", tenantId);
         return queryLong("select count(*) from ai_knowledge_chunk where tenant_id=:tenantId and embedding is not null", p);
+    }
+
+    private long chunkCount(String tenantId) {
+        MapSqlParameterSource p = new MapSqlParameterSource().addValue("tenantId", tenantId);
+        return queryLong("select count(*) from ai_knowledge_chunk where tenant_id=:tenantId", p);
+    }
+
+    static String vectorFallbackReason(long chunkCount, long embeddedCount) {
+        if (chunkCount <= 0) {
+            return "no knowledge chunks";
+        }
+        if (embeddedCount <= 0) {
+            return "no embedded chunks";
+        }
+        return "";
     }
 
     private long queryLong(String sql, MapSqlParameterSource p) {

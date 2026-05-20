@@ -29,6 +29,9 @@ export function knowledgeFallbackDisplayText(value: any): string {
   const reason = String(value ?? '').trim()
   if (!reason) return ''
   const normalized = reason.toLowerCase()
+  if (normalized === 'no knowledge chunks') {
+    return '本地知识库暂无切片，AI 只能依赖业务数据；请先同步 Outline 或导入知识文档。'
+  }
   if (normalized === 'no embedded chunks') {
     return '暂无可用向量切片，AI 已尝试关键词检索；请在 AI 运维总览执行补向量或同步入库。'
   }
