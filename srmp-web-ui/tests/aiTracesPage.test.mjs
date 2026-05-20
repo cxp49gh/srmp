@@ -57,3 +57,13 @@ test('AI traces page shows loading state before empty state', () => {
   assert.match(content, /v-if="!tracesLoading && traces\.length === 0"/)
   assert.match(content, /finally\s*\{\s*tracesLoading\.value = false\s*\}/)
 })
+
+test('AI traces page opens a troubleshooting overview after loading traces', () => {
+  const content = read('src/views/agent/AiTracesPage.vue')
+
+  assert.match(content, /const loadedTraces = await listAiExecutions\(query\)/)
+  assert.match(content, /await selectDefaultTrace\(loadedTraces\)/)
+  assert.match(content, /function selectDefaultTrace\(items: Record<string, any>\[\]\)/)
+  assert.match(content, /traceIdOf\(selected\.value\)/)
+  assert.match(content, /await selectTrace\(next\)/)
+})

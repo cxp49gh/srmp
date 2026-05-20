@@ -246,10 +246,27 @@ onMounted(loadTraces)
 async function loadTraces() {
   tracesLoading.value = true
   try {
-    traces.value = await listAiExecutions(query)
+    const loadedTraces = await listAiExecutions(query)
+    traces.value = loadedTraces
+    await selectDefaultTrace(loadedTraces)
   } finally {
     tracesLoading.value = false
   }
+}
+
+async function selectDefaultTrace(items: Record<string, any>[]) {
+  const currentTraceId = traceIdOf(selected.value)
+  const next = items.find((item) => traceIdOf(item) === currentTraceId) || items[0]
+  if (!next) {
+    selected.value = null
+    detail.value = null
+    return
+  }
+  if (traceIdOf(detail.value) === traceIdOf(next)) {
+    selected.value = next
+    return
+  }
+  await selectTrace(next)
 }
 
 async function selectTrace(item: Record<string, any>) {
