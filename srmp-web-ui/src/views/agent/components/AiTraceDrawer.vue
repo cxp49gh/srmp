@@ -94,6 +94,16 @@
           <div v-if="snapshot.evidence.sources.length" class="source-summary">
             来源 {{ snapshot.evidence.sources.length }} 条；知识库 {{ snapshot.evidence.knowledgeCount || 0 }}；业务 {{ snapshot.evidence.businessCount || 0 }}；Outline {{ snapshot.evidence.outlineCount || 0 }}
           </div>
+          <div v-if="snapshot.evidence.sources.length" class="source-list">
+            <div v-for="source in snapshot.evidence.sources" :key="sourceKey(source)" class="source-row">
+              <div class="source-main">
+                <el-tag size="small" type="info">{{ sourceType(source) }}</el-tag>
+                <strong>{{ sourceTitle(source) }}</strong>
+              </div>
+              <div v-if="sourceMeta(source)" class="source-meta">{{ sourceMeta(source) }}</div>
+              <div v-if="sourceExcerpt(source)" class="source-excerpt">{{ sourceExcerpt(source) }}</div>
+            </div>
+          </div>
         </template>
       </section>
 
@@ -174,6 +184,57 @@ function stakeRangeLabel(scope: Record<string, any>) {
   if (start === undefined && end === undefined) return '-'
   return `${start ?? '-'} - ${end ?? '-'}`
 }
+
+function sourceType(source: Record<string, any>) {
+  return stringValue(source.sourceType, source.source_type, source.type, source.payload?.sourceType, source.payload?.source_type, '-')
+}
+
+function sourceTitle(source: Record<string, any>) {
+  return stringValue(
+    source.sourceTitle,
+    source.source_title,
+    source.title,
+    source.sourceName,
+    source.source_name,
+    source.name,
+    source.payload?.sourceTitle,
+    source.payload?.source_title,
+    source.payload?.title,
+    sourceType(source)
+  )
+}
+
+function sourceExcerpt(source: Record<string, any>) {
+  return stringValue(
+    source.contentExcerpt,
+    source.content_excerpt,
+    source.excerpt,
+    source.summary,
+    source.payload?.contentExcerpt,
+    source.payload?.content_excerpt,
+    source.payload?.excerpt,
+    source.payload?.summary
+  )
+}
+
+function sourceMeta(source: Record<string, any>) {
+  return [
+    stringValue(source.routeCode, source.route_code, source.payload?.routeCode, source.payload?.route_code),
+    stringValue(source.objectType, source.object_type, source.payload?.objectType, source.payload?.object_type),
+    stringValue(source.objectId, source.object_id, source.sourceId, source.source_id, source.id, source.payload?.objectId, source.payload?.object_id, source.payload?.sourceId)
+  ].filter(Boolean).join(' / ')
+}
+
+function sourceKey(source: Record<string, any>) {
+  return [sourceType(source), sourceTitle(source), sourceMeta(source), sourceExcerpt(source)].filter(Boolean).join('|')
+}
+
+function stringValue(...values: any[]) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && String(value).trim().length) return String(value)
+  }
+  return ''
+}
 </script>
 
 <style scoped>
@@ -242,6 +303,38 @@ function stakeRangeLabel(scope: Record<string, any>) {
   margin-top: 10px;
   color: #475569;
   font-size: 13px;
+}
+
+.source-list {
+  margin-top: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.source-row {
+  padding: 8px;
+  border: 1px solid #eef2f7;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.source-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.source-main strong {
+  min-width: 0;
+  word-break: break-all;
+}
+
+.source-meta,
+.source-excerpt {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+  word-break: break-word;
 }
 
 pre {

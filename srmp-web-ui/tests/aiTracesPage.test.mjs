@@ -39,3 +39,12 @@ test('AI trace drawer hides empty answerMeta notice while execution is still run
   assert.match(content, /isRunningSnapshot/)
   assert.doesNotMatch(content, /<AnswerSourceAlert :meta="snapshot\.answerMeta" allow-empty \/>/)
 })
+
+test('AI trace drawer renders evidence source rows for admin troubleshooting', () => {
+  const content = read('src/views/agent/components/AiTraceDrawer.vue')
+
+  assert.match(content, /v-for="source in snapshot\.evidence\.sources"/)
+  assert.match(content, /sourceTitle\(source\)/)
+  assert.match(content, /sourceExcerpt\(source\)/)
+  assert.match(content, /sourceType\(source\)/)
+})
