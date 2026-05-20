@@ -58,7 +58,7 @@
         </div>
       </el-card>
 
-      <el-card class="middle-card">
+      <el-card class="middle-card" v-loading="detailLoading">
         <template #header>
           <div class="card-header">
             <span>排障概览</span>
@@ -69,8 +69,8 @@
           </div>
         </template>
 
-        <el-empty v-if="!detail" description="请选择 trace" />
-        <template v-else>
+        <el-empty v-if="!detailLoading && !detail" description="请选择 trace" />
+        <template v-else-if="detail">
           <section class="summary-grid">
             <div class="summary-cell">
               <span>状态</span>
@@ -190,6 +190,7 @@ import { getAiExecution, listAiExecutions } from '../../api/trace'
 const query = reactive({ status: '', keyword: '', projectId: '', routeCode: '', toolName: '', limit: 50 })
 const traces = ref<Record<string, any>[]>([])
 const tracesLoading = ref(false)
+const detailLoading = ref(false)
 const selected = ref<Record<string, any> | null>(null)
 const detail = ref<Record<string, any> | null>(null)
 const traceDrawerVisible = ref(false)
@@ -260,6 +261,7 @@ async function selectDefaultTrace(items: Record<string, any>[]) {
   if (!next) {
     selected.value = null
     detail.value = null
+    detailLoading.value = false
     return
   }
   if (traceIdOf(detail.value) === traceIdOf(next)) {
@@ -271,7 +273,13 @@ async function selectDefaultTrace(items: Record<string, any>[]) {
 
 async function selectTrace(item: Record<string, any>) {
   selected.value = item
-  detail.value = await getAiExecution(traceIdOf(item))
+  detail.value = null
+  detailLoading.value = true
+  try {
+    detail.value = await getAiExecution(traceIdOf(item))
+  } finally {
+    detailLoading.value = false
+  }
 }
 
 async function copyTraceId() {

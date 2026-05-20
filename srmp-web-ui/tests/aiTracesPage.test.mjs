@@ -67,3 +67,14 @@ test('AI traces page opens a troubleshooting overview after loading traces', () 
   assert.match(content, /traceIdOf\(selected\.value\)/)
   assert.match(content, /await selectTrace\(next\)/)
 })
+
+test('AI traces page shows detail loading state while fetching selected trace', () => {
+  const content = read('src/views/agent/AiTracesPage.vue')
+
+  assert.match(content, /const detailLoading = ref\(false\)/)
+  assert.match(content, /<el-card class="middle-card" v-loading="detailLoading">/)
+  assert.match(content, /<el-empty v-if="!detailLoading && !detail" description="请选择 trace" \/>/)
+  assert.match(content, /<template v-else-if="detail">/)
+  assert.match(content, /detail\.value = null[\s\S]*detailLoading\.value = true[\s\S]*detail\.value = await getAiExecution\(traceIdOf\(item\)\)/)
+  assert.match(content, /finally\s*\{\s*detailLoading\.value = false\s*\}/)
+})
