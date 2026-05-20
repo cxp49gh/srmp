@@ -194,6 +194,7 @@ const detailLoading = ref(false)
 const selected = ref<Record<string, any> | null>(null)
 const detail = ref<Record<string, any> | null>(null)
 const traceDrawerVisible = ref(false)
+let detailRequestSeq = 0
 
 const detailTraceId = computed(() => traceIdOf(detail.value))
 const selectedTracePayload = computed(() => buildTracePayload(detail.value))
@@ -259,6 +260,7 @@ async function selectDefaultTrace(items: Record<string, any>[]) {
   const currentTraceId = traceIdOf(selected.value)
   const next = items.find((item) => traceIdOf(item) === currentTraceId) || items[0]
   if (!next) {
+    detailRequestSeq += 1
     selected.value = null
     detail.value = null
     detailLoading.value = false
@@ -272,13 +274,18 @@ async function selectDefaultTrace(items: Record<string, any>[]) {
 }
 
 async function selectTrace(item: Record<string, any>) {
+  const requestSeq = ++detailRequestSeq
   selected.value = item
   detail.value = null
   detailLoading.value = true
   try {
-    detail.value = await getAiExecution(traceIdOf(item))
+    const loadedDetail = await getAiExecution(traceIdOf(item))
+    if (requestSeq !== detailRequestSeq) return
+    detail.value = loadedDetail
   } finally {
-    detailLoading.value = false
+    if (requestSeq === detailRequestSeq) {
+      detailLoading.value = false
+    }
   }
 }
 
