@@ -54,6 +54,27 @@
         :title="warning"
       />
 
+      <section v-if="snapshot.repairActions.length" class="trace-section repair-panel">
+        <h3>建议处理</h3>
+        <div class="repair-actions">
+          <el-button
+            v-for="action in snapshot.repairActions"
+            :key="action.key"
+            size="small"
+            :type="action.type || 'primary'"
+            @click="go(action.path)"
+          >
+            {{ action.label }}
+          </el-button>
+        </div>
+        <div class="repair-list">
+          <div v-for="action in snapshot.repairActions" :key="`${action.key}-desc`" class="repair-item">
+            <strong>{{ action.label }}</strong>
+            <span>{{ action.description }}</span>
+          </div>
+        </div>
+      </section>
+
       <section class="trace-section">
         <h3>执行时间线</h3>
         <el-empty v-if="snapshot.steps.length === 0" description="暂无步骤" />
@@ -123,6 +144,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import AnswerSourceAlert from './AnswerSourceAlert.vue'
 import { toAiExecutionSnapshot } from './aiExecution'
 
@@ -141,6 +163,7 @@ defineEmits<{
   (e: 'update:visible', value: boolean): void
 }>()
 
+const router = useRouter()
 const snapshot = computed(() => toAiExecutionSnapshot({
   trace: props.trace,
   answerMeta: props.answerMeta,
@@ -176,6 +199,10 @@ function shouldShowAnswerSourceAlert(value: any) {
 function isRunningSnapshot(value: any) {
   const status = String(value?.summary?.status || value?.currentStep?.status || '').toUpperCase()
   return ['RUNNING', 'PROCESSING', 'PENDING', 'QUEUED'].includes(status)
+}
+
+function go(path: string) {
+  if (path) router.push(path)
 }
 
 function stakeRangeLabel(scope: Record<string, any>) {
@@ -284,6 +311,36 @@ function stringValue(...values: any[]) {
   color: #b45309;
   font-size: 12px;
   word-break: break-all;
+}
+
+.repair-panel {
+  padding: 10px;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  background: #fffbeb;
+}
+
+.repair-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.repair-list {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.repair-item {
+  display: grid;
+  gap: 2px;
+  color: #475569;
+  font-size: 12px;
+}
+
+.repair-item strong {
+  color: #92400e;
 }
 
 .detail-collapse {

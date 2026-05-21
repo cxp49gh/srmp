@@ -228,6 +228,14 @@ test('AiTrace snapshot turns knowledge retrieval fallback into admin repair advi
   assert.match(snapshot.tools[0].diagnostic, /暂无可用向量切片/)
   assert.match(snapshot.warnings.join('\n'), /知识库向量未就绪/)
   assert.match(snapshot.warnings.join('\n'), /补向量或同步入库/)
+  assert.deepEqual(
+    snapshot.repairActions.map((item) => [item.key, item.path]),
+    [
+      ['VECTORIZE_OUTLINE', '/agent/ai-ops'],
+      ['SYNC_OUTLINE', '/agent/outline/sync'],
+      ['VERIFY_KNOWLEDGE', '/agent/knowledge-vector']
+    ]
+  )
 })
 
 test('AiTrace snapshot turns empty knowledge base fallback into sync advice', () => {
@@ -261,4 +269,66 @@ test('AiTrace snapshot turns empty knowledge base fallback into sync advice', ()
   assert.match(snapshot.warnings.join('\n'), /知识库暂无切片/)
   assert.match(snapshot.warnings.join('\n'), /同步 Outline 或导入知识文档/)
   assert.doesNotMatch(snapshot.warnings.join('\n'), /知识库检索提示/)
+  assert.deepEqual(
+    snapshot.repairActions.map((item) => [item.key, item.path]),
+    [
+      ['SYNC_OUTLINE', '/agent/outline/sync'],
+      ['IMPORT_KNOWLEDGE', '/agent/knowledge-documents'],
+      ['VERIFY_KNOWLEDGE', '/agent/knowledge-vector']
+    ]
+  )
+})
+
+test('AiTrace snapshot derives knowledge repair actions from answerMeta fallback when tool details are absent', () => {
+  const snapshot = toAiExecutionSnapshot({
+    trace: {
+      traceId: 'trace-answer-meta-fallback',
+      status: 'SUCCESS',
+      steps: [{ step_name: 'llm_answer', step_label: '大模型回答', status: 'SUCCESS' }]
+    },
+    answerMeta: {
+      llmStatus: 'SUCCESS',
+      llmSuccess: true,
+      fallbackReason: 'no embedded chunks'
+    }
+  })
+
+  assert.deepEqual(
+    snapshot.repairActions.map((item) => [item.key, item.path]),
+    [
+      ['VECTORIZE_OUTLINE', '/agent/ai-ops'],
+      ['SYNC_OUTLINE', '/agent/outline/sync'],
+      ['VERIFY_KNOWLEDGE', '/agent/knowledge-vector']
+    ]
+  )
+})
+
+test('AiTrace snapshot reads knowledge fallback from persisted rawResult data', () => {
+  const snapshot = toAiExecutionSnapshot({
+    record: {
+      traceId: 'trace-raw-result-fallback',
+      status: 'SUCCESS',
+      toolResults: [
+        {
+          toolName: 'knowledge.retrieve',
+          success: true,
+          status: 'SUCCESS',
+          rawResult: {
+            data: {
+              fallback: true,
+              fallbackReason: 'no embedded chunks',
+              searchMode: 'KEYWORD_FALLBACK'
+            },
+            count: 0,
+            costMs: 9
+          }
+        }
+      ]
+    },
+    answerMeta: { llmStatus: 'SUCCESS', llmSuccess: true }
+  })
+
+  assert.equal(snapshot.tools[0].fallbackReason, 'no embedded chunks')
+  assert.match(snapshot.tools[0].diagnostic, /暂无可用向量切片/)
+  assert.equal(snapshot.repairActions[0].key, 'VECTORIZE_OUTLINE')
 })

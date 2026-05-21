@@ -20,6 +20,14 @@ export interface AiExecutionTool {
   diagnostic?: string
 }
 
+export interface AiExecutionRepairAction {
+  key: string
+  label: string
+  path: string
+  description: string
+  type?: 'primary' | 'success' | 'warning' | 'info' | 'danger'
+}
+
 export interface AiExecutionSnapshot {
   summary: {
     traceId?: string
@@ -51,6 +59,7 @@ export interface AiExecutionSnapshot {
   businessScope: Record<string, any>
   raw: Record<string, any>
   warnings: string[]
+  repairActions: AiExecutionRepairAction[]
 }
 
 export interface AiExecutionInput {
@@ -188,7 +197,8 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     quality,
     businessScope,
     raw: sanitizeInternalDiagnostics(compactRaw(input)) as Record<string, any>,
-    warnings: buildWarnings(answerMeta, steps, summary.sourceCount, sources.length, tools, summary.status, currentStep)
+    warnings: buildWarnings(answerMeta, steps, summary.sourceCount, sources.length, tools, summary.status, currentStep),
+    repairActions: buildRepairActions(tools, answerMeta)
   }
 }
 
@@ -317,7 +327,8 @@ function sanitizeInternalDiagnostics(value: any): any {
 function normalizeTools(tools: any[]): AiExecutionTool[] {
   return tools.map((tool, index) => {
     const item = asRecord(tool)
-    const data = firstRecord(item.data, item.detail, item.details)
+    const rawResult = firstRecord(item.rawResult, item.raw_result)
+    const data = firstRecord(item.data, item.detail, item.details, rawResult.data, rawResult)
     const name = stringValue(item.name || item.tool || item.toolName || item.type || `tool-${index}`) || `tool-${index}`
     const status = String(item.status || '').toUpperCase()
     const success = item.success !== false && status !== 'FAILED' && status !== 'ERROR'
@@ -326,8 +337,8 @@ function normalizeTools(tools: any[]): AiExecutionTool[] {
     return {
       name,
       success,
-      count: item.count ?? item.returnedCount ?? item.returned_count ?? item.hitCount ?? item.resultCount ?? item.total ?? data.count ?? data.hitCount,
-      costMs: numberValue(item.costMs ?? item.cost_ms ?? item.elapsedMs),
+      count: item.count ?? item.returnedCount ?? item.returned_count ?? item.hitCount ?? item.resultCount ?? item.total ?? data.count ?? data.hitCount ?? rawResult.count,
+      costMs: numberValue(item.costMs ?? item.cost_ms ?? item.elapsedMs ?? data.costMs ?? data.cost_ms ?? rawResult.costMs ?? rawResult.cost_ms),
       error: stringValue(item.error || item.errorMessage || item.message),
       fallbackReason,
       diagnostic
@@ -366,6 +377,71 @@ function buildWarnings(
     warnings.push(`${prefix}：${knowledgeTool.diagnostic}`)
   }
   return warnings
+}
+
+function buildRepairActions(tools: AiExecutionTool[], answerMeta: Record<string, any> = {}): AiExecutionRepairAction[] {
+  const knowledgeTool = tools.find((tool) => tool.name === 'knowledge.retrieve' && tool.fallbackReason)
+  const reason = stringValue(
+    knowledgeTool?.fallbackReason ||
+    answerMeta.knowledgeFallbackReason ||
+    answerMeta.knowledge_fallback_reason ||
+    answerMeta.fallbackReason ||
+    answerMeta.fallback_reason
+  )?.toLowerCase()
+
+  if (reason === 'no knowledge chunks') {
+    return [
+      {
+        key: 'SYNC_OUTLINE',
+        label: '同步 Outline 入库',
+        path: '/agent/outline/sync',
+        description: '知识库没有切片，先把 Outline 文档同步进本地知识库。',
+        type: 'primary'
+      },
+      {
+        key: 'IMPORT_KNOWLEDGE',
+        label: '导入知识文档',
+        path: '/agent/knowledge-documents',
+        description: '没有 Outline 数据时，可直接导入 Markdown 知识文档生成切片。',
+        type: 'success'
+      },
+      {
+        key: 'VERIFY_KNOWLEDGE',
+        label: '验证知识检索',
+        path: '/agent/knowledge-vector',
+        description: '同步或导入后，用同类问题验证知识库是否能返回命中。',
+        type: 'info'
+      }
+    ]
+  }
+
+  if (reason === 'no embedded chunks') {
+    return [
+      {
+        key: 'VECTORIZE_OUTLINE',
+        label: '补 Outline 向量',
+        path: '/agent/ai-ops',
+        description: '已有切片但没有可用向量，进入运维总览执行补向量。',
+        type: 'primary'
+      },
+      {
+        key: 'SYNC_OUTLINE',
+        label: '同步入库',
+        path: '/agent/outline/sync',
+        description: '如果切片来源不完整，先重新同步 Outline 再补向量。',
+        type: 'warning'
+      },
+      {
+        key: 'VERIFY_KNOWLEDGE',
+        label: '验证知识检索',
+        path: '/agent/knowledge-vector',
+        description: '补向量后验证向量检索和关键词兜底结果。',
+        type: 'info'
+      }
+    ]
+  }
+
+  return []
 }
 
 function isExecutionInProgress(status?: string, currentStep?: AiExecutionStep | null): boolean {

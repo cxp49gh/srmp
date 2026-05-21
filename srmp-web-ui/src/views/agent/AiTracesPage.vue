@@ -114,6 +114,30 @@
             allow-empty
           />
 
+          <section v-if="selectedExecutionSnapshot?.repairActions.length" class="detail-section repair-panel">
+            <div class="section-title">
+              <h3>建议处理</h3>
+              <span>按当前降级原因给出下一步</span>
+            </div>
+            <div class="repair-actions">
+              <el-button
+                v-for="action in selectedExecutionSnapshot.repairActions"
+                :key="action.key"
+                size="small"
+                :type="action.type || 'primary'"
+                @click="go(action.path)"
+              >
+                {{ action.label }}
+              </el-button>
+            </div>
+            <div class="repair-descriptions">
+              <div v-for="action in selectedExecutionSnapshot.repairActions" :key="`${action.key}-desc`">
+                <strong>{{ action.label }}</strong>
+                <span>{{ action.description }}</span>
+              </div>
+            </div>
+          </section>
+
           <section v-if="selectedExecutionSnapshot?.businessScope && Object.keys(selectedExecutionSnapshot.businessScope).length" class="detail-section">
             <div class="section-title">
               <h3>业务范围</h3>
@@ -189,6 +213,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import AgentPageShell from './components/AgentPageShell.vue'
 import AiTraceDrawer from './components/AiTraceDrawer.vue'
@@ -204,6 +229,7 @@ const detailError = ref('')
 const selected = ref<Record<string, any> | null>(null)
 const detail = ref<Record<string, any> | null>(null)
 const traceDrawerVisible = ref(false)
+const router = useRouter()
 let detailRequestSeq = 0
 
 const detailTraceId = computed(() => traceIdOf(detail.value))
@@ -311,6 +337,10 @@ async function copyTraceId() {
 
 function openTraceDrawer() {
   traceDrawerVisible.value = true
+}
+
+function go(path: string) {
+  if (path) router.push(path)
 }
 
 function buildTracePayload(value: Record<string, any> | null): Record<string, any> | null {
@@ -568,6 +598,36 @@ function shouldShowAnswerSourceAlert(value: any) {
 .detail-section h3 {
   margin: 0 0 10px;
   font-size: 15px;
+}
+
+.repair-panel {
+  padding: 10px;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  background: #fffbeb;
+}
+
+.repair-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.repair-descriptions {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 12px;
+}
+
+.repair-descriptions div {
+  display: grid;
+  gap: 2px;
+}
+
+.repair-descriptions strong {
+  color: #92400e;
 }
 
 .section-title {
