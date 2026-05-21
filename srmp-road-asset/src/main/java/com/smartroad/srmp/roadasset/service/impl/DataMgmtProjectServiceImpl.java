@@ -11,8 +11,11 @@ import com.smartroad.srmp.roadasset.dto.DataMgmtProjectSaveDTO;
 import com.smartroad.srmp.roadasset.entity.DataMgmtProject;
 import com.smartroad.srmp.roadasset.datamgmt.DataMgmtClearScope;
 import com.smartroad.srmp.roadasset.mapper.DataMgmtProjectMapper;
+import com.smartroad.srmp.roadasset.datamgmt.DataMgmtAuditOperationType;
+import com.smartroad.srmp.roadasset.service.DataMgmtAuditLogService;
 import com.smartroad.srmp.roadasset.service.DataMgmtClearService;
 import com.smartroad.srmp.roadasset.service.DataMgmtProjectService;
+import com.smartroad.srmp.roadasset.service.DataMgmtStatsService;
 import com.smartroad.srmp.roadasset.vo.DataMgmtProjectVO;
 import com.smartroad.srmp.tenant.context.TenantContextHolder;
 import org.springframework.context.annotation.Lazy;
@@ -33,12 +36,19 @@ public class DataMgmtProjectServiceImpl implements DataMgmtProjectService {
     @Resource
     @Lazy
     private DataMgmtClearService dataMgmtClearService;
+    @Resource
+    private DataMgmtStatsService dataMgmtStatsService;
+    @Resource
+    private DataMgmtAuditLogService dataMgmtAuditLogService;
 
     @Override
     public PageResult<DataMgmtProjectVO> page(DataMgmtProjectQueryDTO query) {
         String tenantId = TenantContextHolder.getTenantId();
         LambdaQueryWrapper<DataMgmtProject> w = new LambdaQueryWrapper<>();
         w.eq(DataMgmtProject::getTenantId, tenantId).eq(DataMgmtProject::getDeleted, false);
+        if (!Boolean.TRUE.equals(query.getIncludeArchived())) {
+            w.and(q -> q.isNull(DataMgmtProject::getArchived).or().eq(DataMgmtProject::getArchived, false));
+        }
         if (StringUtils.hasText(query.getNameKeyword())) {
             w.like(DataMgmtProject::getName, query.getNameKeyword().trim());
         }
@@ -46,6 +56,7 @@ public class DataMgmtProjectServiceImpl implements DataMgmtProjectService {
         Page<DataMgmtProject> mp = new Page<>(query.getPageNo(), query.getPageSize());
         Page<DataMgmtProject> out = dataMgmtProjectMapper.selectPage(mp, w);
         List<DataMgmtProjectVO> records = out.getRecords().stream().map(this::toVo).collect(Collectors.toList());
+        dataMgmtStatsService.enrichSummaries(records);
         PageResult<DataMgmtProjectVO> r = new PageResult<>();
         r.setPageNo(query.getPageNo());
         r.setPageSize(query.getPageSize());
@@ -64,7 +75,10 @@ public class DataMgmtProjectServiceImpl implements DataMgmtProjectService {
         e.setCreatedAt(LocalDateTime.now());
         e.setUpdatedAt(LocalDateTime.now());
         e.setDeleted(false);
+        e.setArchived(false);
         dataMgmtProjectMapper.insert(e);
+        dataMgmtAuditLogService.log(e.getId(), e.getName(), DataMgmtAuditOperationType.PROJECT_CREATE,
+                "SUCCESS", null, null, "{\"name\":\"" + e.getName() + "\"}");
         return e.getId();
     }
 
@@ -93,13 +107,54 @@ public class DataMgmtProjectServiceImpl implements DataMgmtProjectService {
         if (p == null) {
             throw new BizException("项目不存在");
         }
-        return toVo(p);
+        DataMgmtProjectVO vo = toVo(p);
+        vo.setSummary(dataMgmtStatsService.getSummary(id));
+        return vo;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void archive(String id) {
+        DataMgmtProject p = loadActive(id);
+        if (Boolean.TRUE.equals(p.getArchived())) {
+            throw new BizException("项目已归档");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        LambdaUpdateWrapper<DataMgmtProject> w = new LambdaUpdateWrapper<>();
+        w.eq(DataMgmtProject::getId, id)
+                .set(DataMgmtProject::getArchived, true)
+                .set(DataMgmtProject::getArchivedAt, now)
+                .set(DataMgmtProject::getArchivedBy, TenantContextHolder.getTenantId())
+                .set(DataMgmtProject::getUpdatedAt, now);
+        dataMgmtProjectMapper.update(null, w);
+        dataMgmtAuditLogService.log(id, p.getName(), DataMgmtAuditOperationType.PROJECT_ARCHIVE,
+                "SUCCESS", null, null, "{\"archived\":true}");
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void restore(String id) {
+        DataMgmtProject p = loadActive(id);
+        if (!Boolean.TRUE.equals(p.getArchived())) {
+            throw new BizException("项目未归档");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        LambdaUpdateWrapper<DataMgmtProject> w = new LambdaUpdateWrapper<>();
+        w.eq(DataMgmtProject::getId, id)
+                .set(DataMgmtProject::getArchived, false)
+                .set(DataMgmtProject::getArchivedAt, null)
+                .set(DataMgmtProject::getArchivedBy, null)
+                .set(DataMgmtProject::getUpdatedAt, now);
+        dataMgmtProjectMapper.update(null, w);
+        dataMgmtAuditLogService.log(id, p.getName(), DataMgmtAuditOperationType.PROJECT_RESTORE,
+                "SUCCESS", null, null, "{\"archived\":false}");
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void delete(String id) {
-        requireExists(id);
+        DataMgmtProject p = loadActive(id);
+        String before = dataMgmtStatsService.getSummary(id).toString();
         dataMgmtClearService.clearByProject(id, DataMgmtClearScope.ALL);
         String tenantId = TenantContextHolder.getTenantId();
         LocalDateTime now = LocalDateTime.now();
@@ -113,6 +168,17 @@ public class DataMgmtProjectServiceImpl implements DataMgmtProjectService {
         if (n == 0) {
             throw new BizException("项目不存在或已删除");
         }
+        dataMgmtAuditLogService.log(id, p.getName(), DataMgmtAuditOperationType.PROJECT_DELETE,
+                "SUCCESS", null, before, null);
+    }
+
+    private DataMgmtProject loadActive(String id) {
+        requireExists(id);
+        return dataMgmtProjectMapper.selectOne(new LambdaQueryWrapper<DataMgmtProject>()
+                .eq(DataMgmtProject::getId, id)
+                .eq(DataMgmtProject::getTenantId, TenantContextHolder.getTenantId())
+                .eq(DataMgmtProject::getDeleted, false)
+                .last("LIMIT 1"));
     }
 
     private DataMgmtProjectVO toVo(DataMgmtProject e) {
@@ -120,6 +186,8 @@ public class DataMgmtProjectServiceImpl implements DataMgmtProjectService {
         v.setId(e.getId());
         v.setName(e.getName());
         v.setRemark(e.getRemark());
+        v.setArchived(e.getArchived());
+        v.setArchivedAt(e.getArchivedAt());
         v.setCreatedAt(e.getCreatedAt());
         v.setUpdatedAt(e.getUpdatedAt());
         return v;

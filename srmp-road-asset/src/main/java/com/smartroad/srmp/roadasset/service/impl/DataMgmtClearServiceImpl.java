@@ -20,10 +20,12 @@ import com.smartroad.srmp.roadasset.mapper.RoadSectionKmMapper;
 import com.smartroad.srmp.roadasset.mapper.RoadSectionMapper;
 import com.smartroad.srmp.roadasset.service.DataMgmtClearService;
 import com.smartroad.srmp.roadasset.service.DataMgmtProjectService;
+import com.smartroad.srmp.roadasset.vo.DataMgmtClearPreviewVO;
 import com.smartroad.srmp.roadasset.vo.DataMgmtClearResultVO;
 import com.smartroad.srmp.tenant.context.TenantContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import javax.annotation.Resource;
 
@@ -46,6 +48,37 @@ public class DataMgmtClearServiceImpl implements DataMgmtClearService {
     private DiseaseRecordMapper diseaseRecordMapper;
     @Resource
     private DataImportRecordMapper dataImportRecordMapper;
+
+    @Override
+    public DataMgmtClearPreviewVO previewClear(String projectId, String scope) {
+        dataMgmtProjectService.requireExists(projectId);
+        String tenantId = TenantContextHolder.getTenantId();
+        String effectiveScope = StringUtils.hasText(scope) ? scope : DataMgmtClearScope.ALL;
+        if (!DataMgmtClearScope.isKnown(effectiveScope)) {
+            throw new BizException("不支持的清除范围：" + effectiveScope);
+        }
+        DataMgmtClearPreviewVO vo = new DataMgmtClearPreviewVO();
+        if (DataMgmtClearScope.ALL.equals(effectiveScope)) {
+            vo.setDiseaseRecords(countDisease(tenantId, projectId));
+            vo.setSections(countSections(tenantId, projectId));
+            vo.setRoutes(countRoutes(tenantId, projectId));
+            vo.setImportRecords(countImports(tenantId, projectId));
+            return vo;
+        }
+        if (DataImportType.DISEASE_EXCEL.equals(effectiveScope)) {
+            vo.setDiseaseRecords(countDisease(tenantId, projectId));
+            return vo;
+        }
+        if (DataImportType.SECTION_PACKAGE.equals(effectiveScope)) {
+            vo.setSections(countSections(tenantId, projectId));
+            return vo;
+        }
+        if (DataImportType.ROAD_NETWORK.equals(effectiveScope)) {
+            vo.setRoutes(countRoutes(tenantId, projectId));
+            return vo;
+        }
+        return vo;
+    }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -76,6 +109,35 @@ public class DataMgmtClearServiceImpl implements DataMgmtClearService {
             return vo;
         }
         return vo;
+    }
+
+    private int countRoutes(String tenantId, String projectId) {
+        return Math.toIntExact(roadRouteMapper.selectCount(new LambdaQueryWrapper<RoadRoute>()
+                .eq(RoadRoute::getTenantId, tenantId)
+                .eq(RoadRoute::getProjectId, projectId)));
+    }
+
+    private int countSections(String tenantId, String projectId) {
+        int n = 0;
+        n += Math.toIntExact(roadSectionMapper.selectCount(new LambdaQueryWrapper<RoadSection>()
+                .eq(RoadSection::getTenantId, tenantId).eq(RoadSection::getProjectId, projectId)));
+        n += Math.toIntExact(roadEvaluationUnitMapper.selectCount(new LambdaQueryWrapper<RoadEvaluationUnit>()
+                .eq(RoadEvaluationUnit::getTenantId, tenantId).eq(RoadEvaluationUnit::getProjectId, projectId)));
+        n += Math.toIntExact(roadSectionKmMapper.selectCount(new LambdaQueryWrapper<RoadSectionKm>()
+                .eq(RoadSectionKm::getTenantId, tenantId).eq(RoadSectionKm::getProjectId, projectId)));
+        n += Math.toIntExact(roadSectionHmMapper.selectCount(new LambdaQueryWrapper<RoadSectionHm>()
+                .eq(RoadSectionHm::getTenantId, tenantId).eq(RoadSectionHm::getProjectId, projectId)));
+        return n;
+    }
+
+    private int countDisease(String tenantId, String projectId) {
+        return Math.toIntExact(diseaseRecordMapper.selectCount(new LambdaQueryWrapper<DiseaseRecord>()
+                .eq(DiseaseRecord::getTenantId, tenantId).eq(DiseaseRecord::getProjectId, projectId)));
+    }
+
+    private int countImports(String tenantId, String projectId) {
+        return Math.toIntExact(dataImportRecordMapper.selectCount(new LambdaQueryWrapper<DataImportRecord>()
+                .eq(DataImportRecord::getTenantId, tenantId).eq(DataImportRecord::getProjectId, projectId)));
     }
 
     private int deleteRoutesByProject(String tenantId, String projectId) {

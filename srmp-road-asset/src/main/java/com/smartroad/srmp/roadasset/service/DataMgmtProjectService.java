@@ -19,4 +19,8 @@ public interface DataMgmtProjectService {
      * 删除项目：先按 {@link com.smartroad.srmp.roadasset.datamgmt.DataMgmtClearScope#ALL} 物理清除归属数据与导入流水，再软删项目主档（同一事务）。
      */
     void delete(String id);
+
+    void archive(String id);
+
+    void restore(String id);
 }

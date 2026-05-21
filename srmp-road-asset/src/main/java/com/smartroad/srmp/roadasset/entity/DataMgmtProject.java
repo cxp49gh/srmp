@@ -15,4 +15,7 @@ public class DataMgmtProject extends BaseEntity {
     private String id;
     private String name;
     private String remark;
+    private Boolean archived;
+    private java.time.LocalDateTime archivedAt;
+    private String archivedBy;
 }

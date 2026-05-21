@@ -16,4 +16,6 @@ public class DataImportRecordVO {
     private String status;
     private String message;
     private String resultSummary;
+    private String projectName;
+    private String uploadedBy;
 }

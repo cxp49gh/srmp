@@ -9,6 +9,9 @@ public class DataMgmtProjectVO {
     private String id;
     private String name;
     private String remark;
+    private Boolean archived;
+    private LocalDateTime archivedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private DataMgmtProjectSummaryVO summary;
 }
