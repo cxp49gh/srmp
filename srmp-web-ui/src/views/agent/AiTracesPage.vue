@@ -114,14 +114,29 @@
             allow-empty
           />
 
-          <section v-if="selectedExecutionSnapshot?.repairActions.length" class="detail-section repair-panel">
+          <section v-if="selectedRepairActions.length" class="detail-section repair-panel">
             <div class="section-title">
               <h3>建议处理</h3>
               <span>按当前降级原因给出下一步</span>
             </div>
+            <div class="repair-readiness" v-loading="traceReadinessLoading">
+              <div class="readiness-head">
+                <span>知识库健康</span>
+                <el-tag size="small" :type="traceKnowledgeReadiness.tagType">{{ traceKnowledgeReadiness.statusLabel }}</el-tag>
+                <el-button size="small" text :loading="traceReadinessLoading" @click="loadTraceReadiness">刷新</el-button>
+              </div>
+              <strong>{{ traceKnowledgeReadiness.title }}</strong>
+              <p>{{ traceKnowledgeReadiness.detail }}</p>
+              <div class="readiness-stats">
+                <span>文档：{{ traceKnowledgeReadiness.documentCount }}</span>
+                <span>切片：{{ traceKnowledgeReadiness.chunkCount }}</span>
+                <span>已向量：{{ traceKnowledgeReadiness.embeddedChunkCount }}</span>
+                <span>待补向量：{{ traceKnowledgeReadiness.pendingEmbeddingChunkCount }}</span>
+              </div>
+            </div>
             <div class="repair-actions">
               <el-button
-                v-for="action in selectedExecutionSnapshot.repairActions"
+                v-for="action in selectedRepairActions"
                 :key="action.key"
                 size="small"
                 :type="action.type || 'primary'"
@@ -131,7 +146,7 @@
               </el-button>
             </div>
             <div class="repair-descriptions">
-              <div v-for="action in selectedExecutionSnapshot.repairActions" :key="`${action.key}-desc`">
+              <div v-for="action in selectedRepairActions" :key="`${action.key}-desc`">
                 <strong>{{ action.label }}</strong>
                 <span>{{ action.description }}</span>
               </div>
@@ -207,6 +222,7 @@
       :tool-results="selectedExecutionSnapshot?.tools || []"
       :sources="selectedExecutionSnapshot?.evidence.sources || []"
       :record="detail"
+      :repair-actions="selectedRepairActions"
     />
   </AgentPageShell>
 </template>
@@ -219,7 +235,10 @@ import AgentPageShell from './components/AgentPageShell.vue'
 import AiTraceDrawer from './components/AiTraceDrawer.vue'
 import AnswerSourceAlert from './components/AnswerSourceAlert.vue'
 import { toAiExecutionSnapshot } from './components/aiExecution'
+import { getAiKnowledgeStats, getEmbeddingHealth } from '../../api/agent'
+import { getOutlineKnowledgeStats } from '../../api/outline'
 import { getAiExecution, listAiExecutions } from '../../api/trace'
+import { buildKnowledgeReadiness } from '../../utils/aiKnowledgeReadiness'
 
 const query = reactive({ status: '', keyword: '', projectId: '', routeCode: '', toolName: '', limit: 50 })
 const traces = ref<Record<string, any>[]>([])
@@ -229,6 +248,10 @@ const detailError = ref('')
 const selected = ref<Record<string, any> | null>(null)
 const detail = ref<Record<string, any> | null>(null)
 const traceDrawerVisible = ref(false)
+const traceReadinessLoading = ref(false)
+const knowledgeStats = reactive<Record<string, any>>({})
+const outlineStats = reactive<Record<string, any>>({})
+const embedding = reactive<Record<string, any>>({})
 const router = useRouter()
 let detailRequestSeq = 0
 
@@ -241,6 +264,11 @@ const selectedExecutionSnapshot = computed(() => toAiExecutionSnapshot({
   sources: extractSources(detail.value),
   record: detail.value
 }))
+const traceKnowledgeReadiness = computed(() => buildKnowledgeReadiness({ knowledgeStats, outlineStats, embedding }))
+const selectedRepairActions = computed(() => reconcileRepairActions(
+  selectedExecutionSnapshot.value?.repairActions || [],
+  traceKnowledgeReadiness.value.status
+))
 
 const llmStatusLabel = computed(() => {
   const meta = selectedExecutionSnapshot.value?.answerMeta || {}
@@ -279,7 +307,10 @@ const failureReason = computed(() => {
   )
 })
 
-onMounted(loadTraces)
+onMounted(() => {
+  void loadTraces()
+  void loadTraceReadiness()
+})
 
 async function loadTraces() {
   tracesLoading.value = true
@@ -289,6 +320,22 @@ async function loadTraces() {
     await selectDefaultTrace(loadedTraces)
   } finally {
     tracesLoading.value = false
+  }
+}
+
+async function loadTraceReadiness() {
+  traceReadinessLoading.value = true
+  try {
+    const [knowledgeResult, outlineResult, embeddingResult] = await Promise.allSettled([
+      getAiKnowledgeStats(),
+      getOutlineKnowledgeStats(),
+      getEmbeddingHealth()
+    ])
+    assignObjectIfFulfilled(knowledgeStats, knowledgeResult)
+    assignObjectIfFulfilled(outlineStats, outlineResult)
+    assignObjectIfFulfilled(embedding, embeddingResult)
+  } finally {
+    traceReadinessLoading.value = false
   }
 }
 
@@ -341,6 +388,62 @@ function openTraceDrawer() {
 
 function go(path: string) {
   if (path) router.push(path)
+}
+
+function reconcileRepairActions(actions: Record<string, any>[], status: string) {
+  const catalog: Record<string, Record<string, any>> = {}
+  actions.forEach((action) => {
+    if (action?.key) catalog[action.key] = action
+  })
+
+  const actionFor = (key: string, fallback: Record<string, any>) => catalog[key] || fallback
+  const syncOutlineForNoChunks = {
+    key: 'SYNC_OUTLINE',
+    label: '同步 Outline 入库',
+    path: '/agent/outline/sync',
+    description: '知识库没有切片，先把 Outline 文档同步进本地知识库。',
+    type: 'primary'
+  }
+  const importKnowledgeForNoChunks = {
+    key: 'IMPORT_KNOWLEDGE',
+    label: '导入知识文档',
+    path: '/agent/knowledge-documents',
+    description: '没有 Outline 数据时，可直接导入 Markdown 知识文档生成切片。',
+    type: 'success'
+  }
+  const verifyKnowledgeForNoChunks = {
+    key: 'VERIFY_KNOWLEDGE',
+    label: '验证知识检索',
+    path: '/agent/knowledge-vector',
+    description: '同步或导入后，用同类问题验证知识库是否能返回命中。',
+    type: 'info'
+  }
+  const vectorizeOutline = actionFor('VECTORIZE_OUTLINE', {
+    key: 'VECTORIZE_OUTLINE',
+    label: '补 Outline 向量',
+    path: '/agent/ai-ops',
+    description: '已有切片但没有可用向量，进入运维总览执行补向量。',
+    type: 'primary'
+  })
+  const syncOutline = actionFor('SYNC_OUTLINE', {
+    key: 'SYNC_OUTLINE',
+    label: '同步入库',
+    path: '/agent/outline/sync',
+    description: '如果切片来源不完整，先重新同步 Outline 再补向量。',
+    type: 'warning'
+  })
+  const verifyKnowledge = actionFor('VERIFY_KNOWLEDGE', {
+    key: 'VERIFY_KNOWLEDGE',
+    label: '验证知识检索',
+    path: '/agent/knowledge-vector',
+    description: '处理后验证知识库是否能返回可用命中。',
+    type: 'info'
+  })
+
+  if (status === 'NO_CHUNKS') return [syncOutlineForNoChunks, importKnowledgeForNoChunks, verifyKnowledgeForNoChunks]
+  if (status === 'NO_EMBEDDED_CHUNKS') return [vectorizeOutline, syncOutline, verifyKnowledge]
+  if (status === 'PENDING_VECTOR') return [vectorizeOutline, verifyKnowledge]
+  return actions
 }
 
 function buildTracePayload(value: Record<string, any> | null): Record<string, any> | null {
@@ -450,6 +553,12 @@ function firstArray(...values: any[]): any[] {
     if (Array.isArray(value)) return value
   }
   return []
+}
+
+function assignObjectIfFulfilled(target: Record<string, any>, result: PromiseSettledResult<any>) {
+  if (result.status !== 'fulfilled') return
+  Object.keys(target).forEach((key) => delete target[key])
+  Object.assign(target, result.value || {})
 }
 
 function stringValue(...values: any[]) {
@@ -611,6 +720,48 @@ function shouldShowAnswerSourceAlert(value: any) {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.repair-readiness {
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid #fed7aa;
+  border-radius: 6px;
+  background: #fff7ed;
+}
+
+.readiness-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.readiness-head span:first-child {
+  font-weight: 600;
+  color: #92400e;
+}
+
+.repair-readiness strong {
+  display: block;
+  color: #7c2d12;
+  font-size: 13px;
+}
+
+.repair-readiness p {
+  margin: 4px 0 0;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.readiness-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  color: #64748b;
+  font-size: 12px;
 }
 
 .repair-descriptions {

@@ -31,6 +31,35 @@ test('AI traces page builds a unified snapshot from persisted trace detail', () 
   assert.match(content, /function extractToolResults/)
 })
 
+test('AI traces page shows knowledge readiness beside repair actions', () => {
+  const content = read('src/views/agent/AiTracesPage.vue')
+
+  assert.match(content, /import \{ getAiKnowledgeStats, getEmbeddingHealth \} from '\.\.\/\.\.\/api\/agent'/)
+  assert.match(content, /import \{ getOutlineKnowledgeStats \} from '\.\.\/\.\.\/api\/outline'/)
+  assert.match(content, /import \{ buildKnowledgeReadiness \} from '\.\.\/\.\.\/utils\/aiKnowledgeReadiness'/)
+  assert.match(content, /const traceKnowledgeReadiness = computed\(\(\) => buildKnowledgeReadiness\(\{ knowledgeStats, outlineStats, embedding \}\)\)/)
+  assert.match(content, /async function loadTraceReadiness\(\)/)
+  assert.match(content, /getAiKnowledgeStats\(\)[\s\S]*getOutlineKnowledgeStats\(\)[\s\S]*getEmbeddingHealth\(\)/)
+  assert.match(content, /知识库健康/)
+  assert.match(content, /traceKnowledgeReadiness\.title/)
+  assert.match(content, /文档：\{\{ traceKnowledgeReadiness\.documentCount \}\}/)
+  assert.match(content, /切片：\{\{ traceKnowledgeReadiness\.chunkCount \}\}/)
+  assert.match(content, /已向量：\{\{ traceKnowledgeReadiness\.embeddedChunkCount \}\}/)
+})
+
+test('AI traces page prioritizes current knowledge readiness over stale trace fallback actions', () => {
+  const content = read('src/views/agent/AiTracesPage.vue')
+
+  assert.match(content, /const selectedRepairActions = computed\(\(\) => reconcileRepairActions/)
+  assert.match(content, /traceKnowledgeReadiness\.value\.status/)
+  assert.match(content, /v-if="selectedRepairActions\.length"/)
+  assert.match(content, /v-for="action in selectedRepairActions"/)
+  assert.match(content, /:repair-actions="selectedRepairActions"/)
+  assert.match(content, /if \(status === 'NO_CHUNKS'\) return \[syncOutlineForNoChunks, importKnowledgeForNoChunks, verifyKnowledgeForNoChunks\]/)
+  assert.match(content, /description: '同步或导入后，用同类问题验证知识库是否能返回命中。'/)
+  assert.match(content, /if \(status === 'NO_EMBEDDED_CHUNKS'\) return \[vectorizeOutline, syncOutline, verifyKnowledge\]/)
+})
+
 test('AI trace drawer hides empty answerMeta notice while execution is still running', () => {
   const content = read('src/views/agent/components/AiTraceDrawer.vue')
 

@@ -54,11 +54,11 @@
         :title="warning"
       />
 
-      <section v-if="snapshot.repairActions.length" class="trace-section repair-panel">
+      <section v-if="drawerRepairActions.length" class="trace-section repair-panel">
         <h3>建议处理</h3>
         <div class="repair-actions">
           <el-button
-            v-for="action in snapshot.repairActions"
+            v-for="action in drawerRepairActions"
             :key="action.key"
             size="small"
             :type="action.type || 'primary'"
@@ -68,7 +68,7 @@
           </el-button>
         </div>
         <div class="repair-list">
-          <div v-for="action in snapshot.repairActions" :key="`${action.key}-desc`" class="repair-item">
+          <div v-for="action in drawerRepairActions" :key="`${action.key}-desc`" class="repair-item">
             <strong>{{ action.label }}</strong>
             <span>{{ action.description }}</span>
           </div>
@@ -157,6 +157,7 @@ const props = defineProps<{
   record?: Record<string, any> | null
   replayResult?: Record<string, any> | null
   solution?: Record<string, any> | null
+  repairActions?: Record<string, any>[] | null
 }>()
 
 defineEmits<{
@@ -173,6 +174,10 @@ const snapshot = computed(() => toAiExecutionSnapshot({
   replayResult: props.replayResult,
   solution: props.solution
 }))
+const drawerRepairActions = computed(() => {
+  if (props.repairActions?.length) return props.repairActions
+  return snapshot.value?.repairActions || []
+})
 
 function tagType(status: string) {
   if (status === 'SUCCESS') return 'success'
