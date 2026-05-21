@@ -5,7 +5,27 @@
 
     <nav ref="navRef" class="sidebar-nav" @scroll="onNavScroll">
       <router-link to="/gis/one-map">GIS 一张图</router-link>
-      <router-link to="/admin/data-management">数据管理</router-link>
+      <div class="nav-group">
+        <button
+          type="button"
+          class="nav-group-toggle"
+          :class="{ expanded: dataMgmtNavExpanded, active: isDataMgmtRoute }"
+          :aria-expanded="dataMgmtNavExpanded"
+          @click="toggleDataMgmtNav"
+        >
+          <span class="nav-group-label">数据管理</span>
+          <span class="nav-group-chevron" aria-hidden="true" />
+        </button>
+        <div v-show="dataMgmtNavExpanded" class="nav-group-children">
+          <router-link to="/admin/data-management/projects">项目总览</router-link>
+          <router-link to="/admin/data-management/import">项目导入</router-link>
+          <router-link to="/admin/data-management/import-records">导入记录</router-link>
+          <router-link to="/admin/data-management/quality">数据质量</router-link>
+          <router-link to="/admin/data-management/templates">模板与规范</router-link>
+          <router-link to="/admin/data-management/maintenance">清除与归档</router-link>
+          <router-link to="/admin/data-management/audit">操作审计</router-link>
+        </div>
+      </div>
       <router-link to="/agent/ai-ops">AI 运维总览</router-link>
       <router-link to="/agent/langgraph-ops">LangGraph 编排</router-link>
       <router-link to="/agent/chat">AI 问答</router-link>
@@ -53,10 +73,16 @@ const NAV_SCROLL_KEY = 'srmp.agent.sidebar.scrollTop'
 const route = useRoute()
 const navRef = ref<HTMLElement | null>(null)
 const outlineNavExpanded = ref(false)
+const dataMgmtNavExpanded = ref(false)
 const isOutlineRoute = computed(() => route.path.startsWith('/agent/outline'))
+const isDataMgmtRoute = computed(() => route.path.startsWith('/admin/data-management'))
 
 function toggleOutlineNav() {
   outlineNavExpanded.value = !outlineNavExpanded.value
+}
+
+function toggleDataMgmtNav() {
+  dataMgmtNavExpanded.value = !dataMgmtNavExpanded.value
 }
 
 function onNavScroll() {
@@ -92,6 +118,9 @@ watch(
   (path) => {
     if (path.startsWith('/agent/outline')) {
       outlineNavExpanded.value = true
+    }
+    if (path.startsWith('/admin/data-management')) {
+      dataMgmtNavExpanded.value = true
     }
     nextTick(scrollActiveLinkIntoView)
   },

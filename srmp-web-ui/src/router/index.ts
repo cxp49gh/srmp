@@ -22,8 +22,14 @@ import SolutionTemplatesPage from '../views/agent/SolutionTemplatesPage.vue'
 import SolutionGeneratePage from '../views/agent/SolutionGeneratePage.vue'
 import SolutionTasksPage from '../views/agent/SolutionTasksPage.vue'
 import DemoDashboardPage from '../views/demo/DemoDashboardPage.vue'
-import DataManagementPage from '../views/admin/DataManagementPage.vue'
-import DataMgmtProjectImportPage from '../views/admin/DataMgmtProjectImportPage.vue'
+import DataManagementProjectsPage from '../views/admin/data-management/DataManagementProjectsPage.vue'
+import DataManagementImportSelectPage from '../views/admin/data-management/DataManagementImportSelectPage.vue'
+import DataMgmtProjectImportPage from '../views/admin/data-management/DataMgmtProjectImportPage.vue'
+import DataImportRecordsPage from '../views/admin/data-management/DataImportRecordsPage.vue'
+import DataTemplatesPage from '../views/admin/data-management/DataTemplatesPage.vue'
+import DataQualityPage from '../views/admin/data-management/DataQualityPage.vue'
+import DataMaintenancePage from '../views/admin/data-management/DataMaintenancePage.vue'
+import DataAuditPage from '../views/admin/data-management/DataAuditPage.vue'
 
 const agentChildren: RouteRecordRaw[] = [
   {
@@ -166,17 +172,47 @@ const router = createRouter({
       children: [
         {
           path: 'data-management',
-          component: DataManagementPage,
-          meta: {
-            title: '数据管理'
-          }
+          redirect: '/admin/data-management/projects'
+        },
+        {
+          path: 'data-management/projects',
+          component: DataManagementProjectsPage,
+          meta: { title: '项目总览' }
+        },
+        {
+          path: 'data-management/import',
+          component: DataManagementImportSelectPage,
+          meta: { title: '项目导入' }
+        },
+        {
+          path: 'data-management/import-records',
+          component: DataImportRecordsPage,
+          meta: { title: '导入记录' }
+        },
+        {
+          path: 'data-management/templates',
+          component: DataTemplatesPage,
+          meta: { title: '模板与规范' }
+        },
+        {
+          path: 'data-management/quality',
+          component: DataQualityPage,
+          meta: { title: '数据质量' }
+        },
+        {
+          path: 'data-management/maintenance',
+          component: DataMaintenancePage,
+          meta: { title: '清除与归档' }
+        },
+        {
+          path: 'data-management/audit',
+          component: DataAuditPage,
+          meta: { title: '操作审计' }
         },
         {
           path: 'data-management/:projectId/import',
           component: DataMgmtProjectImportPage,
-          meta: {
-            title: '项目导入'
-          }
+          meta: { title: '项目导入工作台' }
         }
       ]
     },
