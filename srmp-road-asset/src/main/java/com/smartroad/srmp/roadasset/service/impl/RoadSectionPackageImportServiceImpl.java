@@ -740,6 +740,7 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
         int entities = 0;
         int assessments = 0;
         int orphanRouteFeatures = 0;
+        Map<String, Integer> orphanRouteFeatureCounts = new LinkedHashMap<>();
         Set<String> seenSegmentCodes = new HashSet<>();
         try {
             if (store instanceof org.geotools.data.shapefile.ShapefileDataStore) {
@@ -776,6 +777,7 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
                         drafts.add(new ParsedFeature(index, row));
                         if (drafts.size() >= IMPORT_DB_BATCH_SIZE) {
                             List<ImportWorkItem> workBatch = buildWorkItems(tier, tenantId, drafts, projectId, seenSegmentCodes);
+                            collectOrphanRouteFeatureCounts(workBatch, orphanRouteFeatureCounts);
                             orphanRouteFeatures += flushWorkBatch(tier, workBatch, tenantId, projectId);
                             entities += workBatch.size();
                             assessments += workBatch.size();
@@ -793,6 +795,7 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
             }
             if (!drafts.isEmpty()) {
                 List<ImportWorkItem> workBatch = buildWorkItems(tier, tenantId, drafts, projectId, seenSegmentCodes);
+                collectOrphanRouteFeatureCounts(workBatch, orphanRouteFeatureCounts);
                 orphanRouteFeatures += flushWorkBatch(tier, workBatch, tenantId, projectId);
                 entities += workBatch.size();
                 assessments += workBatch.size();
@@ -802,7 +805,8 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
             }
             if (orphanRouteFeatures > 0) {
                 warnings.add(tierLabel + " " + shpFile.getFileName() + "：共 " + orphanRouteFeatures
-                        + " 条要素的路线编号在路网中未登记，已写入（route_id 为空、route_code 已保留），请补录路网后关联。");
+                        + " 条要素的路线编号在路网中未登记，涉及路线编号：" + formatOrphanRouteCodes(orphanRouteFeatureCounts)
+                        + "。已写入（route_id 为空、route_code 已保留），请补录路网后关联。");
             }
             log.info("[section-import] {}完成 file={} 扫描要素={} 写入要素={} 评定行={}",
                     tierLabel, shpFile.getFileName(), index, entities, assessments);
@@ -810,6 +814,25 @@ public class RoadSectionPackageImportServiceImpl implements RoadSectionPackageIm
             store.dispose();
         }
         return new Counts(entities, assessments);
+    }
+
+    private static void collectOrphanRouteFeatureCounts(List<ImportWorkItem> workBatch, Map<String, Integer> counts) {
+        for (ImportWorkItem it : workBatch) {
+            String routeId = it.networkMatch != null ? it.networkMatch.getRouteId() : null;
+            if (routeId != null) {
+                continue;
+            }
+            String routeCode = firstNonBlank(it.routeCodeDb, it.row.routeCode);
+            counts.merge(routeCode == null ? "空路线编号" : routeCode.trim(), 1, Integer::sum);
+        }
+    }
+
+    private static String formatOrphanRouteCodes(Map<String, Integer> counts) {
+        List<String> parts = new ArrayList<>(counts.size());
+        for (Map.Entry<String, Integer> entry : counts.entrySet()) {
+            parts.add(entry.getKey() + "（" + entry.getValue() + "条）");
+        }
+        return String.join("、", parts);
     }
 
     private static String baseErr(Path shp, int index) {

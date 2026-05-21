@@ -84,7 +84,8 @@ public class DataImportServiceImpl implements DataImportService {
                 success++;
             } catch (Exception e) {
                 failed++;
-                String msg = "第" + rowNo + "行：" + e.getMessage();
+                String errorMessage = enrichRowErrorMessage(type, row, e.getMessage());
+                String msg = "第" + rowNo + "行：" + errorMessage;
                 result.getErrors().add(msg);
                 DataImportErrorLog log = new DataImportErrorLog();
                 log.setId(IdUtils.uuid());
@@ -92,7 +93,7 @@ public class DataImportServiceImpl implements DataImportService {
                 log.setImportTaskId(taskId);
                 log.setRowNo(rowNo);
                 log.setErrorType("BIZ_CHECK");
-                log.setErrorMessage(e.getMessage());
+                log.setErrorMessage(errorMessage);
                 log.setCreatedAt(LocalDateTime.now());
                 errorLogMapper.insert(log);
             }
@@ -104,6 +105,30 @@ public class DataImportServiceImpl implements DataImportService {
         result.setSuccessCount(success);
         result.setFailedCount(failed);
         return result;
+    }
+
+    private String enrichRowErrorMessage(String type, Map<String, String> row, String message) {
+        if (!"ROAD_SECTION".equals(type)) {
+            return message;
+        }
+        String routeCode = firstPresent(row, "route_code", "routeCode", "路线编号", "线路编码");
+        if (routeCode == null || routeCode.trim().isEmpty()) {
+            return message;
+        }
+        return "线路编码：" + routeCode.trim() + "；" + message;
+    }
+
+    private String firstPresent(Map<String, String> row, String... keys) {
+        if (row == null) {
+            return null;
+        }
+        for (String key : keys) {
+            String value = row.get(key);
+            if (value != null && !value.trim().isEmpty()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private void finishTask(DataImportTask task, String status, int total, int success, int failed, String errorMessage) {
