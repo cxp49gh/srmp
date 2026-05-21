@@ -35,7 +35,7 @@ test('AI traces page shows knowledge readiness beside repair actions', () => {
   const content = read('src/views/agent/AiTracesPage.vue')
 
   assert.match(content, /import \{ getAiKnowledgeStats, getEmbeddingHealth \} from '\.\.\/\.\.\/api\/agent'/)
-  assert.match(content, /import \{ getOutlineKnowledgeStats \} from '\.\.\/\.\.\/api\/outline'/)
+  assert.match(content, /import \{ getOutlineKnowledgeStats, vectorizeOutline \} from '\.\.\/\.\.\/api\/outline'/)
   assert.match(content, /import \{ buildKnowledgeReadiness \} from '\.\.\/\.\.\/utils\/aiKnowledgeReadiness'/)
   assert.match(content, /const traceKnowledgeReadiness = computed\(\(\) => buildKnowledgeReadiness\(\{ knowledgeStats, outlineStats, embedding \}\)\)/)
   assert.match(content, /async function loadTraceReadiness\(\)/)
@@ -58,6 +58,22 @@ test('AI traces page prioritizes current knowledge readiness over stale trace fa
   assert.match(content, /if \(status === 'NO_CHUNKS'\) return \[syncOutlineForNoChunks, importKnowledgeForNoChunks, verifyKnowledgeForNoChunks\]/)
   assert.match(content, /description: '同步或导入后，用同类问题验证知识库是否能返回命中。'/)
   assert.match(content, /if \(status === 'NO_EMBEDDED_CHUNKS'\) return \[vectorizeOutline, syncOutline, verifyKnowledge\]/)
+})
+
+test('AI traces page can run safe vector repair without leaving the trace page', () => {
+  const content = read('src/views/agent/AiTracesPage.vue')
+
+  assert.match(content, /import \{ getOutlineKnowledgeStats, vectorizeOutline \} from '\.\.\/\.\.\/api\/outline'/)
+  assert.match(content, /const repairActionLoadingKey = ref\(''\)/)
+  assert.match(content, /const lastRepairActionResult = ref\(''\)/)
+  assert.match(content, /@click="handleRepairAction\(action\)"/)
+  assert.match(content, /:loading="repairActionLoadingKey === action\.key"/)
+  assert.match(content, /async function handleRepairAction\(action: Record<string, any>\)/)
+  assert.match(content, /if \(action\.key !== 'VECTORIZE_OUTLINE'\) \{\s*go\(action\.path\)\s*return\s*\}/)
+  assert.match(content, /await vectorizeOutline\(\{ force: false, limit: 200 \}\)/)
+  assert.match(content, /lastRepairActionResult\.value = JSON\.stringify\(data \|\| \{\}, null, 2\)/)
+  assert.match(content, /await loadTraceReadiness\(\)/)
+  assert.match(content, /最近处理结果/)
 })
 
 test('AI trace drawer hides empty answerMeta notice while execution is still running', () => {

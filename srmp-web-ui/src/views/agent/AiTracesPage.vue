@@ -140,10 +140,15 @@
                 :key="action.key"
                 size="small"
                 :type="action.type || 'primary'"
-                @click="go(action.path)"
+                :loading="repairActionLoadingKey === action.key"
+                @click="handleRepairAction(action)"
               >
                 {{ action.label }}
               </el-button>
+            </div>
+            <div v-if="lastRepairActionResult" class="repair-result">
+              <strong>最近处理结果</strong>
+              <span>{{ lastRepairActionResult }}</span>
             </div>
             <div class="repair-descriptions">
               <div v-for="action in selectedRepairActions" :key="`${action.key}-desc`">
@@ -236,7 +241,7 @@ import AiTraceDrawer from './components/AiTraceDrawer.vue'
 import AnswerSourceAlert from './components/AnswerSourceAlert.vue'
 import { toAiExecutionSnapshot } from './components/aiExecution'
 import { getAiKnowledgeStats, getEmbeddingHealth } from '../../api/agent'
-import { getOutlineKnowledgeStats } from '../../api/outline'
+import { getOutlineKnowledgeStats, vectorizeOutline } from '../../api/outline'
 import { getAiExecution, listAiExecutions } from '../../api/trace'
 import { buildKnowledgeReadiness } from '../../utils/aiKnowledgeReadiness'
 
@@ -249,6 +254,8 @@ const selected = ref<Record<string, any> | null>(null)
 const detail = ref<Record<string, any> | null>(null)
 const traceDrawerVisible = ref(false)
 const traceReadinessLoading = ref(false)
+const repairActionLoadingKey = ref('')
+const lastRepairActionResult = ref('')
 const knowledgeStats = reactive<Record<string, any>>({})
 const outlineStats = reactive<Record<string, any>>({})
 const embedding = reactive<Record<string, any>>({})
@@ -388,6 +395,27 @@ function openTraceDrawer() {
 
 function go(path: string) {
   if (path) router.push(path)
+}
+
+async function handleRepairAction(action: Record<string, any>) {
+  if (action.key !== 'VECTORIZE_OUTLINE') {
+    go(action.path)
+    return
+  }
+
+  repairActionLoadingKey.value = action.key
+  lastRepairActionResult.value = ''
+  try {
+    const data = await vectorizeOutline({ force: false, limit: 200 })
+    lastRepairActionResult.value = JSON.stringify(data || {}, null, 2)
+    ElMessage.success('Outline 补向量已完成')
+    await loadTraceReadiness()
+  } catch (error) {
+    lastRepairActionResult.value = detailErrorMessage(error)
+    ElMessage.error(lastRepairActionResult.value)
+  } finally {
+    repairActionLoadingKey.value = ''
+  }
 }
 
 function reconcileRepairActions(actions: Record<string, any>[], status: string) {
@@ -779,6 +807,27 @@ function shouldShowAnswerSourceAlert(value: any) {
 
 .repair-descriptions strong {
   color: #92400e;
+}
+
+.repair-result {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  background: #fff;
+  color: #475569;
+  font-size: 12px;
+}
+
+.repair-result strong {
+  color: #92400e;
+}
+
+.repair-result span {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .section-title {
