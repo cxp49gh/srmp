@@ -66,6 +66,7 @@ export interface DataMgmtQualityReportVO {
   routeMatchBreakdown?: { label: string; value: number }[]
   geometryBreakdown?: { label: string; value: number }[]
   diseaseCategoryBreakdown?: { label: string; value: number }[]
+  diseaseNameBreakdown?: { label: string; value: number }[]
   diseaseSeverityBreakdown?: { label: string; value: number }[]
   issues?: { issueType: string; count: number; suggestion: string }[]
 }

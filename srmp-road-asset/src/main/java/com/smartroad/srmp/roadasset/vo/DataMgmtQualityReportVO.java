@@ -26,6 +26,7 @@ public class DataMgmtQualityReportVO {
     private List<MetricItemVO> routeMatchBreakdown = new ArrayList<>();
     private List<MetricItemVO> geometryBreakdown = new ArrayList<>();
     private List<MetricItemVO> diseaseCategoryBreakdown = new ArrayList<>();
+    private List<MetricItemVO> diseaseNameBreakdown = new ArrayList<>();
     private List<MetricItemVO> diseaseSeverityBreakdown = new ArrayList<>();
     private List<QualityIssueVO> issues = new ArrayList<>();
 

@@ -102,11 +102,11 @@
           <div class="panel">
             <div class="panel-header">
               <div>
-                <h3>严重程度分布</h3>
-                <p>按严重程度聚合病害记录。</p>
+                <h3>病害名称分布</h3>
+                <p>按病害名称聚合病害记录。</p>
               </div>
             </div>
-            <div ref="severityChartRef" class="chart compact"></div>
+            <div ref="diseaseNameChartRef" class="chart compact"></div>
           </div>
 
           <div class="panel">
@@ -147,7 +147,7 @@ const sectionChartRef = ref<HTMLDivElement | null>(null)
 const qualityChartRef = ref<HTMLDivElement | null>(null)
 const geometryChartRef = ref<HTMLDivElement | null>(null)
 const diseaseCategoryChartRef = ref<HTMLDivElement | null>(null)
-const severityChartRef = ref<HTMLDivElement | null>(null)
+const diseaseNameChartRef = ref<HTMLDivElement | null>(null)
 const charts: echarts.ECharts[] = []
 
 const sectionRows = computed(() => {
@@ -175,7 +175,7 @@ const geometryRows = computed(() => {
   ]
 })
 const diseaseCategoryRows = computed(() => metricRows(report.value?.diseaseCategoryBreakdown))
-const severityRows = computed(() => metricRows(report.value?.diseaseSeverityBreakdown))
+const diseaseNameRows = computed(() => metricRows(report.value?.diseaseNameBreakdown || report.value?.diseaseSeverityBreakdown))
 
 const issueRows = computed(() => {
   const r = report.value
@@ -223,7 +223,7 @@ function renderCharts() {
   renderPie(qualityChartRef.value, qualityRows.value)
   renderPie(geometryChartRef.value, geometryRows.value)
   renderHorizontalBar(diseaseCategoryChartRef.value, diseaseCategoryRows.value.slice(0, 8))
-  renderBar(severityChartRef.value, severityRows.value, '病害数')
+  renderBar(diseaseNameChartRef.value, diseaseNameRows.value.slice(0, 10), '病害数')
 }
 
 function renderBar(el: HTMLDivElement | null, rows: MetricItem[], seriesName: string) {

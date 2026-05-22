@@ -128,7 +128,7 @@ public class DataMgmtQualityServiceImpl implements DataMgmtQualityService {
                 metric("路段空几何", emptySectionGeom),
                 metric("病害空几何", emptyDiseaseGeom)));
         vo.setDiseaseCategoryBreakdown(loadDiseaseGroupCounts(tenantId, projectId, "disease_category", "未分类"));
-        vo.setDiseaseSeverityBreakdown(loadDiseaseGroupCounts(tenantId, projectId, "severity", "未标注"));
+        vo.setDiseaseNameBreakdown(loadDiseaseGroupCounts(tenantId, projectId, "disease_name", "未命名"));
 
         long matchBase = sectionCount + diseaseCount;
         if (matchBase > 0) {
