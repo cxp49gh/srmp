@@ -866,6 +866,8 @@ function formatLiveStatus(status?: string) {
   if (normalized === 'RUNNING') return '正在执行'
   if (normalized === 'SUCCESS' || normalized === 'COMPLETED') return '已完成'
   if (normalized === 'FAILED' || normalized === 'ERROR') return '执行失败'
+  if (normalized === 'TIMEOUT') return '执行超时'
+  if (normalized === 'SKIPPED') return '已跳过'
   if (normalized === 'PENDING') return '等待中'
   return '等待执行状态'
 }

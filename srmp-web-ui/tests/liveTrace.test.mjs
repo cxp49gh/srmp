@@ -48,6 +48,46 @@ test('builds compact wait summary', () => {
   assert.equal(summary.sourceLabel, '业务 5｜知识库 1')
 })
 
+test('compact wait summary surfaces tool failures and suppresses skipped adaptive noise', () => {
+  const summary = buildLiveTraceSummary({
+    status: 'SUCCESS',
+    currentStep: null,
+    steps: [
+      { label: '执行只读工具', status: 'FAILED' },
+      { label: '融合 GIS 与知识库证据', status: 'SUCCESS' },
+      { label: '无补充证据需要融合', status: 'SKIPPED' },
+      { label: '生成回答', status: 'SUCCESS' }
+    ],
+    toolSummary: { planned: 4, completed: 4, success: 0, failed: 4 },
+    sourceSummary: { business: 0, knowledge: 0, outline: 0 }
+  })
+
+  assert.equal(summary.currentLabel, '')
+  assert.equal(summary.currentStatus, 'SUCCESS')
+  assert.equal(summary.toolLabel, '工具 4/4 成功 0 失败 4')
+  assert.deepEqual(
+    summary.recentSteps.map((step) => step.label),
+    ['执行只读工具', '融合 GIS 与知识库证据', '生成回答']
+  )
+})
+
+test('compact wait summary falls back from skipped current step to latest meaningful step while running', () => {
+  const summary = buildLiveTraceSummary({
+    status: 'RUNNING',
+    currentStep: { label: '无补充工具需要执行', status: 'SKIPPED' },
+    steps: [
+      { label: '执行只读工具', status: 'FAILED' },
+      { label: '无补充工具需要执行', status: 'SKIPPED' }
+    ],
+    toolSummary: { planned: 1, completed: 1, success: 0, failed: 1 },
+    sourceSummary: { business: 0, knowledge: 0, outline: 0 }
+  })
+
+  assert.equal(summary.currentLabel, '执行只读工具')
+  assert.equal(summary.currentStatus, 'FAILED')
+  assert.equal(summary.toolLabel, '工具 1/1 成功 0 失败 1')
+})
+
 test('pauses polling after three failures', () => {
   assert.equal(shouldPauseLiveTracePolling(2), false)
   assert.equal(shouldPauseLiveTracePolling(3), true)

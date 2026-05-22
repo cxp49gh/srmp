@@ -59,7 +59,9 @@ export function normalizeLiveTraceSnapshot(input: any): LiveTraceSnapshot {
 }
 
 export function buildLiveTraceSummary(snapshot: Partial<LiveTraceSnapshot>) {
-  const current = snapshot.currentStep || null
+  const steps = snapshot.steps || []
+  const compactSteps = compactDisplaySteps(steps)
+  const current = normalizeCurrentStep(snapshot.currentStep || null, compactSteps, snapshot.status)
   const tool = snapshot.toolSummary || { planned: 0, completed: 0, success: 0, failed: 0 }
   const source = snapshot.sourceSummary || { business: 0, knowledge: 0, outline: 0 }
   const sourceParts = []
@@ -69,8 +71,8 @@ export function buildLiveTraceSummary(snapshot: Partial<LiveTraceSnapshot>) {
   return {
     currentLabel: current?.label || current?.name || '',
     currentStatus: current?.status || snapshot.status || '',
-    recentSteps: (snapshot.steps || []).slice(-4),
-    toolLabel: tool.planned || tool.completed ? `工具 ${tool.completed}/${tool.planned} 成功 ${tool.success}` : '',
+    recentSteps: compactSteps.slice(-4),
+    toolLabel: formatToolLabel(tool),
     sourceLabel: sourceParts.join('｜'),
     error: snapshot.error || current?.error || ''
   }
@@ -99,6 +101,34 @@ function normalizeStep(input: any): LiveTraceStep | null {
     error: stringValue(input.error || input.errorMessage || input.error_message),
     data: input.data && typeof input.data === 'object' ? input.data : {}
   }
+}
+
+function compactDisplaySteps(steps: LiveTraceStep[]): LiveTraceStep[] {
+  const meaningful = steps.filter((step) => String(step.status || '').toUpperCase() !== 'SKIPPED')
+  return meaningful.length ? meaningful : steps
+}
+
+function normalizeCurrentStep(
+  current: LiveTraceStep | null,
+  compactSteps: LiveTraceStep[],
+  snapshotStatus?: string
+): LiveTraceStep | null {
+  const currentStatus = String(current?.status || '').toUpperCase()
+  const runStatus = String(snapshotStatus || '').toUpperCase()
+  if (current && currentStatus !== 'SKIPPED') return current
+  if (['SUCCESS', 'FAILED', 'TIMEOUT', 'COMPLETED'].includes(runStatus)) return null
+  return compactSteps.length ? compactSteps[compactSteps.length - 1] : current
+}
+
+function formatToolLabel(tool: { planned?: number; completed?: number; success?: number; failed?: number }): string {
+  const planned = numberValue(tool.planned)
+  const completed = numberValue(tool.completed)
+  const success = numberValue(tool.success)
+  const failed = numberValue(tool.failed)
+  if (!planned && !completed) return ''
+  const parts = [`工具 ${completed}/${planned}`, `成功 ${success}`]
+  if (failed > 0) parts.push(`失败 ${failed}`)
+  return parts.join(' ')
 }
 
 function stringValue(value: any): string | undefined {
