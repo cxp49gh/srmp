@@ -8,12 +8,24 @@ from .schemas import MapAiAgentRequest, MapAiContext, ToolCall
 def plan_tools(request: MapAiAgentRequest, intent: str, intent_detail: Optional[Dict[str, Any]] = None) -> List[ToolCall]:
     ctx = request.mapContext
     obj = ctx.mapObject if ctx and ctx.mapObject else request.mapObject or {}
+    mode = str(ctx.mode or "").upper() if ctx and ctx.mode else ""
+    action = str(request.action or (request.options or {}).get("action") or "").upper()
     calls: List[ToolCall] = []
 
     if intent == "NEARBY_ANALYSIS":
         add(calls, "gis.queryNearbyObjects", context_args(ctx, {"limit": 20}), "查询当前对象周边病害和评定结果")
     if intent == "REGION_ANALYSIS":
         add(calls, "gis.queryRegionSummary", region_args(ctx, {"limit": 50}), "查询框选区域或路线统计摘要")
+    if intent == "ROUTE_ANALYSIS":
+        add(calls, "gis.queryRegionSummary", region_args(ctx, {"limit": 50}), "查询路线统计摘要")
+        add(calls, "gis.queryAssessmentResults", context_args(ctx, {"limit": 50}), "路线评定结果查询")
+        add(calls, "gis.queryDiseases", context_args(ctx, {"limit": 50}), "路线病害查询")
+    if intent == "SOLUTION_GENERATE" and (action == "GENERATE_REGION_SOLUTION" or mode == "REGION"):
+        add(calls, "gis.queryRegionSummary", region_args(ctx, {"limit": 50}), "生成区域方案前查询区域统计摘要")
+    if intent == "SOLUTION_GENERATE" and (action == "GENERATE_ROUTE_REPORT" or mode == "ROUTE"):
+        add(calls, "gis.queryRegionSummary", region_args(ctx, {"limit": 50}), "生成路线报告前查询路线统计摘要")
+        add(calls, "gis.queryAssessmentResults", context_args(ctx, {"limit": 50}), "生成路线报告前查询评定结果")
+        add(calls, "gis.queryDiseases", context_args(ctx, {"limit": 50}), "生成路线报告前查询病害")
     if intent in {"OBJECT_ANALYSIS", "SOLUTION_GENERATE"}:
         plan_object_tools(calls, ctx, obj)
     if intent == "TEMPLATE_VERIFY":
@@ -49,7 +61,7 @@ def plan_object_tools(calls: List[ToolCall], ctx: Optional[MapAiContext], obj: D
 def should_use_knowledge(options: Dict[str, Any], intent: str) -> bool:
     if options and "useKnowledge" in options:
         return str(options.get("useKnowledge")).lower() not in {"false", "0", "no", "off"}
-    return intent in {"KNOWLEDGE_QA", "SOLUTION_GENERATE", "OBJECT_ANALYSIS", "REGION_ANALYSIS", "TEMPLATE_VERIFY", "GENERAL_CHAT", "NEARBY_ANALYSIS"}
+    return intent in {"KNOWLEDGE_QA", "SOLUTION_GENERATE", "OBJECT_ANALYSIS", "REGION_ANALYSIS", "ROUTE_ANALYSIS", "TEMPLATE_VERIFY", "GENERAL_CHAT", "NEARBY_ANALYSIS"}
 
 
 def add(calls: List[ToolCall], tool_name: str, args: Dict[str, Any], reason: str) -> None:
@@ -78,10 +90,13 @@ def context_args(ctx: Optional[MapAiContext], extra: Dict[str, Any]) -> Dict[str
     extra_context = ctx.extra if ctx and isinstance(ctx.extra, dict) else {}
     raw_context = first_dict(extra_context, "rawContext", "raw_context")
     query = first_dict(raw_context, "query")
+    mode = str(ctx.mode if ctx else "").upper()
+    object_route_code = first_value(obj, "routeCode", "route_code", "route", "routeNo", "route_no")
+    context_route_code = ctx.routeCode if ctx else None
     base = {
         "tenantId": ctx.tenantId if ctx else None,
         "projectId": first_value(extra_context, "projectId", "project_id") or first_value(query, "projectId", "project_id") or first_value(raw_context, "projectId", "project_id"),
-        "routeCode": ctx.routeCode if ctx else None,
+        "routeCode": object_route_code if mode == "OBJECT" and object_route_code else context_route_code,
         "year": ctx.year if ctx else None,
         "sectionTier": first_value(query, "sectionTier", "section_tier") or first_value(extra_context, "sectionTier", "section_tier"),
         "contextScope": ctx.mode if ctx else None,

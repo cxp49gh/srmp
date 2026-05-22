@@ -241,7 +241,7 @@ def _bool_option(options: Dict[str, Any], key: str, default: bool) -> bool:
 
 
 def _is_region_request(intent: str, mode: str) -> bool:
-    return intent == "REGION_ANALYSIS" or mode in {"REGION", "BOX", "POLYGON", "SELECTION"}
+    return intent in {"REGION_ANALYSIS", "ROUTE_ANALYSIS"} or mode in {"REGION", "BOX", "POLYGON", "SELECTION", "ROUTE"}
 
 
 def _reason_for_calls(calls: List[ToolCall], evidence: Dict[str, Any], max_added_tools: int, skipped: List[str]) -> str:

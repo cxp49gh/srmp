@@ -39,6 +39,13 @@ public class AiBusinessScope {
         Map<String, Object> rawObject = asMap(first(mapObject, "raw"));
         Map<String, Object> viewport = asMap(mapContext == null ? null : mapContext.getViewport());
         Map<String, Object> geometry = asMap(mapContext == null ? null : mapContext.getGeometry());
+        boolean objectMode = "OBJECT".equalsIgnoreCase(stringValue(mapContext == null ? null : mapContext.getMode()))
+                || !mapObject.isEmpty();
+        Object objectRoute = first(mapObject, "routeCode", "route_code", "route");
+        Object selectedRoute = first(selected, "routeCode", "route_code", "route");
+        Object rawObjectRoute = first(rawObject, "routeCode", "route_code", "route");
+        Object argRoute = first(safeArgs, "routeCode", "route_code", "route");
+        Object contextRoute = mapContext == null ? null : mapContext.getRouteCode();
 
         AiBusinessScope scope = new AiBusinessScope();
         scope.tenantId = stringValue(
@@ -52,13 +59,9 @@ public class AiBusinessScope {
                 first(query, "projectId", "project_id"),
                 first(rawContext, "projectId", "project_id")
         );
-        scope.routeCode = stringValue(
-                first(safeArgs, "routeCode", "route_code", "route"),
-                mapContext == null ? null : mapContext.getRouteCode(),
-                first(mapObject, "routeCode", "route_code", "route"),
-                first(selected, "routeCode", "route_code", "route"),
-                first(rawObject, "routeCode", "route_code", "route")
-        );
+        scope.routeCode = objectMode
+                ? stringValue(objectRoute, selectedRoute, rawObjectRoute, argRoute, contextRoute)
+                : stringValue(argRoute, contextRoute, objectRoute, selectedRoute, rawObjectRoute);
         scope.year = integerValue(
                 first(safeArgs, "year"),
                 mapContext == null ? null : mapContext.getYear(),

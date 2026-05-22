@@ -9,6 +9,7 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 
 import javax.annotation.Resource;
+import java.sql.Types;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -41,8 +42,8 @@ public abstract class AbstractJdbcAiTool implements AiTool {
         p.addValue("objectId", safe(scope.getObjectId()));
         p.addValue("assessmentObjectType", safe(scope.getAssessmentObjectType()));
         p.addValue("direction", safe(scope.getDirection()));
-        p.addValue("startStake", scope.getStartStake());
-        p.addValue("endStake", scope.getEndStake());
+        p.addValue("startStake", scope.getStartStake(), Types.NUMERIC);
+        p.addValue("endStake", scope.getEndStake(), Types.NUMERIC);
         return p;
     }
 

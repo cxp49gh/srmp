@@ -33,7 +33,7 @@ public class MapObjectSolutionQualityChecker {
         }
 
         add(check, "成因判断", containsAny(text, "成因", "原因"),
-                "应包含成因判断或低分原因");
+                "应包含成因判断或指标原因");
         add(check, "处置建议", containsAny(text, "处置建议", "处置策略", "养护建议", "推荐处置"),
                 "应包含处置建议或养护策略");
         add(check, "优先级", containsAny(text, "优先级", "近期", "中期", "P1", "P2", "P3"),

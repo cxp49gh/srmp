@@ -26,6 +26,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { MapAgentAction, MapAgentSuggestedAction } from '../../../../api/agent'
+import { assessmentSolutionLabel } from '../../../../utils/mapAssessmentSemantics'
 
 const props = defineProps<{
   actions?: MapAgentSuggestedAction[]
@@ -40,7 +41,7 @@ const normalizedActions = computed(() => props.actions || [])
 const objectSolutionLabel = computed(() => {
   const type = normalizeObjectType(props.mapObject)
   if (type === 'DISEASE' || type === 'DISEASE_RECORD') return '生成病害处置建议'
-  if (type === 'ASSESSMENT' || type === 'ASSESSMENT_RESULT') return '生成低分处置建议'
+  if (type === 'ASSESSMENT' || type === 'ASSESSMENT_RESULT') return assessmentSolutionLabel(props.mapObject)
   if (type === 'EVALUATION_UNIT') return '生成评定单元建议'
   if (type === 'ROAD_SECTION') return '生成路段养护计划'
   if (type === 'ROAD_ROUTE') return '生成路线养护报告'

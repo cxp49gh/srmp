@@ -89,6 +89,33 @@ public class AiBusinessScopeTest {
         assertTrue(scope.getScopeWarnings().contains("PROJECT_ID_MISSING"));
     }
 
+    @Test
+    public void objectScopePrefersSelectedObjectRouteOverConflictingRouteArgs() {
+        AiToolContext context = new AiToolContext();
+        context.setTenantId("tenant-a");
+
+        MapAiContext mapContext = new MapAiContext();
+        mapContext.setMode("OBJECT");
+        mapContext.setRouteCode("G210");
+        mapContext.setYear(2026);
+        mapContext.setMapObject(mapOf(
+                "objectType", "ASSESSMENT_RESULT",
+                "objectId", "assessment-1",
+                "routeCode", "Y016140727",
+                "startStake", 0,
+                "endStake", 14.072
+        ));
+        context.setMapContext(mapContext);
+
+        AiBusinessScope scope = AiBusinessScope.from(context, mapOf(
+                "routeCode", "G210",
+                "objectId", "assessment-1",
+                "objectType", "ASSESSMENT_RESULT"
+        ));
+
+        assertEquals("Y016140727", scope.getRouteCode());
+    }
+
     private Map<String, Object> mapOf(Object... values) {
         Map<String, Object> map = new LinkedHashMap<>();
         for (int i = 0; i + 1 < values.length; i += 2) {

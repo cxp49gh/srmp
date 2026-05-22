@@ -50,7 +50,7 @@ public class SolutionGenerateTool implements AiTool {
             return AiToolResult.success(name(), "区域养护建议预览已生成", data, 1, System.currentTimeMillis() - start);
         }
         if ("GENERATE_OBJECT_SOLUTION".equals(action)) {
-            MapObjectSolutionResponse response = mapObjectSolutionService.generate(objectSolutionRequest(safeArgs, mapContext, context, "GENERAL_ADVICE", null));
+            MapObjectSolutionResponse response = mapObjectSolutionService.generate(objectSolutionRequest(safeArgs, mapContext, context, null, null));
             Map<String, Object> data = objectMapper.convertValue(response, Map.class);
             return AiToolResult.success(name(), "对象方案预览已生成", data, 1, System.currentTimeMillis() - start);
         }
@@ -68,6 +68,7 @@ public class SolutionGenerateTool implements AiTool {
                                                            String defaultSolutionType,
                                                            String forcedObjectType) {
         Map<String, Object> mapObject = mapValue(firstNonNull(args.get("mapObject"), mapContext.get("mapObject")));
+        Map<String, Object> mapContextExtra = mapValue(mapContext.get("extra"));
         String objectType = firstNonBlank(forcedObjectType, stringValue(args.get("objectType")), stringValue(mapObject.get("objectType")), stringValue(mapObject.get("object_type")));
         String routeCode = firstNonBlank(stringValue(args.get("routeCode")), stringValue(mapContext.get("routeCode")), stringValue(mapContext.get("route_code")), stringValue(mapObject.get("routeCode")), stringValue(mapObject.get("route_code")));
         Integer year = intValue(firstNonNull(args.get("year"), mapContext.get("year"), mapObject.get("year")));
@@ -84,6 +85,7 @@ public class SolutionGenerateTool implements AiTool {
         request.setYear(year);
         request.setSolutionType(firstNonBlank(stringValue(args.get("solutionType")), defaultSolutionType));
         request.setMapObject(mapObject);
+        request.setBusinessEvidence(mapValue(firstNonNull(args.get("businessEvidence"), mapContext.get("businessEvidence"), mapContextExtra.get("businessEvidence"))));
         request.setOptions(mergeOptions(args, context));
         return request;
     }

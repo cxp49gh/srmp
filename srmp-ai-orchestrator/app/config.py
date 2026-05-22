@@ -56,7 +56,7 @@ class Settings:
     llm_raw_preview_chars: int = _int_env("SRMP_LANGGRAPH_LLM_RAW_PREVIEW_CHARS", 500)
     max_tool_items_in_prompt: int = _int_env("SRMP_LANGGRAPH_MAX_TOOL_ITEMS_IN_PROMPT", 8)
 
-    strategy_version: str = os.getenv("SRMP_LANGGRAPH_STRATEGY_VERSION", "phase50.11-config-health-guard-v1")
+    strategy_version: str = os.getenv("SRMP_LANGGRAPH_STRATEGY_VERSION", "phase51-map-evidence-pipeline-v1")
     enable_context_enrich: bool = _bool_env("SRMP_LANGGRAPH_ENABLE_CONTEXT_ENRICH", True)
     enable_evidence_fusion: bool = _bool_env("SRMP_LANGGRAPH_ENABLE_EVIDENCE_FUSION", True)
     enable_quality_guard: bool = _bool_env("SRMP_LANGGRAPH_ENABLE_QUALITY_GUARD", True)

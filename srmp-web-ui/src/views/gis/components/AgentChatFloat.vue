@@ -243,8 +243,10 @@ import MapAiWorkbench from './map-ai/MapAiWorkbench.vue'
 import { copyText } from '../../../utils/clipboard'
 import { gisContextTypeLabel, sourceToMapTarget, type GisSourceMapTarget } from '../../../utils/gisUnifiedContext'
 import { formatMetricValue, getMetricGrade, getMetricMeta, getMetricValue, gradeLabel } from '../../../utils/roadConditionMetrics'
+import { assessmentAnalyzeLabel, assessmentOperationHint, assessmentSolutionAction } from '../../../utils/mapAssessmentSemantics'
 import { buildWaitFeedback, formatElapsedMs, normalizeLangGraphDiagnostics, summarizeRunTiming, type LangGraphDiagnostics } from '../../../utils/aiRunFeedback'
 import { buildPlanPreviewMeta, normalizeMapAiPlanResponse, normalizePlanExecution, type MapAiPlanExecution, type MapAiPlanPreview } from '../../../utils/mapAiPlanPreview'
+import { buildMapAiContextPayload } from '../../../utils/mapAiContext'
 import {
   buildLiveTraceSummary,
   createWebTraceId,
@@ -622,7 +624,9 @@ const contextMode = computed(() => {
 const analyzeObjectLabel = computed(() => {
   const type = normalizeObjectType(activeMapObject.value)
   if (type === 'DISEASE' || type === 'DISEASE_RECORD') return '分析病害'
-  if (type === 'ASSESSMENT' || type === 'ASSESSMENT_RESULT') return '分析低分原因'
+  if (type === 'ASSESSMENT' || type === 'ASSESSMENT_RESULT') {
+    return assessmentAnalyzeLabel(activeMapObject.value, activeMetricMeta.value.code)
+  }
   if (type === 'EVALUATION_UNIT') return '分析评定单元'
   if (type === 'ROAD_SECTION') return '分析路段'
   if (type === 'ROAD_ROUTE') return '分析路线'
@@ -638,7 +642,8 @@ const solutionActions = computed(() => {
     ]
   }
   if (type === 'ASSESSMENT' || type === 'ASSESSMENT_RESULT') {
-    return [{ type: 'LOW_SCORE_TREATMENT' as MapObjectSolutionType, label: '生成低分处置建议', primary: true }]
+    const action = assessmentSolutionAction(activeMapObject.value, activeMetricMeta.value.code)
+    return [{ type: action.type as MapObjectSolutionType, label: action.label, primary: true }]
   }
   if (type === 'EVALUATION_UNIT') {
     return [{ type: 'EVALUATION_UNIT_ADVICE' as MapObjectSolutionType, label: '生成单元养护建议', primary: true }]
@@ -703,7 +708,7 @@ const operationHint = computed(() => {
       return '分析病害用于解释成因和风险；生成成果会按对象类型生成处置建议或复核意见。'
     }
     if (type === 'ASSESSMENT' || type === 'ASSESSMENT_RESULT') {
-      return '分析低分原因用于解释指标问题；生成低分处置建议会生成结构化建议，预览后可保存为方案草稿。'
+      return assessmentOperationHint(activeMapObject.value, activeMetricMeta.value.code)
     }
     return '分析对象用于 AI 解释；生成建议会生成结构化结果，预览后可保存为方案草稿。'
   }
@@ -1118,26 +1123,16 @@ async function copyCurrentContext() {
  * 构建一张图 AI Agent 使用的地图上下文包。
  */
 function buildMapAiContext(message: string) {
-  const query = props.context?.query || props.context || {}
-  return {
+  return buildMapAiContextPayload({
     mode: contextMode.value,
-    routeCode: query.routeCode || activeMapObject.value?.routeCode || activeMapObject.value?.route_code,
-    year: Number(query.year || activeMapObject.value?.year || 2026),
+    message,
+    context: props.context || {},
     mapObject: activeMapObject.value,
     region: activeRegionContext.value,
     regionSummary: activeRegionSummary.value,
-    regionGeometry: props.context?.regionGeometry || activeRegionContext.value?.geometry || null,
-    viewport: props.context?.viewport || props.context?.bounds || null,
-    selectedLayers: props.context?.selectedLayers || [],
     analysisTargets: analysisTargets.value,
-    nearbyObjects: props.context?.nearbyObjects || [],
-    userQuestion: message,
-    extra: {
-      rawContext: props.context || {},
-      contextScope: props.context?.contextScope || contextMode.value,
-      unifiedContextVersion: 'phase48-v2'
-    }
-  }
+    nearbyObjects: props.context?.nearbyObjects || []
+  })
 }
 
 async function generateSolutionDraft(solutionType: MapObjectSolutionType) {

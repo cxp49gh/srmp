@@ -196,6 +196,14 @@ class LiveTraceStore:
         if name == "evidence_fuse":
             record["sourceSummary"]["business"] = int(data.get("businessHitCount") or 0)
             record["sourceSummary"]["knowledge"] = int(data.get("knowledgeHitCount") or 0)
+        if name == "solution_evidence_collect":
+            tools = data.get("toolNames")
+            if isinstance(tools, list):
+                record["toolSummary"]["planned"] = max(int(record["toolSummary"].get("planned") or 0), len(tools))
+                record["toolSummary"]["completed"] = max(int(record["toolSummary"].get("completed") or 0), len(tools))
+            record["toolSummary"]["success"] = max(int(record["toolSummary"].get("success") or 0), int(step.get("count") or 0))
+            record["sourceSummary"]["business"] = int(data.get("businessHitCount") or 0)
+            record["sourceSummary"]["knowledge"] = int(data.get("knowledgeHitCount") or 0)
 
     def _refresh_current_step(self, snapshot: Dict[str, Any]) -> None:
         current = snapshot.get("currentStep")
