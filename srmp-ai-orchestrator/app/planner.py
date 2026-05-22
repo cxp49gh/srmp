@@ -26,7 +26,7 @@ def plan_tools(request: MapAiAgentRequest, intent: str, intent_detail: Optional[
         add(calls, "gis.queryRegionSummary", region_args(ctx, {"limit": 50}), "生成路线报告前查询路线统计摘要")
         add(calls, "gis.queryAssessmentResults", context_args(ctx, {"limit": 50}), "生成路线报告前查询评定结果")
         add(calls, "gis.queryDiseases", context_args(ctx, {"limit": 50}), "生成路线报告前查询病害")
-    if intent in {"OBJECT_ANALYSIS", "SOLUTION_GENERATE"}:
+    if intent == "OBJECT_ANALYSIS" or (intent == "SOLUTION_GENERATE" and action not in {"GENERATE_REGION_SOLUTION", "GENERATE_ROUTE_REPORT"}):
         plan_object_tools(calls, ctx, obj)
     if intent == "TEMPLATE_VERIFY":
         add(calls, "template.match", {"intent": intent, "routeCode": ctx.routeCode if ctx else None, "year": ctx.year if ctx else None}, "检查方案模板匹配情况")

@@ -106,6 +106,30 @@ class BusinessScopePlanningTest(unittest.TestCase):
         self.assertIn("gis.queryDiseases", names)
         self.assertIn("knowledge.retrieve", names)
 
+    def test_route_report_does_not_duplicate_route_object_queries(self):
+        request = MapAiAgentRequest(
+            message="生成路线养护报告",
+            mapContext=MapAiContext(
+                tenantId="tenant-a",
+                mode="OBJECT",
+                routeCode="Y016140727",
+                year=2026,
+                mapObject={
+                    "objectType": "ROAD_ROUTE",
+                    "routeCode": "Y016140727",
+                    "year": 2026,
+                },
+            ),
+            options={"action": "GENERATE_ROUTE_REPORT", "useKnowledge": False},
+        )
+
+        calls = plan_tools(request, "SOLUTION_GENERATE", {})
+        names = [call.toolName for call in calls]
+
+        self.assertEqual(1, names.count("gis.queryRegionSummary"))
+        self.assertEqual(1, names.count("gis.queryAssessmentResults"))
+        self.assertEqual(1, names.count("gis.queryDiseases"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -50,6 +50,41 @@ public class SolutionGenerateToolTest {
         assertNull(service.lastRequest.getSolutionType());
     }
 
+    @Test
+    public void objectSolutionPrefersSelectedObjectRouteOverConflictingArgs() throws Exception {
+        SolutionGenerateTool tool = new SolutionGenerateTool();
+        CapturingMapObjectSolutionService service = new CapturingMapObjectSolutionService();
+        setField(tool, "mapObjectSolutionService", service);
+
+        MapAiContext mapContext = new MapAiContext();
+        mapContext.setMode("OBJECT");
+        mapContext.setRouteCode("G210");
+        mapContext.setYear(2026);
+        mapContext.setMapObject(mapOf(
+                "objectType", "ASSESSMENT_RESULT",
+                "objectId", "assessment-good",
+                "routeCode", "Y016140727",
+                "year", 2026,
+                "mqi", 85.067
+        ));
+
+        AiToolContext context = new AiToolContext();
+        context.setTenantId("default");
+        context.setMapContext(mapContext);
+        context.setOptions(new LinkedHashMap<String, Object>());
+
+        AiToolResult result = tool.execute(context, mapOf(
+                "action", "GENERATE_OBJECT_SOLUTION",
+                "objectType", "ASSESSMENT_RESULT",
+                "objectId", "assessment-good",
+                "routeCode", "G210"
+        ));
+
+        assertTrue(result.isSuccess());
+        assertEquals("Y016140727", service.lastRequest.getRouteCode());
+        assertEquals("Y016140727", service.lastRequest.getMapObject().get("routeCode"));
+    }
+
     private void setField(Object target, String fieldName, Object value) throws Exception {
         Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);

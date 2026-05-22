@@ -70,8 +70,14 @@ public class SolutionGenerateTool implements AiTool {
         Map<String, Object> mapObject = mapValue(firstNonNull(args.get("mapObject"), mapContext.get("mapObject")));
         Map<String, Object> mapContextExtra = mapValue(mapContext.get("extra"));
         String objectType = firstNonBlank(forcedObjectType, stringValue(args.get("objectType")), stringValue(mapObject.get("objectType")), stringValue(mapObject.get("object_type")));
-        String routeCode = firstNonBlank(stringValue(args.get("routeCode")), stringValue(mapContext.get("routeCode")), stringValue(mapContext.get("route_code")), stringValue(mapObject.get("routeCode")), stringValue(mapObject.get("route_code")));
-        Integer year = intValue(firstNonNull(args.get("year"), mapContext.get("year"), mapObject.get("year")));
+        boolean objectMode = "OBJECT".equalsIgnoreCase(stringValue(mapContext.get("mode"))) || !mapObject.isEmpty();
+        String objectRouteCode = firstNonBlank(stringValue(mapObject.get("routeCode")), stringValue(mapObject.get("route_code")));
+        String routeCode = objectMode
+                ? firstNonBlank(objectRouteCode, stringValue(args.get("routeCode")), stringValue(mapContext.get("routeCode")), stringValue(mapContext.get("route_code")))
+                : firstNonBlank(stringValue(args.get("routeCode")), stringValue(mapContext.get("routeCode")), stringValue(mapContext.get("route_code")), objectRouteCode);
+        Integer year = objectMode
+                ? intValue(firstNonNull(mapObject.get("year"), args.get("year"), mapContext.get("year")))
+                : intValue(firstNonNull(args.get("year"), mapContext.get("year"), mapObject.get("year")));
         if (mapObject.isEmpty() && "ROAD_ROUTE".equals(objectType)) {
             putIfPresent(mapObject, "objectType", objectType);
             putIfPresent(mapObject, "routeCode", routeCode);

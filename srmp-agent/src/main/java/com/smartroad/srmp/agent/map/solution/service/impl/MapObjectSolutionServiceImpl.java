@@ -464,7 +464,7 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
         }
         putIfPresent(mapObject, "objectType", request.getObjectType());
         putIfPresent(mapObject, "objectId", request.getObjectId());
-        putIfPresent(mapObject, "routeCode", request.getRouteCode());
+        putIfMissing(mapObject, "routeCode", request.getRouteCode(), "route_code", "route");
         if (request.getYear() != null) {
             mapObject.put("year", request.getYear());
         }
@@ -487,7 +487,7 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
         putIfPresent(mapObject, "objectType", request.getObjectType());
         putIfPresent(mapObject, "objectId", request.getObjectId());
         putIfPresent(mapObject, "id", request.getObjectId());
-        putIfPresent(mapObject, "routeCode", request.getRouteCode());
+        putIfMissing(mapObject, "routeCode", request.getRouteCode(), "route_code", "route");
         if (request.getYear() != null) {
             mapObject.put("year", request.getYear());
         }
@@ -827,6 +827,16 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
         if (value != null && String.valueOf(value).trim().length() > 0) {
             map.put(key, value);
         }
+    }
+
+    private void putIfMissing(Map<String, Object> map, String key, Object value, String... existingKeys) {
+        if (map == null || value == null || String.valueOf(value).trim().length() == 0) {
+            return;
+        }
+        if (firstObject(map, key) != null || firstObject(map, existingKeys) != null) {
+            return;
+        }
+        map.put(key, value);
     }
 
     private String normalizeType(String value) {
