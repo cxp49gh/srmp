@@ -2,6 +2,7 @@ package com.smartroad.srmp.agent.outline.schedule;
 
 import com.smartroad.srmp.agent.outline.service.OutlineAutoSyncService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -16,8 +17,14 @@ public class OutlineAutoSyncScheduler {
     @Resource
     private OutlineAutoSyncService outlineAutoSyncService;
 
+    @Value("${srmp.outline.sync-enabled:false}")
+    private boolean syncEnabled;
+
     @Scheduled(fixedDelayString = "${srmp.outline.auto-sync.scan-interval-ms:60000}")
     public void scanDueConfigs() {
+        if (!syncEnabled) {
+            return;
+        }
         try {
             outlineAutoSyncService.runDueConfigs();
         } catch (Exception e) {
