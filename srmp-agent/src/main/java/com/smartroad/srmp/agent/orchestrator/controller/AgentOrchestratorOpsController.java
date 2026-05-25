@@ -201,6 +201,15 @@ public class AgentOrchestratorOpsController {
         return R.ok(remoteGet("/api/srmp/langgraph/governance/tools/impact"));
     }
 
+    @GetMapping("/governance/tools/{toolName:.+}")
+    public R<Object> governanceTool(@PathVariable("toolName") String toolName,
+                                    @RequestParam(value = "includeContract", required = false, defaultValue = "false") Boolean includeContract) {
+        String path = "/api/srmp/langgraph/governance/tools/"
+                + UriUtils.encodePathSegment(toolName == null ? "" : toolName, StandardCharsets.UTF_8)
+                + "?includeContract=" + Boolean.TRUE.equals(includeContract);
+        return R.ok(remoteGet(path));
+    }
+
     @GetMapping("/governance/policies/validate")
     public R<Object> governanceValidate() {
         return R.ok(remoteGet("/api/srmp/langgraph/governance/policies/validate"));

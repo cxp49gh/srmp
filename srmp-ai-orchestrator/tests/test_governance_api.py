@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -86,6 +87,32 @@ class GovernanceApiTest(unittest.TestCase):
         self.assertIn("knowledge.retrieve", [item["name"] for item in body["tools"]["optional"]])
         self.assertIn("srmp-ai-orchestrator/app/governance_data/capabilities.json", body["developerGuide"]["configFiles"])
         self.assertIn("配置能力触发条件", body["developerGuide"]["steps"])
+
+    def test_tool_detail_endpoint_returns_contract_and_capability_relations(self):
+        client = TestClient(app)
+        contract = {
+            "ok": True,
+            "javaTools": ["knowledge.retrieve", "gis.queryRegionSummary"],
+            "runtimeAllowedTools": ["knowledge.retrieve"],
+            "missingInJava": [],
+            "blockedByRuntimeWhitelist": ["gis.queryRegionSummary"],
+            "writeBlocked": [],
+        }
+
+        with patch("app.main.gateway.inspect_contract", new=AsyncMock(return_value=contract)):
+            response = client.get("/api/srmp/langgraph/governance/tools/knowledge.retrieve?includeContract=true")
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual("knowledge.retrieve", body["tool"]["name"])
+        self.assertEqual("检索知识库", body["tool"]["label"])
+        self.assertTrue(body["contract"]["javaRegistered"])
+        self.assertTrue(body["contract"]["runtimeAllowed"])
+        self.assertFalse(body["contract"]["writeBlocked"])
+        self.assertIn("knowledge.metric_explain", [item["id"] for item in body["requiredBy"]])
+        self.assertIn("map.route_analysis", [item["id"] for item in body["optionalBy"]])
+        self.assertIn("srmp-ai-orchestrator/app/governance_data/tools.json", body["developerGuide"]["configFiles"])
+        self.assertIn("在 Java AiToolRegistry 注册实现并暴露到 Tool Gateway", body["developerGuide"]["steps"])
 
 
 if __name__ == "__main__":

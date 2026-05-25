@@ -102,6 +102,12 @@ export function getAiGovernanceTools(): Promise<Record<string, any>> {
   return aiRequest.get('/api/agent/orchestrator/ops/governance/tools')
 }
 
+export function getAiGovernanceTool(toolName: string, includeContract = true): Promise<Record<string, any>> {
+  return aiRequest.get(`/api/agent/orchestrator/ops/governance/tools/${encodeURIComponent(toolName)}`, {
+    params: { includeContract }
+  })
+}
+
 export function validateAiGovernancePolicies(): Promise<Record<string, any>> {
   return aiRequest.get('/api/agent/orchestrator/ops/governance/policies/validate')
 }

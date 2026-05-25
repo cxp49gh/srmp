@@ -87,6 +87,11 @@
               </template>
             </el-table-column>
             <el-table-column prop="description" label="说明" min-width="280" />
+            <el-table-column label="操作" width="90" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" :loading="toolDetailLoading && toolDetailId === row.name" @click="openToolDetail(row.name)">详情</el-button>
+              </template>
+            </el-table-column>
           </el-table>
         </el-tab-pane>
 
@@ -125,6 +130,11 @@
             <el-table-column label="Prohibited" min-width="220">
               <template #default="{ row }">
                 <div class="tag-list"><el-tag v-for="item in relationNames(row, 'prohibitedBy')" :key="item" size="small" type="danger">{{ item }}</el-tag></div>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="90" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" :loading="toolDetailLoading && toolDetailId === row.name" @click="openToolDetail(row.name)">详情</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -348,6 +358,89 @@
           </section>
         </template>
       </el-drawer>
+
+      <el-drawer v-model="toolDetailVisible" size="50%" class="tool-drawer">
+        <template #header>
+          <div class="drawer-title">
+            <strong>{{ toolDetail.tool?.label || '工具详情' }}</strong>
+            <span>{{ toolDetail.tool?.name || toolDetailId }}</span>
+          </div>
+        </template>
+        <el-skeleton v-if="toolDetailLoading" :rows="8" animated />
+        <template v-else>
+          <section class="drawer-section">
+            <h3>注册状态</h3>
+            <div v-if="toolDetail.contract?.checked" class="status-grid">
+              <div>
+                <span>Java 注册</span>
+                <el-tag :type="boolTagType(toolDetail.contract?.javaRegistered)">{{ toolDetail.contract?.javaRegistered ? '已注册' : '未注册' }}</el-tag>
+              </div>
+              <div>
+                <span>Runtime 白名单</span>
+                <el-tag :type="boolTagType(toolDetail.contract?.runtimeAllowed)">{{ toolDetail.contract?.runtimeAllowed ? '已开放' : '被拦截' }}</el-tag>
+              </div>
+              <div>
+                <span>写工具拦截</span>
+                <el-tag :type="boolTagType(!toolDetail.contract?.writeBlocked)">{{ toolDetail.contract?.writeBlocked ? '已拦截' : '无拦截' }}</el-tag>
+              </div>
+              <div>
+                <span>网关状态</span>
+                <el-tag :type="boolTagType(toolDetail.contract?.gatewayOk)">{{ toolDetail.contract?.gatewayOk ? '正常' : '异常' }}</el-tag>
+              </div>
+            </div>
+            <span v-else class="muted">未检查注册状态</span>
+          </section>
+
+          <section class="drawer-section">
+            <h3>工具契约</h3>
+            <div class="guide-list">
+              <div>
+                <span>说明</span>
+                <p>{{ toolDetail.tool?.description || '-' }}</p>
+              </div>
+              <div>
+                <span>输入字段</span>
+                <div class="tag-list">
+                  <el-tag v-for="item in arrayValue(toolDetail.tool?.inputSchema?.required)" :key="'required-' + item" size="small">{{ item }}</el-tag>
+                  <el-tag v-for="item in arrayValue(toolDetail.tool?.inputSchema?.optional)" :key="'optional-' + item" size="small" type="info">{{ item }}</el-tag>
+                  <span v-if="!arrayValue(toolDetail.tool?.inputSchema?.required).length && !arrayValue(toolDetail.tool?.inputSchema?.optional).length" class="muted">无</span>
+                </div>
+              </div>
+              <div>
+                <span>输出契约</span>
+                <code>{{ JSON.stringify(toolDetail.tool?.resultContract || {}) }}</code>
+              </div>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <h3>影响能力</h3>
+            <div class="policy-grid">
+              <div v-for="item in toolRelationBlocks" :key="item.key" class="policy-block">
+                <span>{{ item.label }}</span>
+                <div class="tag-list">
+                  <el-tag v-for="name in relationNames(toolDetail, item.key)" :key="name" size="small" :type="item.type">{{ name }}</el-tag>
+                  <span v-if="relationNames(toolDetail, item.key).length === 0" class="muted">无</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <h3>开发线索</h3>
+            <div class="guide-list">
+              <div>
+                <span>配置文件</span>
+                <code v-for="file in arrayValue(toolDetail.developerGuide?.configFiles)" :key="file">{{ file }}</code>
+              </div>
+              <div>
+                <span>新增/调整步骤</span>
+                <p v-for="step in arrayValue(toolDetail.developerGuide?.steps)" :key="step">{{ step }}</p>
+              </div>
+            </div>
+          </section>
+        </template>
+      </el-drawer>
     </div>
   </AgentPageShell>
 </template>
@@ -359,6 +452,7 @@ import {
   getAiGovernanceCapability,
   getAiGovernanceCapabilities,
   getAiGovernancePolicyCoverage,
+  getAiGovernanceTool,
   getAiGovernanceToolImpact,
   getAiGovernanceTools,
   simulateAiGovernancePlan,
@@ -373,12 +467,16 @@ const toolImpactLoading = ref(false)
 const capabilityDetailLoading = ref(false)
 const capabilityDetailVisible = ref(false)
 const capabilityDetailId = ref('')
+const toolDetailLoading = ref(false)
+const toolDetailVisible = ref(false)
+const toolDetailId = ref('')
 const capabilitiesPayload = ref<Record<string, any>>({})
 const toolsPayload = ref<Record<string, any>>({})
 const validationPayload = ref<Record<string, any>>({})
 const coveragePayload = ref<Record<string, any>>({})
 const toolImpactPayload = ref<Record<string, any>>({})
 const capabilityDetailPayload = ref<Record<string, any>>({})
+const toolDetailPayload = ref<Record<string, any>>({})
 const planResult = ref<Record<string, any> | null>(null)
 
 const planForm = reactive({
@@ -408,6 +506,7 @@ const coverageStatus = computed(() => coverageFailedCount.value > 0 ? '异常' :
 const toolImpactTools = computed(() => arrayValue(toolImpactPayload.value.tools))
 const capabilityDetail = computed(() => objectValue(capabilityDetailPayload.value))
 const capabilityExamples = computed(() => arrayValue(capabilityDetail.value.examples))
+const toolDetail = computed(() => objectValue(toolDetailPayload.value))
 const toolCategories = computed(() => uniqueStrings(tools.value.map((item) => item.category).filter(Boolean)))
 const planTools = computed(() => arrayValue(planResult.value?.toolPlan))
 const planMatchedRules = computed(() => arrayValue(planResult.value?.capability?.matchedRules))
@@ -417,6 +516,12 @@ const capabilityPolicyBlocks = [
   { key: 'optional', label: 'Optional', type: 'info' },
   { key: 'adaptive', label: 'Adaptive', type: 'warning' },
   { key: 'prohibited', label: 'Prohibited', type: 'danger' }
+]
+const toolRelationBlocks = [
+  { key: 'requiredBy', label: 'Required By', type: '' },
+  { key: 'optionalBy', label: 'Optional By', type: 'info' },
+  { key: 'adaptiveBy', label: 'Adaptive By', type: 'warning' },
+  { key: 'prohibitedBy', label: 'Prohibited By', type: 'danger' }
 ]
 
 onMounted(loadGovernance)
@@ -471,6 +576,19 @@ async function openCapabilityDetail(capabilityId: string) {
   }
 }
 
+async function openToolDetail(toolName: string) {
+  if (!toolName) return
+  toolDetailId.value = toolName
+  toolDetailVisible.value = true
+  toolDetailLoading.value = true
+  try {
+    const response = await getAiGovernanceTool(toolName, true)
+    toolDetailPayload.value = extractBody(response)
+  } finally {
+    toolDetailLoading.value = false
+  }
+}
+
 async function simulatePlan() {
   planning.value = true
   try {
@@ -512,7 +630,7 @@ function policyList(row: Record<string, any>, key: string) {
 
 function relationNames(row: Record<string, any>, key: string) {
   return arrayValue(row[key])
-    .map((item) => item?.name || item?.id)
+    .map((item) => item?.name && item?.id ? `${item.name} (${item.id})` : item?.name || item?.id)
     .filter(Boolean)
 }
 
@@ -521,6 +639,10 @@ function riskTagType(riskLevel: string) {
   if (riskLevel === 'MEDIUM') return 'warning'
   if (riskLevel === 'LOW') return 'info'
   return 'success'
+}
+
+function boolTagType(value: boolean) {
+  return value ? 'success' : 'danger'
 }
 
 function toolNamesForPolicy(key: string) {
@@ -706,6 +828,26 @@ function uniqueStrings(values: any[]): string[] {
   font-size: 13px;
 }
 
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.status-grid div {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.status-grid span {
+  color: #64748b;
+  font-size: 12px;
+}
+
 .simulator-grid {
   display: grid;
   grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
@@ -756,7 +898,9 @@ function uniqueStrings(values: any[]): string[] {
 @media (max-width: 1100px) {
   .metric-grid,
   .simulator-grid,
-  .plan-summary {
+  .plan-summary,
+  .policy-grid,
+  .status-grid {
     grid-template-columns: 1fr;
   }
 }

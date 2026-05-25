@@ -169,6 +169,40 @@ def governance_capability_detail(capability_id: str) -> Optional[Dict[str, Any]]
     }
 
 
+def governance_tool_detail(tool_name: str, contract: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    registry = governance_registry()
+    name = str(tool_name or "").strip()
+    tool = registry.tool_by_name.get(name)
+    if not tool:
+        return None
+    relations = _tool_capability_relations(name, registry.capabilities)
+    relation_counts = {
+        "required": len(relations["requiredBy"]),
+        "optional": len(relations["optionalBy"]),
+        "adaptive": len(relations["adaptiveBy"]),
+        "prohibited": len(relations["prohibitedBy"]),
+    }
+    affected_count = len({
+        capability.get("id")
+        for key in ("requiredBy", "optionalBy", "adaptiveBy")
+        for capability in relations[key]
+    })
+    item = dict(tool)
+    item.update(relations)
+    item["affectedCapabilityCount"] = affected_count
+    return {
+        "version": registry.version,
+        "toolVersion": registry.tool_version,
+        "tool": tool,
+        **relations,
+        "relationCounts": relation_counts,
+        "affectedCapabilityCount": affected_count,
+        "riskLevel": _tool_risk_level(item),
+        "contract": _tool_contract_status(name, contract),
+        "developerGuide": _tool_developer_guide(),
+    }
+
+
 def normalize_capability(item: Dict[str, Any]) -> Dict[str, Any]:
     data = dict(item or {})
     data["id"] = str(data.get("id") or "").strip()
@@ -452,6 +486,48 @@ def _developer_guide() -> Dict[str, Any]:
         "verificationCommands": [
             "PYTHONPATH=srmp-ai-orchestrator srmp-ai-orchestrator/.venv/bin/python -m unittest srmp-ai-orchestrator/tests/test_governance_api.py -v",
             "npm --prefix srmp-web-ui run build",
+        ],
+    }
+
+
+def _tool_contract_status(tool_name: str, contract: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(contract, dict):
+        return {"checked": False}
+    java_tools = set(_string_list(contract.get("javaTools")))
+    allowed_tools = set(_string_list(contract.get("runtimeAllowedTools")))
+    missing_in_java = set(_string_list(contract.get("missingInJava")))
+    blocked_by_runtime = set(_string_list(contract.get("blockedByRuntimeWhitelist")))
+    write_blocked = set(_string_list(contract.get("writeBlocked")))
+    return {
+        "checked": True,
+        "gatewayOk": bool(contract.get("ok")),
+        "javaRegistered": tool_name in java_tools,
+        "runtimeAllowed": (not allowed_tools or tool_name in allowed_tools) and tool_name not in blocked_by_runtime,
+        "missingInJava": tool_name in missing_in_java,
+        "blockedByRuntimeWhitelist": tool_name in blocked_by_runtime,
+        "writeBlocked": tool_name in write_blocked,
+        "javaToolCount": len(java_tools),
+        "runtimeAllowedToolCount": len(allowed_tools),
+    }
+
+
+def _tool_developer_guide() -> Dict[str, Any]:
+    return {
+        "configFiles": [
+            "srmp-ai-orchestrator/app/governance_data/tools.json",
+            "srmp-ai-orchestrator/app/governance_data/capabilities.json",
+            "srmp-agent/src/main/java/com/smartroad/srmp/agent/tool",
+        ],
+        "steps": [
+            "在 tools.json 定义工具元数据、输入字段、输出契约和治理可见性",
+            "在 Java AiToolRegistry 注册实现并暴露到 Tool Gateway",
+            "在 capabilities.json 配置哪些能力 required/optional/adaptive/prohibited 该工具",
+            "补充策略样例，覆盖工具必须调用和禁止误调用的场景",
+            "通过工具详情确认 Java 注册、Runtime 白名单和影响能力一致",
+        ],
+        "verificationCommands": [
+            "PYTHONPATH=srmp-ai-orchestrator srmp-ai-orchestrator/.venv/bin/python -m unittest srmp-ai-orchestrator/tests/test_governance_api.py -v",
+            "curl -s http://127.0.0.1:8080/api/agent/orchestrator/ops/governance/tools/<toolName>?includeContract=true",
         ],
     }
 

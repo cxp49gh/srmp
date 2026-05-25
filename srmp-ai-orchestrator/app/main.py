@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, Header, HTTPException, Query
 
 from .config import settings
-from .governance import governance_capability_detail, governance_policy_examples, governance_summary, governance_tool_impact, resolve_capability, validate_governance
+from .governance import governance_capability_detail, governance_policy_examples, governance_summary, governance_tool_detail, governance_tool_impact, resolve_capability, validate_governance
 from .intent import recognize_intent
 from .java_tools import JavaToolGateway
 from .live_trace import LiveTraceStore
@@ -296,6 +296,19 @@ async def governance_tools() -> dict:
 @app.get("/api/srmp/langgraph/governance/tools/impact")
 async def governance_tools_impact() -> dict:
     return governance_tool_impact()
+
+
+@app.get("/api/srmp/langgraph/governance/tools/{tool_name}")
+async def governance_tool(
+    tool_name: str,
+    include_contract: bool = Query(default=False, alias="includeContract"),
+    x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id"),
+) -> dict:
+    contract = await gateway.inspect_contract(tenant_id=x_tenant_id) if include_contract else None
+    detail = governance_tool_detail(tool_name, contract=contract)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    return detail
 
 
 @app.get("/api/srmp/langgraph/governance/policies/validate")
