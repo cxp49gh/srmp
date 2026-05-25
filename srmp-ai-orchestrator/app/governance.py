@@ -182,17 +182,21 @@ def governance_config_publish_rollback(
         blockers.append({"code": "REQUEST_NOT_FOUND", "message": "未找到发布记录：" + str(request_id or "")})
     if existing and existing.get("status") != "APPLIED":
         blockers.append({"code": "REQUEST_NOT_APPLIED", "message": "只有已应用的发布记录才能执行回滚。"})
+    status = "ROLLBACK_BLOCKED" if blockers else "ROLLBACK_SUBMITTED"
     record = {
         "requestId": "rollback-" + _stable_hash({"target": request_id, "createdAtMs": now_ms})[:16],
         "recordType": "ROLLBACK_REQUEST",
         "targetRequestId": request_id,
-        "status": "ROLLBACK_BLOCKED",
-        "statusLabel": "已记录回滚申请，当前阶段不执行配置覆盖",
+        "status": status,
+        "statusLabel": "已提交，等待人工回滚和重启发布" if status == "ROLLBACK_SUBMITTED" else "回滚申请已阻断",
         "createdAtMs": now_ms,
         "actor": actor or "unknown",
         "tenantId": tenant_id or "",
         "reason": str((payload or {}).get("reason") or "").strip(),
-        "blockers": blockers or [{"code": "ROLLBACK_NOT_ENABLED", "message": "当前治理配置采用重启发布模式，暂未开放在线回滚执行。"}],
+        "baseHashes": (existing or {}).get("draftHashes") or (existing or {}).get("baseHashes") or {},
+        "draftHashes": (existing or {}).get("baseHashes") or {},
+        "diffSummary": (existing or {}).get("diffSummary") or {},
+        "blockers": blockers,
         "operation": {
             "appliesRuntimeConfig": False,
             "writesConfigFiles": False,
@@ -204,6 +208,52 @@ def governance_config_publish_rollback(
     return {
         "mode": "ROLLBACK_REQUEST",
         "status": record["status"],
+        "record": record,
+        "target": existing or {},
+        "history": governance_config_publish_requests(limit=20),
+    }
+
+
+def governance_config_publish_decision(
+    request_id: str,
+    action: str,
+    payload: Dict[str, Any],
+    actor: str = "",
+    tenant_id: str = "",
+) -> Dict[str, Any]:
+    existing = _find_publish_record(request_id)
+    normalized_action = str(action or "").strip().upper()
+    now_ms = _now_ms()
+    status, record_type, status_label, blockers = _publish_decision_status(existing, normalized_action, request_id)
+    record = {
+        "requestId": request_id,
+        "recordType": record_type,
+        "status": status,
+        "statusLabel": status_label,
+        "createdAtMs": now_ms,
+        "actor": actor or "unknown",
+        "tenantId": tenant_id or "",
+        "reason": str((payload or {}).get("reason") or "").strip(),
+        "baseHashes": (existing or {}).get("baseHashes") or {},
+        "draftHashes": (existing or {}).get("draftHashes") or {},
+        "diffSummary": (existing or {}).get("diffSummary") or {},
+        "draftId": (existing or {}).get("draftId"),
+        "publishMode": "restart-required",
+        "runtimeMutable": False,
+        "blockers": blockers,
+        "operation": {
+            "appliesRuntimeConfig": False,
+            "writesConfigFiles": False,
+            "requiresReview": normalized_action in {"APPROVE", "REJECT"},
+            "requiresRestart": normalized_action in {"APPLY"},
+            "manualStateOnly": True,
+        },
+    }
+    _append_publish_record(record)
+    return {
+        "mode": "PUBLISH_DECISION",
+        "action": normalized_action,
+        "status": status,
         "record": record,
         "target": existing or {},
         "history": governance_config_publish_requests(limit=20),
@@ -776,9 +826,38 @@ def _find_publish_record(request_id: str) -> Optional[Dict[str, Any]]:
     if not target:
         return None
     for record in _read_publish_records(limit=100):
-        if record.get("requestId") == target:
+        if record.get("requestId") == target and record.get("status") != "DECISION_BLOCKED":
             return record
     return None
+
+
+def _publish_decision_status(
+    existing: Optional[Dict[str, Any]],
+    action: str,
+    request_id: str,
+) -> Tuple[str, str, str, List[Dict[str, str]]]:
+    blockers: List[Dict[str, str]] = []
+    if not existing:
+        blockers.append({"code": "REQUEST_NOT_FOUND", "message": "未找到发布记录：" + str(request_id or "")})
+        return "DECISION_BLOCKED", "PUBLISH_DECISION", "操作已阻断", blockers
+    current_status = str(existing.get("status") or "")
+    if action == "APPROVE":
+        if current_status != "SUBMITTED":
+            blockers.append({"code": "REQUEST_NOT_SUBMITTED", "message": "只有待审核发布申请才能审批通过。"})
+            return "DECISION_BLOCKED", "PUBLISH_DECISION", "审批已阻断", blockers
+        return "APPROVED", "PUBLISH_REVIEW", "已审批通过，等待人工应用并重启", blockers
+    if action == "REJECT":
+        if current_status not in {"SUBMITTED", "APPROVED"}:
+            blockers.append({"code": "REQUEST_NOT_REJECTABLE", "message": "只有待审核或已审批发布申请才能驳回。"})
+            return "DECISION_BLOCKED", "PUBLISH_DECISION", "驳回已阻断", blockers
+        return "REJECTED", "PUBLISH_REVIEW", "已驳回", blockers
+    if action == "APPLY":
+        if current_status != "APPROVED":
+            blockers.append({"code": "REQUEST_NOT_APPROVED", "message": "只有已审批通过的发布申请才能标记为已人工应用。"})
+            return "DECISION_BLOCKED", "PUBLISH_DECISION", "人工应用标记已阻断", blockers
+        return "APPLIED", "PUBLISH_APPLY", "已人工应用，需确认 Runtime 已按配置重启", blockers
+    blockers.append({"code": "UNKNOWN_ACTION", "message": "不支持的发布操作：" + action})
+    return "DECISION_BLOCKED", "PUBLISH_DECISION", "操作已阻断", blockers
 
 
 def _now_ms() -> int:

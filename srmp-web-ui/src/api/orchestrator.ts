@@ -136,6 +136,10 @@ export function requestAiGovernanceConfigRollback(requestId: string, data: Recor
   return aiRequest.post(`/api/agent/orchestrator/ops/governance/config/publish/requests/${encodeURIComponent(requestId)}/rollback`, data || {})
 }
 
+export function decideAiGovernanceConfigPublishRequest(requestId: string, action: string, data: Record<string, any>): Promise<Record<string, any>> {
+  return aiRequest.post(`/api/agent/orchestrator/ops/governance/config/publish/requests/${encodeURIComponent(requestId)}/${encodeURIComponent(action)}`, data || {})
+}
+
 export function validateAiGovernancePolicies(): Promise<Record<string, any>> {
   return aiRequest.get('/api/agent/orchestrator/ops/governance/policies/validate')
 }

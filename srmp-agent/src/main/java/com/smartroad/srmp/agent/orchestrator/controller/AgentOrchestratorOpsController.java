@@ -212,6 +212,24 @@ public class AgentOrchestratorOpsController {
         return R.ok(remotePost(path, payload));
     }
 
+    @PostMapping("/governance/config/publish/requests/{requestId:.+}/approve")
+    public R<Object> governanceConfigPublishApprove(@PathVariable("requestId") String requestId,
+                                                    @RequestBody(required = false) Map<String, Object> body) {
+        return R.ok(remotePost(governanceDecisionPath(requestId, "approve"), body == null ? new LinkedHashMap<String, Object>() : body));
+    }
+
+    @PostMapping("/governance/config/publish/requests/{requestId:.+}/reject")
+    public R<Object> governanceConfigPublishReject(@PathVariable("requestId") String requestId,
+                                                   @RequestBody(required = false) Map<String, Object> body) {
+        return R.ok(remotePost(governanceDecisionPath(requestId, "reject"), body == null ? new LinkedHashMap<String, Object>() : body));
+    }
+
+    @PostMapping("/governance/config/publish/requests/{requestId:.+}/apply")
+    public R<Object> governanceConfigPublishApply(@PathVariable("requestId") String requestId,
+                                                  @RequestBody(required = false) Map<String, Object> body) {
+        return R.ok(remotePost(governanceDecisionPath(requestId, "apply"), body == null ? new LinkedHashMap<String, Object>() : body));
+    }
+
     @GetMapping("/governance/capabilities")
     public R<Object> governanceCapabilities() {
         return R.ok(remoteGet("/api/srmp/langgraph/governance/capabilities"));
@@ -290,6 +308,14 @@ public class AgentOrchestratorOpsController {
         return "/api/srmp/langgraph/debug/replay/" + UriUtils.encodePathSegment(safeRecordId, StandardCharsets.UTF_8)
                 + "?execute=" + execute
                 + "&adaptiveMode=" + UriUtils.encodeQueryParam(mode, StandardCharsets.UTF_8);
+    }
+
+    String governanceDecisionPath(String requestId, String action) {
+        String safeRequestId = requestId == null ? "" : requestId;
+        String safeAction = isBlank(action) ? "" : action.trim();
+        return "/api/srmp/langgraph/governance/config/publish/requests/"
+                + UriUtils.encodePathSegment(safeRequestId, StandardCharsets.UTF_8)
+                + "/" + UriUtils.encodePathSegment(safeAction, StandardCharsets.UTF_8);
     }
 
     @GetMapping("/persistence")

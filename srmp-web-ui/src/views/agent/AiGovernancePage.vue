@@ -260,7 +260,13 @@
               </el-table-column>
               <el-table-column label="操作" width="110" fixed="right">
                 <template #default="{ row }">
-                  <el-button link type="warning" :loading="rollbackLoadingId === row.requestId" @click="requestRollback(row)">回滚申请</el-button>
+                  <div class="action-links">
+                    <el-button v-if="isLatestPublishRecord(row) && row.status === 'SUBMITTED'" link type="success" :loading="decisionLoadingId === row.requestId + ':approve'" @click="decidePublish(row, 'approve')">通过</el-button>
+                    <el-button v-if="isLatestPublishRecord(row) && (row.status === 'SUBMITTED' || row.status === 'APPROVED')" link type="danger" :loading="decisionLoadingId === row.requestId + ':reject'" @click="decidePublish(row, 'reject')">驳回</el-button>
+                    <el-button v-if="isLatestPublishRecord(row) && row.status === 'APPROVED'" link type="primary" :loading="decisionLoadingId === row.requestId + ':apply'" @click="decidePublish(row, 'apply')">已应用</el-button>
+                    <el-button v-if="isLatestPublishRecord(row) && row.status === 'APPLIED'" link type="warning" :loading="rollbackLoadingId === row.requestId" @click="requestRollback(row)">回滚申请</el-button>
+                    <span v-if="!hasPublishAction(row)" class="muted">无</span>
+                  </div>
                 </template>
               </el-table-column>
             </el-table>
@@ -667,6 +673,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import AgentPageShell from './components/AgentPageShell.vue'
 import {
+  decideAiGovernanceConfigPublishRequest,
   getAiGovernanceCapability,
   getAiGovernanceCapabilities,
   getAiGovernanceConfig,
@@ -694,6 +701,7 @@ const draftValidationLoading = ref(false)
 const publishRecordsLoading = ref(false)
 const publishSubmitLoading = ref(false)
 const rollbackLoadingId = ref('')
+const decisionLoadingId = ref('')
 const capabilityDetailLoading = ref(false)
 const capabilityDetailVisible = ref(false)
 const capabilityDetailId = ref('')
@@ -786,6 +794,17 @@ const draftIssues = computed(() => {
 })
 const draftIssueCount = computed(() => Number(objectValue(draftReadiness.value.summary).issueCount ?? draftIssues.value.length))
 const publishRecords = computed(() => arrayValue(publishRecordsPayload.value.records))
+const latestPublishRecordIds = computed(() => {
+  const seen = new Set<string>()
+  const latest = new Set<string>()
+  for (const record of publishRecords.value) {
+    const requestId = stringValue(record.requestId)
+    if (!requestId || seen.has(requestId) || record.status === 'DECISION_BLOCKED') continue
+    seen.add(requestId)
+    latest.add(`${requestId}:${record.createdAtMs || ''}:${record.status || ''}`)
+  }
+  return latest
+})
 const capabilityDetail = computed(() => objectValue(capabilityDetailPayload.value))
 const capabilityExamples = computed(() => arrayValue(capabilityDetail.value.examples))
 const toolDetail = computed(() => objectValue(toolDetailPayload.value))
@@ -908,6 +927,27 @@ async function requestRollback(row: Record<string, any>) {
     ElMessage.warning('回滚申请已记录，当前阶段不执行配置覆盖')
   } finally {
     rollbackLoadingId.value = ''
+  }
+}
+
+async function decidePublish(row: Record<string, any>, action: string) {
+  const requestId = stringValue(row.requestId)
+  if (!requestId || !action) return
+  decisionLoadingId.value = `${requestId}:${action}`
+  try {
+    const response = await decideAiGovernanceConfigPublishRequest(requestId, action, {
+      reason: publishReason.value || `从治理页面执行 ${action} 操作`
+    })
+    const body = extractBody(response)
+    publishRecordsPayload.value = objectValue(body.history)
+    const status = stringValue(body.status)
+    if (status === 'DECISION_BLOCKED') {
+      ElMessage.warning('操作已阻断，请查看发布记录中的原因')
+    } else {
+      ElMessage.success('发布状态已记录')
+    }
+  } finally {
+    decisionLoadingId.value = ''
   }
 }
 
@@ -1069,17 +1109,32 @@ function changeTypeLabel(changeType: string) {
 
 function publishStatusTagType(status: string) {
   if (status === 'SUBMITTED') return 'warning'
+  if (status === 'APPROVED') return 'primary'
   if (status === 'BLOCKED' || status === 'ROLLBACK_BLOCKED') return 'danger'
-  if (status === 'APPLIED') return 'success'
+  if (status === 'REJECTED') return 'info'
+  if (status === 'APPLIED' || status === 'ROLLBACK_SUBMITTED') return 'success'
   return 'info'
 }
 
 function publishStatusLabel(status: string) {
   if (status === 'SUBMITTED') return '待审核'
+  if (status === 'APPROVED') return '已通过'
+  if (status === 'REJECTED') return '已驳回'
   if (status === 'BLOCKED') return '已阻断'
   if (status === 'ROLLBACK_BLOCKED') return '回滚阻断'
+  if (status === 'ROLLBACK_SUBMITTED') return '回滚待处理'
   if (status === 'APPLIED') return '已应用'
+  if (status === 'DECISION_BLOCKED') return '操作阻断'
   return status || '-'
+}
+
+function hasPublishAction(row: Record<string, any>) {
+  return isLatestPublishRecord(row) && ['SUBMITTED', 'APPROVED', 'APPLIED'].includes(stringValue(row.status))
+}
+
+function isLatestPublishRecord(row: Record<string, any>) {
+  const key = `${stringValue(row.requestId)}:${row.createdAtMs || ''}:${row.status || ''}`
+  return latestPublishRecordIds.value.has(key)
 }
 
 function publishChangeCount(row: Record<string, any>, kind: string) {
@@ -1210,6 +1265,12 @@ function uniqueStrings(values: any[]): string[] {
 
 .publish-panel {
   margin-top: 16px;
+}
+
+.action-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
 }
 
 .coverage-head {
