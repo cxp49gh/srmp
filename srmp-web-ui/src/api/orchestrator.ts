@@ -10,6 +10,7 @@ export interface OrchestratorSmokeRequest {
 }
 
 export interface OrchestratorPlanRequest {
+  action?: string
   message?: string
   mapContext?: Record<string, any>
   context?: Record<string, any>
@@ -87,6 +88,22 @@ export function getOrchestratorLiveTrace(traceId: string): Promise<Record<string
 
 export function getOrchestratorPersistence(): Promise<Record<string, any>> {
   return aiRequest.get('/api/agent/orchestrator/ops/persistence')
+}
+
+export function getAiGovernanceCapabilities(): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/governance/capabilities')
+}
+
+export function getAiGovernanceTools(): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/governance/tools')
+}
+
+export function validateAiGovernancePolicies(): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/governance/policies/validate')
+}
+
+export function simulateAiGovernancePlan(data: OrchestratorPlanRequest): Promise<Record<string, any>> {
+  return aiRequest.post('/api/agent/orchestrator/ops/governance/plan-simulate', data || {})
 }
 
 export function getOrchestratorSnapshot(limit = 30, status?: string): Promise<Record<string, any>> {

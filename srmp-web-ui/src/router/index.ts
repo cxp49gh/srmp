@@ -9,6 +9,7 @@ import KnowledgeVectorPage from '../views/agent/KnowledgeVectorPage.vue'
 import RagEvalPage from '../views/agent/RagEvalPage.vue'
 import AiHealthPage from '../views/agent/AiHealthPage.vue'
 import AiOpsDashboardPage from '../views/agent/AiOpsDashboardPage.vue'
+import AiGovernancePage from '../views/agent/AiGovernancePage.vue'
 import LangGraphOpsPage from '../views/agent/LangGraphOpsPage.vue'
 import OutlineSearchPage from '../views/agent/OutlineSearchPage.vue'
 import OutlineStatusPage from '../views/agent/OutlineStatusPage.vue'
@@ -35,6 +36,11 @@ const agentChildren: RouteRecordRaw[] = [
     path: 'langgraph-ops',
     component: LangGraphOpsPage,
     meta: { title: 'LangGraph 编排观测' }
+  },
+  {
+    path: 'ai-governance',
+    component: AiGovernancePage,
+    meta: { title: 'AI 能力治理' }
   },
   {
     path: 'chat',
