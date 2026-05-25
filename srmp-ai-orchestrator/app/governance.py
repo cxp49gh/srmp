@@ -147,6 +147,28 @@ def governance_tool_impact() -> Dict[str, Any]:
     }
 
 
+def governance_capability_detail(capability_id: str) -> Optional[Dict[str, Any]]:
+    registry = governance_registry()
+    capability = registry.capability_by_id.get(str(capability_id or "").strip())
+    if not capability:
+        return None
+    policy = normalize_tool_policy(capability.get("toolPolicy") or {})
+    return {
+        "version": registry.version,
+        "toolVersion": registry.tool_version,
+        "capability": _capability_summary(capability),
+        "toolNames": policy,
+        "tools": {
+            "required": [_tool_detail(name, registry.tool_by_name) for name in policy.get("required") or []],
+            "optional": [_tool_detail(name, registry.tool_by_name) for name in policy.get("optional") or []],
+            "adaptive": [_tool_detail(name, registry.tool_by_name) for name in policy.get("adaptive") or []],
+            "prohibited": [_tool_detail(name, registry.tool_by_name) for name in policy.get("prohibited") or []],
+        },
+        "examples": capability.get("examples") or [],
+        "developerGuide": _developer_guide(),
+    }
+
+
 def normalize_capability(item: Dict[str, Any]) -> Dict[str, Any]:
     data = dict(item or {})
     data["id"] = str(data.get("id") or "").strip()
@@ -403,6 +425,35 @@ def _tool_risk_level(tool: Dict[str, Any]) -> str:
     if required_count > 0 or affected_count > 0:
         return "LOW"
     return "NONE"
+
+
+def _tool_detail(tool_name: str, tool_by_name: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    tool = tool_by_name.get(tool_name)
+    if not tool:
+        return {"name": tool_name, "label": tool_name, "missing": True}
+    data = dict(tool)
+    data["missing"] = False
+    return data
+
+
+def _developer_guide() -> Dict[str, Any]:
+    return {
+        "configFiles": [
+            "srmp-ai-orchestrator/app/governance_data/capabilities.json",
+            "srmp-ai-orchestrator/app/governance_data/tools.json",
+        ],
+        "steps": [
+            "配置能力触发条件",
+            "配置 required/optional/adaptive/prohibited 工具边界",
+            "补充策略样例并运行覆盖校验",
+            "在 Java AiToolRegistry 注册新工具并保持工具名一致",
+            "在 AI 执行过程和能力治理页面验证 answerMeta、工具计划和证据链",
+        ],
+        "verificationCommands": [
+            "PYTHONPATH=srmp-ai-orchestrator srmp-ai-orchestrator/.venv/bin/python -m unittest srmp-ai-orchestrator/tests/test_governance_api.py -v",
+            "npm --prefix srmp-web-ui run build",
+        ],
+    }
 
 
 def _normalize_policy_example(value: Dict[str, Any], capability_id: str) -> Dict[str, Any]:

@@ -94,6 +94,10 @@ export function getAiGovernanceCapabilities(): Promise<Record<string, any>> {
   return aiRequest.get('/api/agent/orchestrator/ops/governance/capabilities')
 }
 
+export function getAiGovernanceCapability(capabilityId: string): Promise<Record<string, any>> {
+  return aiRequest.get(`/api/agent/orchestrator/ops/governance/capabilities/${encodeURIComponent(capabilityId)}`)
+}
+
 export function getAiGovernanceTools(): Promise<Record<string, any>> {
   return aiRequest.get('/api/agent/orchestrator/ops/governance/tools')
 }

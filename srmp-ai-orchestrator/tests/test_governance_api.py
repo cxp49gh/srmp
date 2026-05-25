@@ -72,6 +72,21 @@ class GovernanceApiTest(unittest.TestCase):
         self.assertIn("knowledge.metric_explain", [item["id"] for item in region_summary["prohibitedBy"]])
         self.assertIn("map.route_analysis", [item["id"] for item in region_summary["requiredBy"]])
 
+    def test_capability_detail_endpoint_returns_tools_examples_and_developer_hints(self):
+        client = TestClient(app)
+
+        response = client.get("/api/srmp/langgraph/governance/capabilities/map.route_analysis")
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual("map.route_analysis", body["capability"]["id"])
+        self.assertEqual("路线分析", body["capability"]["name"])
+        self.assertIn("map.route_analysis.action", [item["id"] for item in body["examples"]])
+        self.assertIn("gis.queryRegionSummary", [item["name"] for item in body["tools"]["required"]])
+        self.assertIn("knowledge.retrieve", [item["name"] for item in body["tools"]["optional"]])
+        self.assertIn("srmp-ai-orchestrator/app/governance_data/capabilities.json", body["developerGuide"]["configFiles"])
+        self.assertIn("配置能力触发条件", body["developerGuide"]["steps"])
+
 
 if __name__ == "__main__":
     unittest.main()

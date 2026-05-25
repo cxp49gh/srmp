@@ -68,6 +68,11 @@
                 </div>
               </template>
             </el-table-column>
+            <el-table-column label="操作" width="90" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" :loading="capabilityDetailLoading && capabilityDetailId === row.id" @click="openCapabilityDetail(row.id)">详情</el-button>
+              </template>
+            </el-table-column>
           </el-table>
         </el-tab-pane>
 
@@ -280,6 +285,69 @@
           </div>
         </el-tab-pane>
       </el-tabs>
+
+      <el-drawer v-model="capabilityDetailVisible" size="50%" class="capability-drawer">
+        <template #header>
+          <div class="drawer-title">
+            <strong>{{ capabilityDetail.capability?.name || '能力详情' }}</strong>
+            <span>{{ capabilityDetail.capability?.id || capabilityDetailId }}</span>
+          </div>
+        </template>
+        <el-skeleton v-if="capabilityDetailLoading" :rows="8" animated />
+        <template v-else>
+          <section class="drawer-section">
+            <h3>触发条件</h3>
+            <div class="tag-list">
+              <el-tag v-for="item in triggerTags(capabilityDetail.capability || {})" :key="item" size="small" effect="plain">{{ item }}</el-tag>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <h3>工具边界</h3>
+            <div class="policy-grid">
+              <div v-for="item in capabilityPolicyBlocks" :key="item.key" class="policy-block">
+                <span>{{ item.label }}</span>
+                <div class="tag-list">
+                  <el-tag v-for="tool in toolNamesForPolicy(item.key)" :key="tool" size="small" :type="item.type">{{ tool }}</el-tag>
+                  <span v-if="toolNamesForPolicy(item.key).length === 0" class="muted">无</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <h3>策略样例</h3>
+            <el-table :data="capabilityExamples" border stripe size="small">
+              <el-table-column prop="id" label="样例 ID" min-width="220" />
+              <el-table-column prop="name" label="场景" min-width="150" />
+              <el-table-column label="期望能力" min-width="180">
+                <template #default="{ row }">{{ row.expect?.capabilityId || '-' }}</template>
+              </el-table-column>
+              <el-table-column label="必需工具" min-width="240">
+                <template #default="{ row }">
+                  <div class="tag-list">
+                    <el-tag v-for="tool in arrayValue(row.expect?.requiredTools)" :key="tool" size="small">{{ tool }}</el-tag>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+          </section>
+
+          <section class="drawer-section">
+            <h3>开发线索</h3>
+            <div class="guide-list">
+              <div>
+                <span>配置文件</span>
+                <code v-for="file in arrayValue(capabilityDetail.developerGuide?.configFiles)" :key="file">{{ file }}</code>
+              </div>
+              <div>
+                <span>新增/调整步骤</span>
+                <p v-for="step in arrayValue(capabilityDetail.developerGuide?.steps)" :key="step">{{ step }}</p>
+              </div>
+            </div>
+          </section>
+        </template>
+      </el-drawer>
     </div>
   </AgentPageShell>
 </template>
@@ -288,6 +356,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import AgentPageShell from './components/AgentPageShell.vue'
 import {
+  getAiGovernanceCapability,
   getAiGovernanceCapabilities,
   getAiGovernancePolicyCoverage,
   getAiGovernanceToolImpact,
@@ -301,11 +370,15 @@ const loading = ref(false)
 const planning = ref(false)
 const coverageLoading = ref(false)
 const toolImpactLoading = ref(false)
+const capabilityDetailLoading = ref(false)
+const capabilityDetailVisible = ref(false)
+const capabilityDetailId = ref('')
 const capabilitiesPayload = ref<Record<string, any>>({})
 const toolsPayload = ref<Record<string, any>>({})
 const validationPayload = ref<Record<string, any>>({})
 const coveragePayload = ref<Record<string, any>>({})
 const toolImpactPayload = ref<Record<string, any>>({})
+const capabilityDetailPayload = ref<Record<string, any>>({})
 const planResult = ref<Record<string, any> | null>(null)
 
 const planForm = reactive({
@@ -333,10 +406,18 @@ const coverageFailedCount = computed(() => Number(coveragePayload.value.failedCo
 const coveragePassedCount = computed(() => Number(coveragePayload.value.passedCount || coverageCases.value.filter((item) => item.status === 'PASS').length))
 const coverageStatus = computed(() => coverageFailedCount.value > 0 ? '异常' : coverageCases.value.length ? '通过' : '未运行')
 const toolImpactTools = computed(() => arrayValue(toolImpactPayload.value.tools))
+const capabilityDetail = computed(() => objectValue(capabilityDetailPayload.value))
+const capabilityExamples = computed(() => arrayValue(capabilityDetail.value.examples))
 const toolCategories = computed(() => uniqueStrings(tools.value.map((item) => item.category).filter(Boolean)))
 const planTools = computed(() => arrayValue(planResult.value?.toolPlan))
 const planMatchedRules = computed(() => arrayValue(planResult.value?.capability?.matchedRules))
 const planProhibitedTools = computed(() => arrayValue(planResult.value?.capability?.toolPolicy?.prohibited))
+const capabilityPolicyBlocks = [
+  { key: 'required', label: 'Required', type: '' },
+  { key: 'optional', label: 'Optional', type: 'info' },
+  { key: 'adaptive', label: 'Adaptive', type: 'warning' },
+  { key: 'prohibited', label: 'Prohibited', type: 'danger' }
+]
 
 onMounted(loadGovernance)
 
@@ -374,6 +455,19 @@ async function loadToolImpact() {
     toolImpactPayload.value = extractBody(response)
   } finally {
     toolImpactLoading.value = false
+  }
+}
+
+async function openCapabilityDetail(capabilityId: string) {
+  if (!capabilityId) return
+  capabilityDetailId.value = capabilityId
+  capabilityDetailVisible.value = true
+  capabilityDetailLoading.value = true
+  try {
+    const response = await getAiGovernanceCapability(capabilityId)
+    capabilityDetailPayload.value = extractBody(response)
+  } finally {
+    capabilityDetailLoading.value = false
   }
 }
 
@@ -427,6 +521,12 @@ function riskTagType(riskLevel: string) {
   if (riskLevel === 'MEDIUM') return 'warning'
   if (riskLevel === 'LOW') return 'info'
   return 'success'
+}
+
+function toolNamesForPolicy(key: string) {
+  return arrayValue(capabilityDetail.value.tools?.[key])
+    .map((item) => item?.label ? `${item.label} (${item.name})` : item?.name)
+    .filter(Boolean)
 }
 
 function extractBody(value: any): Record<string, any> {
@@ -531,6 +631,79 @@ function uniqueStrings(values: any[]): string[] {
 
 .stacked .error {
   color: #dc2626;
+}
+
+.drawer-title {
+  display: grid;
+  gap: 4px;
+}
+
+.drawer-title strong {
+  color: #0f172a;
+  font-size: 16px;
+}
+
+.drawer-title span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.drawer-section {
+  margin-bottom: 18px;
+}
+
+.drawer-section h3 {
+  margin: 0 0 10px;
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.policy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.policy-block {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.policy-block > span,
+.guide-list span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.guide-list {
+  display: grid;
+  gap: 12px;
+}
+
+.guide-list div {
+  display: grid;
+  gap: 6px;
+}
+
+.guide-list code {
+  display: block;
+  padding: 6px 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  color: #334155;
+  background: #f8fafc;
+  white-space: normal;
+  word-break: break-all;
+}
+
+.guide-list p {
+  margin: 0;
+  color: #334155;
+  font-size: 13px;
 }
 
 .simulator-grid {

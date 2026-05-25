@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, Header, HTTPException, Query
 
 from .config import settings
-from .governance import governance_policy_examples, governance_summary, governance_tool_impact, resolve_capability, validate_governance
+from .governance import governance_capability_detail, governance_policy_examples, governance_summary, governance_tool_impact, resolve_capability, validate_governance
 from .intent import recognize_intent
 from .java_tools import JavaToolGateway
 from .live_trace import LiveTraceStore
@@ -271,6 +271,14 @@ async def governance_capabilities() -> dict:
         "enabledCapabilityCount": summary.get("enabledCapabilityCount"),
         "capabilities": summary.get("capabilities") or [],
     }
+
+
+@app.get("/api/srmp/langgraph/governance/capabilities/{capability_id}")
+async def governance_capability(capability_id: str) -> dict:
+    detail = governance_capability_detail(capability_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Capability not found")
+    return detail
 
 
 @app.get("/api/srmp/langgraph/governance/tools")

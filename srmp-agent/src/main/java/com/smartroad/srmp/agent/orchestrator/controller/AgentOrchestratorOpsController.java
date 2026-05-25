@@ -185,6 +185,12 @@ public class AgentOrchestratorOpsController {
         return R.ok(remoteGet("/api/srmp/langgraph/governance/capabilities"));
     }
 
+    @GetMapping("/governance/capabilities/{capabilityId:.+}")
+    public R<Object> governanceCapability(@PathVariable("capabilityId") String capabilityId) {
+        return R.ok(remoteGet("/api/srmp/langgraph/governance/capabilities/"
+                + UriUtils.encodePathSegment(capabilityId == null ? "" : capabilityId, StandardCharsets.UTF_8)));
+    }
+
     @GetMapping("/governance/tools")
     public R<Object> governanceTools() {
         return R.ok(remoteGet("/api/srmp/langgraph/governance/tools"));
