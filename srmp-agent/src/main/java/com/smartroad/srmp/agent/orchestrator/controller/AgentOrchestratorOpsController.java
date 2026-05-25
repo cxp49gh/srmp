@@ -180,6 +180,17 @@ public class AgentOrchestratorOpsController {
         return R.ok(remoteGet("/api/srmp/langgraph/runtime/config"));
     }
 
+    @GetMapping("/governance/config")
+    public R<Object> governanceConfig() {
+        return R.ok(remoteGet("/api/srmp/langgraph/governance/config"));
+    }
+
+    @PostMapping("/governance/config/draft/validate")
+    public R<Object> governanceConfigDraftValidate(@RequestBody(required = false) Map<String, Object> body) {
+        Map<String, Object> payload = body == null ? new LinkedHashMap<String, Object>() : body;
+        return R.ok(remotePost("/api/srmp/langgraph/governance/config/draft/validate", payload));
+    }
+
     @GetMapping("/governance/capabilities")
     public R<Object> governanceCapabilities() {
         return R.ok(remoteGet("/api/srmp/langgraph/governance/capabilities"));

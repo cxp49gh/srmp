@@ -9,6 +9,7 @@
         <el-button :loading="coverageLoading" @click="loadPolicyCoverage">运行策略样例</el-button>
         <el-button :loading="toolImpactLoading" @click="loadToolImpact">刷新工具影响面</el-button>
         <el-button :loading="readinessLoading" @click="loadReadiness">运行治理体检</el-button>
+        <el-button :loading="draftValidationLoading" @click="validateCurrentGovernanceConfigDraft">校验配置草稿</el-button>
         <el-button type="primary" :loading="planning" @click="simulatePlan">运行模拟</el-button>
       </div>
     </template>
@@ -48,6 +49,13 @@
       </section>
 
       <el-alert
+        v-if="configPayload.mode && configPayload.publishMode === 'restart-required'"
+        class="mb"
+        type="info"
+        show-icon
+        title="治理配置当前采用重启发布模式，草稿校验不会改动运行时配置。"
+      />
+      <el-alert
         v-if="validationErrorCount > 0"
         class="mb"
         type="error"
@@ -77,6 +85,60 @@
             <div><span>孤立工具</span><strong>{{ readinessSummary.orphanToolCount ?? '-' }}</strong></div>
           </section>
           <el-table :data="readinessIssues" border stripe v-loading="readinessLoading">
+            <el-table-column label="级别" width="90">
+              <template #default="{ row }">
+                <el-tag :type="issueTagType(row.severity)">{{ row.severity || '-' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="code" label="问题码" min-width="190" />
+            <el-table-column prop="source" label="来源" width="120" />
+            <el-table-column label="对象" min-width="210">
+              <template #default="{ row }">
+                <span>{{ row.toolName || row.capabilityId || row.caseId || '-' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="message" label="说明" min-width="320" />
+          </el-table>
+        </el-tab-pane>
+
+        <el-tab-pane label="配置草稿" name="config">
+          <div class="coverage-head">
+            <div>
+              <strong>活动配置</strong>
+              <span>当前 Runtime 加载的能力、工具配置和发布方式</span>
+            </div>
+            <div class="head-buttons">
+              <el-button size="small" :loading="configLoading" @click="loadGovernanceConfig">刷新配置</el-button>
+              <el-button size="small" type="primary" :loading="draftValidationLoading" @click="validateCurrentGovernanceConfigDraft">校验当前配置</el-button>
+            </div>
+          </div>
+          <section class="plan-summary config-summary" v-loading="configLoading">
+            <div><span>发布模式</span><strong>{{ configPayload.publishMode || '-' }}</strong></div>
+            <div><span>运行时可改</span><strong>{{ configPayload.runtimeMutable ? '是' : '否' }}</strong></div>
+            <div><span>能力 Hash</span><strong>{{ shortHash(configPayload.capabilitiesHash) || '-' }}</strong></div>
+            <div><span>工具 Hash</span><strong>{{ shortHash(configPayload.toolsHash) || '-' }}</strong></div>
+          </section>
+          <div class="guide-list mb">
+            <div>
+              <span>配置文件</span>
+              <code>{{ configFiles.capabilities || '-' }}</code>
+              <code>{{ configFiles.tools || '-' }}</code>
+            </div>
+          </div>
+
+          <div class="coverage-head">
+            <div>
+              <strong>草稿校验结果</strong>
+              <span>提交前检查结构、工具引用、孤立工具和阻断项</span>
+            </div>
+          </div>
+          <section class="plan-summary config-summary" v-loading="draftValidationLoading">
+            <div><span>状态</span><strong>{{ draftReadiness.status || draftStatus }}</strong></div>
+            <div><span>草稿 ID</span><strong>{{ draftValidationPayload.draftId || '-' }}</strong></div>
+            <div><span>配置错误</span><strong>{{ draftValidationErrorCount }}</strong></div>
+            <div><span>问题总数</span><strong>{{ draftIssueCount }}</strong></div>
+          </section>
+          <el-table :data="draftIssues" border stripe v-loading="draftValidationLoading">
             <el-table-column label="级别" width="90">
               <template #default="{ row }">
                 <el-tag :type="issueTagType(row.severity)">{{ row.severity || '-' }}</el-tag>
@@ -494,12 +556,14 @@ import AgentPageShell from './components/AgentPageShell.vue'
 import {
   getAiGovernanceCapability,
   getAiGovernanceCapabilities,
+  getAiGovernanceConfig,
   getAiGovernancePolicyCoverage,
   getAiGovernanceReadiness,
   getAiGovernanceTool,
   getAiGovernanceToolImpact,
   getAiGovernanceTools,
   simulateAiGovernancePlan,
+  validateAiGovernanceConfigDraft,
   validateAiGovernancePolicies
 } from '../../api/orchestrator'
 
@@ -509,6 +573,8 @@ const planning = ref(false)
 const coverageLoading = ref(false)
 const toolImpactLoading = ref(false)
 const readinessLoading = ref(false)
+const configLoading = ref(false)
+const draftValidationLoading = ref(false)
 const capabilityDetailLoading = ref(false)
 const capabilityDetailVisible = ref(false)
 const capabilityDetailId = ref('')
@@ -521,6 +587,8 @@ const validationPayload = ref<Record<string, any>>({})
 const coveragePayload = ref<Record<string, any>>({})
 const toolImpactPayload = ref<Record<string, any>>({})
 const readinessPayload = ref<Record<string, any>>({})
+const configPayload = ref<Record<string, any>>({})
+const draftValidationPayload = ref<Record<string, any>>({})
 const capabilityDetailPayload = ref<Record<string, any>>({})
 const toolDetailPayload = ref<Record<string, any>>({})
 const planResult = ref<Record<string, any> | null>(null)
@@ -556,6 +624,22 @@ const readinessStatus = computed(() => stringValue(readinessPayload.value.status
 const readinessIssueCount = computed(() => Number(readinessSummary.value.issueCount ?? readinessIssues.value.length))
 const readinessErrorCount = computed(() => Number(readinessSummary.value.errorCount ?? readinessIssues.value.filter((item) => item.severity === 'ERROR').length))
 const readinessWarningCount = computed(() => Number(readinessSummary.value.warningCount ?? readinessIssues.value.filter((item) => item.severity === 'WARN').length))
+const configFiles = computed(() => objectValue(configPayload.value.configFiles))
+const draftValidation = computed(() => objectValue(draftValidationPayload.value.validation))
+const draftReadiness = computed(() => objectValue(draftValidationPayload.value.readiness))
+const draftValidationErrorCount = computed(() => Number(draftValidation.value.errorCount || 0))
+const draftStatus = computed(() => draftValidationErrorCount.value > 0 ? 'FAIL' : draftValidationPayload.value.mode ? 'PASS' : '未运行')
+const draftIssues = computed(() => {
+  const readinessIssues = arrayValue(draftReadiness.value.issues)
+  if (readinessIssues.length) return readinessIssues
+  return arrayValue(draftValidation.value.errors).map((item) => ({
+    severity: 'ERROR',
+    code: item.code || 'CONFIG_ERROR',
+    source: 'CONFIG',
+    message: item.message || item.code || '-'
+  }))
+})
+const draftIssueCount = computed(() => Number(objectValue(draftReadiness.value.summary).issueCount ?? draftIssues.value.length))
 const capabilityDetail = computed(() => objectValue(capabilityDetailPayload.value))
 const capabilityExamples = computed(() => arrayValue(capabilityDetail.value.examples))
 const toolDetail = computed(() => objectValue(toolDetailPayload.value))
@@ -584,7 +668,8 @@ async function loadGovernance() {
     const [capabilitiesRes, toolsRes, validationRes] = await Promise.all([
       getAiGovernanceCapabilities(),
       getAiGovernanceTools(),
-      validateAiGovernancePolicies()
+      validateAiGovernancePolicies(),
+      loadGovernanceConfig()
     ])
     capabilitiesPayload.value = extractBody(capabilitiesRes)
     toolsPayload.value = extractBody(toolsRes)
@@ -593,6 +678,33 @@ async function loadGovernance() {
     loading.value = false
   }
   await Promise.all([loadPolicyCoverage(), loadToolImpact(), loadReadiness()])
+}
+
+async function loadGovernanceConfig() {
+  configLoading.value = true
+  try {
+    const response = await getAiGovernanceConfig()
+    configPayload.value = extractBody(response)
+  } finally {
+    configLoading.value = false
+  }
+}
+
+async function validateCurrentGovernanceConfigDraft() {
+  if (!configPayload.value.capabilitiesConfig || !configPayload.value.toolsConfig) {
+    await loadGovernanceConfig()
+  }
+  draftValidationLoading.value = true
+  try {
+    const response = await validateAiGovernanceConfigDraft({
+      capabilitiesConfig: configPayload.value.capabilitiesConfig || {},
+      toolsConfig: configPayload.value.toolsConfig || {}
+    })
+    draftValidationPayload.value = extractBody(response)
+    activeTab.value = 'config'
+  } finally {
+    draftValidationLoading.value = false
+  }
 }
 
 async function loadPolicyCoverage() {
@@ -738,6 +850,11 @@ function stringValue(value: any): string {
   return value == null ? '' : String(value)
 }
 
+function shortHash(value: any): string {
+  const text = stringValue(value)
+  return text ? text.slice(0, 12) : ''
+}
+
 function uniqueStrings(values: any[]): string[] {
   return Array.from(new Set(values.map((item) => String(item)).filter(Boolean)))
 }
@@ -798,9 +915,16 @@ function uniqueStrings(values: any[]): string[] {
   margin-bottom: 12px;
 }
 
-.coverage-head div {
+.coverage-head > div {
   display: grid;
   gap: 4px;
+}
+
+.coverage-head .head-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .coverage-head span,
@@ -927,6 +1051,10 @@ function uniqueStrings(values: any[]): string[] {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 16px;
+}
+
+.config-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .plan-summary div {

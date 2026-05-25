@@ -139,6 +139,47 @@ class GovernanceApiTest(unittest.TestCase):
         self.assertIn(("TOOL_WITHOUT_CAPABILITY", "template.match"), issues)
         self.assertEqual("WARN", issues[("TOOL_WITHOUT_CAPABILITY", "template.match")]["severity"])
 
+    def test_config_endpoint_returns_active_governance_bundle(self):
+        client = TestClient(app)
+
+        response = client.get("/api/srmp/langgraph/governance/config")
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual("ACTIVE", body["mode"])
+        self.assertFalse(body["runtimeMutable"])
+        self.assertEqual("restart-required", body["publishMode"])
+        self.assertEqual("phase52-governance-v1", body["capabilitiesConfig"]["version"])
+        self.assertEqual("phase52-governance-v1", body["toolsConfig"]["version"])
+        self.assertTrue(body["capabilitiesHash"])
+        self.assertTrue(body["toolsHash"])
+        self.assertIn("srmp-ai-orchestrator/app/governance_data/capabilities.json", body["configFiles"]["capabilities"])
+        self.assertIn("srmp-ai-orchestrator/app/governance_data/tools.json", body["configFiles"]["tools"])
+        self.assertTrue(body["configValid"])
+
+    def test_config_draft_validate_detects_invalid_tool_reference(self):
+        client = TestClient(app)
+        active = client.get("/api/srmp/langgraph/governance/config").json()
+        capabilities_config = active["capabilitiesConfig"]
+        tools_config = active["toolsConfig"]
+        first_capability = capabilities_config["capabilities"][0]
+        first_capability.setdefault("toolPolicy", {}).setdefault("required", []).append("missing.tool")
+
+        response = client.post(
+            "/api/srmp/langgraph/governance/config/draft/validate",
+            json={"capabilitiesConfig": capabilities_config, "toolsConfig": tools_config},
+        )
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual("DRAFT_VALIDATE", body["mode"])
+        self.assertTrue(body["draftId"])
+        self.assertFalse(body["configValid"])
+        self.assertEqual("FAIL", body["readiness"]["status"])
+        error_codes = [item["code"] for item in body["validation"]["errors"]]
+        self.assertIn("TOOL_NOT_FOUND", error_codes)
+        self.assertGreaterEqual(body["readiness"]["summary"]["validationErrorCount"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

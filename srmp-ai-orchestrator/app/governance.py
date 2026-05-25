@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from dataclasses import dataclass
@@ -30,10 +31,12 @@ class GovernanceRegistry:
 
 @lru_cache(maxsize=1)
 def governance_registry() -> GovernanceRegistry:
-    capabilities_path = Path(os.getenv("SRMP_AGENT_CAPABILITIES_PATH") or DEFAULT_DATA_DIR / "capabilities.json")
-    tools_path = Path(os.getenv("SRMP_AGENT_TOOLS_PATH") or DEFAULT_DATA_DIR / "tools.json")
-    capabilities_raw = _load_json(capabilities_path)
-    tools_raw = _load_json(tools_path)
+    capabilities_raw = _load_json(_capabilities_path())
+    tools_raw = _load_json(_tools_path())
+    return build_governance_registry(capabilities_raw, tools_raw)
+
+
+def build_governance_registry(capabilities_raw: Dict[str, Any], tools_raw: Dict[str, Any]) -> GovernanceRegistry:
     capabilities = [normalize_capability(item) for item in capabilities_raw.get("capabilities") or []]
     tools = [normalize_tool(item) for item in tools_raw.get("tools") or []]
     registry = GovernanceRegistry(
@@ -55,6 +58,46 @@ def governance_registry() -> GovernanceRegistry:
         tool_by_name=registry.tool_by_name,
         validation=validation,
     )
+
+
+def governance_config_bundle() -> Dict[str, Any]:
+    capabilities_path = _capabilities_path()
+    tools_path = _tools_path()
+    capabilities_raw = _load_json(capabilities_path)
+    tools_raw = _load_json(tools_path)
+    registry = build_governance_registry(capabilities_raw, tools_raw)
+    return _governance_config_payload(
+        registry=registry,
+        capabilities_raw=capabilities_raw,
+        tools_raw=tools_raw,
+        mode="ACTIVE",
+        config_files={
+            "capabilities": _config_path_label(capabilities_path, "capabilities.json"),
+            "tools": _config_path_label(tools_path, "tools.json"),
+        },
+    )
+
+
+def governance_config_draft_validate(payload: Dict[str, Any]) -> Dict[str, Any]:
+    capabilities_raw = dict((payload or {}).get("capabilitiesConfig") or {})
+    tools_raw = dict((payload or {}).get("toolsConfig") or {})
+    registry = build_governance_registry(capabilities_raw, tools_raw)
+    result = _governance_config_payload(
+        registry=registry,
+        capabilities_raw=capabilities_raw,
+        tools_raw=tools_raw,
+        mode="DRAFT_VALIDATE",
+        config_files={
+            "capabilities": "draft.capabilitiesConfig",
+            "tools": "draft.toolsConfig",
+        },
+    )
+    result["draftId"] = _stable_hash({
+        "capabilitiesConfig": capabilities_raw,
+        "toolsConfig": tools_raw,
+    })[:16]
+    result["readiness"] = governance_readiness_for_registry(registry)
+    return result
 
 
 def resolve_capability(
@@ -120,6 +163,10 @@ def governance_policy_examples() -> List[Dict[str, Any]]:
 
 def governance_tool_impact() -> Dict[str, Any]:
     registry = governance_registry()
+    return governance_tool_impact_for_registry(registry)
+
+
+def governance_tool_impact_for_registry(registry: GovernanceRegistry) -> Dict[str, Any]:
     tools: List[Dict[str, Any]] = []
     for tool in registry.tools:
         item = dict(tool)
@@ -207,8 +254,15 @@ def governance_readiness(
     contract: Optional[Dict[str, Any]] = None,
     policy_coverage: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    registry = governance_registry()
-    tool_impact = governance_tool_impact()
+    return governance_readiness_for_registry(governance_registry(), contract=contract, policy_coverage=policy_coverage)
+
+
+def governance_readiness_for_registry(
+    registry: GovernanceRegistry,
+    contract: Optional[Dict[str, Any]] = None,
+    policy_coverage: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    tool_impact = governance_tool_impact_for_registry(registry)
     issues: List[Dict[str, Any]] = []
 
     for item in registry.validation.get("errors") or []:
@@ -363,6 +417,56 @@ def validate_governance_registry(registry: GovernanceRegistry) -> Dict[str, Any]
             if tool.get("writeRisk"):
                 errors.append({"code": "WRITE_TOOL_IN_AUTO_POLICY", "message": capability_id + " 自动策略包含写风险工具：" + tool_name})
     return {"errors": errors, "warnings": warnings, "errorCount": len(errors), "warningCount": len(warnings)}
+
+
+def _governance_config_payload(
+    registry: GovernanceRegistry,
+    capabilities_raw: Dict[str, Any],
+    tools_raw: Dict[str, Any],
+    mode: str,
+    config_files: Dict[str, str],
+) -> Dict[str, Any]:
+    return {
+        "mode": mode,
+        "runtimeMutable": False,
+        "publishMode": "restart-required",
+        "version": registry.version,
+        "toolVersion": registry.tool_version,
+        "configValid": registry.config_valid,
+        "validation": registry.validation,
+        "capabilitiesHash": _stable_hash(capabilities_raw),
+        "toolsHash": _stable_hash(tools_raw),
+        "configFiles": config_files,
+        "capabilitiesConfig": capabilities_raw,
+        "toolsConfig": tools_raw,
+        "summary": {
+            "capabilityCount": len(registry.capabilities),
+            "enabledCapabilityCount": sum(1 for item in registry.capabilities if item.get("enabled", True)),
+            "toolCount": len(registry.tools),
+            "validationErrorCount": int(registry.validation.get("errorCount") or 0),
+            "validationWarningCount": int(registry.validation.get("warningCount") or 0),
+        },
+    }
+
+
+def _capabilities_path() -> Path:
+    return Path(os.getenv("SRMP_AGENT_CAPABILITIES_PATH") or DEFAULT_DATA_DIR / "capabilities.json")
+
+
+def _tools_path() -> Path:
+    return Path(os.getenv("SRMP_AGENT_TOOLS_PATH") or DEFAULT_DATA_DIR / "tools.json")
+
+
+def _config_path_label(path: Path, filename: str) -> str:
+    default_path = DEFAULT_DATA_DIR / filename
+    if path.resolve() == default_path.resolve():
+        return "srmp-ai-orchestrator/app/governance_data/" + filename
+    return str(path)
+
+
+def _stable_hash(value: Any) -> str:
+    raw = json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def _load_json(path: Path) -> Dict[str, Any]:

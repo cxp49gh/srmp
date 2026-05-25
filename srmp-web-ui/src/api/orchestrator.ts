@@ -114,6 +114,14 @@ export function getAiGovernanceReadiness(includeContract = true, runCoverage = t
   })
 }
 
+export function getAiGovernanceConfig(): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/governance/config')
+}
+
+export function validateAiGovernanceConfigDraft(data: Record<string, any>): Promise<Record<string, any>> {
+  return aiRequest.post('/api/agent/orchestrator/ops/governance/config/draft/validate', data || {})
+}
+
 export function validateAiGovernancePolicies(): Promise<Record<string, any>> {
   return aiRequest.get('/api/agent/orchestrator/ops/governance/policies/validate')
 }

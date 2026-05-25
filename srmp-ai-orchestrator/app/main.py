@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, Header, HTTPException, Query
 
 from .config import settings
-from .governance import governance_capability_detail, governance_policy_examples, governance_readiness, governance_summary, governance_tool_detail, governance_tool_impact, resolve_capability, validate_governance
+from .governance import governance_capability_detail, governance_config_bundle, governance_config_draft_validate, governance_policy_examples, governance_readiness, governance_summary, governance_tool_detail, governance_tool_impact, resolve_capability, validate_governance
 from .intent import recognize_intent
 from .java_tools import JavaToolGateway
 from .live_trace import LiveTraceStore
@@ -271,6 +271,16 @@ async def governance_capabilities() -> dict:
         "enabledCapabilityCount": summary.get("enabledCapabilityCount"),
         "capabilities": summary.get("capabilities") or [],
     }
+
+
+@app.get("/api/srmp/langgraph/governance/config")
+async def governance_config() -> dict:
+    return governance_config_bundle()
+
+
+@app.post("/api/srmp/langgraph/governance/config/draft/validate")
+async def governance_config_draft_validate_endpoint(body: Dict[str, Any]) -> dict:
+    return governance_config_draft_validate(body or {})
 
 
 @app.get("/api/srmp/langgraph/governance/capabilities/{capability_id}")
