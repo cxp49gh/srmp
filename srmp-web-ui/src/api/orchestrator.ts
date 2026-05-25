@@ -122,6 +122,20 @@ export function validateAiGovernanceConfigDraft(data: Record<string, any>): Prom
   return aiRequest.post('/api/agent/orchestrator/ops/governance/config/draft/validate', data || {})
 }
 
+export function getAiGovernanceConfigPublishRequests(limit = 20): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/governance/config/publish/requests', {
+    params: { limit }
+  })
+}
+
+export function submitAiGovernanceConfigPublishRequest(data: Record<string, any>): Promise<Record<string, any>> {
+  return aiRequest.post('/api/agent/orchestrator/ops/governance/config/publish/request', data || {})
+}
+
+export function requestAiGovernanceConfigRollback(requestId: string, data: Record<string, any>): Promise<Record<string, any>> {
+  return aiRequest.post(`/api/agent/orchestrator/ops/governance/config/publish/requests/${encodeURIComponent(requestId)}/rollback`, data || {})
+}
+
 export function validateAiGovernancePolicies(): Promise<Record<string, any>> {
   return aiRequest.get('/api/agent/orchestrator/ops/governance/policies/validate')
 }

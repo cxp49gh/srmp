@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import time
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -12,6 +13,7 @@ from .schemas import MapAiAgentRequest
 
 DEFAULT_DATA_DIR = Path(__file__).resolve().parent / "governance_data"
 DEFAULT_TOOL_POLICY = {"required": [], "optional": [], "adaptive": [], "prohibited": []}
+DEFAULT_PUBLISH_LOG_PATH = Path(os.getenv("SRMP_AGENT_GOVERNANCE_PUBLISH_LOG_PATH", "/tmp/srmp-governance-publish-requests.jsonl"))
 
 
 @dataclass(frozen=True)
@@ -106,6 +108,106 @@ def governance_config_draft_validate(payload: Dict[str, Any]) -> Dict[str, Any]:
         draft_tools_raw=tools_raw,
     )
     return result
+
+
+def governance_config_publish_requests(limit: int = 20) -> Dict[str, Any]:
+    safe_limit = max(1, min(int(limit or 20), 100))
+    records = _read_publish_records(safe_limit)
+    return {
+        "mode": "PUBLISH_AUDIT",
+        "publishMode": "restart-required",
+        "runtimeMutable": False,
+        "logPath": str(_publish_log_path()),
+        "recordCount": len(records),
+        "records": records,
+    }
+
+
+def governance_config_publish_submit(
+    payload: Dict[str, Any],
+    actor: str = "",
+    tenant_id: str = "",
+) -> Dict[str, Any]:
+    validation = governance_config_draft_validate(payload or {})
+    blockers = _publish_blockers(validation)
+    status = "BLOCKED" if blockers else "SUBMITTED"
+    now_ms = _now_ms()
+    record = {
+        "requestId": _publish_request_id(validation, now_ms),
+        "recordType": "PUBLISH_REQUEST",
+        "status": status,
+        "statusLabel": "已提交，等待人工审核和重启发布" if status == "SUBMITTED" else "已阻断，需先处理问题",
+        "createdAtMs": now_ms,
+        "actor": actor or "unknown",
+        "tenantId": tenant_id or "",
+        "reason": str((payload or {}).get("reason") or "").strip(),
+        "draftId": validation.get("draftId"),
+        "publishMode": "restart-required",
+        "runtimeMutable": False,
+        "baseHashes": (validation.get("diff") or {}).get("baseHashes") or {},
+        "draftHashes": (validation.get("diff") or {}).get("draftHashes") or {},
+        "diffSummary": (validation.get("diff") or {}).get("summary") or {},
+        "readinessStatus": (validation.get("readiness") or {}).get("status"),
+        "validationErrorCount": int((validation.get("validation") or {}).get("errorCount") or 0),
+        "validationWarningCount": int((validation.get("validation") or {}).get("warningCount") or 0),
+        "readinessIssueCount": int(((validation.get("readiness") or {}).get("summary") or {}).get("issueCount") or 0),
+        "blockers": blockers,
+        "operation": {
+            "appliesRuntimeConfig": False,
+            "writesConfigFiles": False,
+            "requiresReview": True,
+            "requiresRestart": True,
+        },
+    }
+    _append_publish_record(record)
+    return {
+        "mode": "PUBLISH_REQUEST",
+        "status": status,
+        "record": record,
+        "validation": validation,
+        "history": governance_config_publish_requests(limit=20),
+    }
+
+
+def governance_config_publish_rollback(
+    request_id: str,
+    payload: Dict[str, Any],
+    actor: str = "",
+    tenant_id: str = "",
+) -> Dict[str, Any]:
+    existing = _find_publish_record(request_id)
+    now_ms = _now_ms()
+    blockers = []
+    if not existing:
+        blockers.append({"code": "REQUEST_NOT_FOUND", "message": "未找到发布记录：" + str(request_id or "")})
+    if existing and existing.get("status") != "APPLIED":
+        blockers.append({"code": "REQUEST_NOT_APPLIED", "message": "只有已应用的发布记录才能执行回滚。"})
+    record = {
+        "requestId": "rollback-" + _stable_hash({"target": request_id, "createdAtMs": now_ms})[:16],
+        "recordType": "ROLLBACK_REQUEST",
+        "targetRequestId": request_id,
+        "status": "ROLLBACK_BLOCKED",
+        "statusLabel": "已记录回滚申请，当前阶段不执行配置覆盖",
+        "createdAtMs": now_ms,
+        "actor": actor or "unknown",
+        "tenantId": tenant_id or "",
+        "reason": str((payload or {}).get("reason") or "").strip(),
+        "blockers": blockers or [{"code": "ROLLBACK_NOT_ENABLED", "message": "当前治理配置采用重启发布模式，暂未开放在线回滚执行。"}],
+        "operation": {
+            "appliesRuntimeConfig": False,
+            "writesConfigFiles": False,
+            "requiresReview": True,
+            "requiresRestart": True,
+        },
+    }
+    _append_publish_record(record)
+    return {
+        "mode": "ROLLBACK_REQUEST",
+        "status": record["status"],
+        "record": record,
+        "target": existing or {},
+        "history": governance_config_publish_requests(limit=20),
+    }
 
 
 def resolve_capability(
@@ -610,6 +712,77 @@ def _config_path_label(path: Path, filename: str) -> str:
 def _stable_hash(value: Any) -> str:
     raw = json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _publish_blockers(validation: Dict[str, Any]) -> List[Dict[str, Any]]:
+    blockers: List[Dict[str, Any]] = []
+    if not ((validation.get("diff") or {}).get("changed")):
+        blockers.append({"code": "NO_CONFIG_CHANGE", "message": "草稿相对活动配置没有变化。"})
+    if int((validation.get("validation") or {}).get("errorCount") or 0) > 0:
+        blockers.append({"code": "CONFIG_VALIDATION_ERROR", "message": "草稿配置存在错误，不能提交发布。"})
+    readiness = validation.get("readiness") or {}
+    if readiness.get("status") == "FAIL":
+        blockers.append({"code": "READINESS_FAILED", "message": "治理体检存在错误级问题，不能提交发布。"})
+    return blockers
+
+
+def _publish_request_id(validation: Dict[str, Any], created_at_ms: int) -> str:
+    return "pub-" + _stable_hash({
+        "draftId": validation.get("draftId"),
+        "draftHashes": (validation.get("diff") or {}).get("draftHashes") or {},
+        "createdAtMs": created_at_ms,
+    })[:16]
+
+
+def _publish_log_path() -> Path:
+    return Path(os.getenv("SRMP_AGENT_GOVERNANCE_PUBLISH_LOG_PATH") or DEFAULT_PUBLISH_LOG_PATH)
+
+
+def _read_publish_records(limit: int = 20) -> List[Dict[str, Any]]:
+    path = _publish_log_path()
+    if not path.exists():
+        return []
+    records: List[Dict[str, Any]] = []
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                text = line.strip()
+                if not text:
+                    continue
+                try:
+                    item = json.loads(text)
+                except Exception:  # noqa: BLE001
+                    continue
+                if isinstance(item, dict):
+                    records.append(item)
+    except Exception:  # noqa: BLE001
+        return []
+    records.sort(key=lambda item: int(item.get("createdAtMs") or 0), reverse=True)
+    return records[: max(1, min(int(limit or 20), 100))]
+
+
+def _append_publish_record(record: Dict[str, Any]) -> None:
+    path = _publish_log_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True, default=str) + "\n")
+    except Exception:  # noqa: BLE001
+        return
+
+
+def _find_publish_record(request_id: str) -> Optional[Dict[str, Any]]:
+    target = str(request_id or "").strip()
+    if not target:
+        return None
+    for record in _read_publish_records(limit=100):
+        if record.get("requestId") == target:
+            return record
+    return None
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
 
 
 def _load_json(path: Path) -> Dict[str, Any]:

@@ -10,6 +10,7 @@
         <el-button :loading="toolImpactLoading" @click="loadToolImpact">刷新工具影响面</el-button>
         <el-button :loading="readinessLoading" @click="loadReadiness">运行治理体检</el-button>
         <el-button :loading="draftValidationLoading" @click="validateCurrentGovernanceConfigDraft">校验配置草稿</el-button>
+        <el-button :loading="publishRecordsLoading" @click="loadPublishRecords">刷新发布记录</el-button>
         <el-button type="primary" :loading="planning" @click="simulatePlan">运行模拟</el-button>
       </div>
     </template>
@@ -111,6 +112,7 @@
               <el-button size="small" :loading="configLoading" @click="loadGovernanceConfig">刷新配置</el-button>
               <el-button size="small" @click="resetDraftEditor">重置草稿</el-button>
               <el-button size="small" type="primary" :loading="draftValidationLoading" @click="validateCurrentGovernanceConfigDraft">校验当前草稿</el-button>
+              <el-button size="small" type="warning" :loading="publishSubmitLoading" @click="submitPublishRequest">提交发布申请</el-button>
             </div>
           </div>
           <section class="plan-summary config-summary" v-loading="configLoading">
@@ -207,6 +209,62 @@
             </el-table-column>
             <el-table-column prop="message" label="说明" min-width="320" />
           </el-table>
+
+          <div class="publish-panel">
+            <div class="coverage-head">
+              <div>
+                <strong>发布申请</strong>
+                <span>提交后只生成审计记录，不直接覆盖 Runtime 配置</span>
+              </div>
+              <el-button size="small" :loading="publishRecordsLoading" @click="loadPublishRecords">刷新记录</el-button>
+            </div>
+            <el-input
+              v-model="publishReason"
+              class="mb"
+              type="textarea"
+              :rows="2"
+              maxlength="300"
+              show-word-limit
+              placeholder="填写发布原因、变更单号或审批说明"
+            />
+            <section class="plan-summary publish-summary" v-if="publishSubmitPayload.record">
+              <div><span>申请状态</span><strong>{{ publishSubmitPayload.record?.status || '-' }}</strong></div>
+              <div><span>申请 ID</span><strong>{{ publishSubmitPayload.record?.requestId || '-' }}</strong></div>
+              <div><span>发布模式</span><strong>{{ publishSubmitPayload.record?.publishMode || '-' }}</strong></div>
+              <div><span>阻断项</span><strong>{{ arrayValue(publishSubmitPayload.record?.blockers).length }}</strong></div>
+            </section>
+            <el-table :data="publishRecords" border stripe v-loading="publishRecordsLoading">
+              <el-table-column prop="createdAtMs" label="时间" min-width="170">
+                <template #default="{ row }">{{ formatTime(row.createdAtMs) }}</template>
+              </el-table-column>
+              <el-table-column prop="requestId" label="记录 ID" min-width="210" />
+              <el-table-column prop="recordType" label="类型" width="140" />
+              <el-table-column label="状态" width="130">
+                <template #default="{ row }">
+                  <el-tag :type="publishStatusTagType(row.status)">{{ publishStatusLabel(row.status) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="变更" min-width="180">
+                <template #default="{ row }">
+                  <span>能力 {{ publishChangeCount(row, 'capability') }}；工具 {{ publishChangeCount(row, 'tool') }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="actor" label="提交人" width="120" />
+              <el-table-column label="阻断原因" min-width="260">
+                <template #default="{ row }">
+                  <div class="stacked">
+                    <span v-for="item in arrayValue(row.blockers)" :key="item.code || item.message" class="error">{{ item.message || item.code }}</span>
+                    <span v-if="arrayValue(row.blockers).length === 0" class="muted">无</span>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="110" fixed="right">
+                <template #default="{ row }">
+                  <el-button link type="warning" :loading="rollbackLoadingId === row.requestId" @click="requestRollback(row)">回滚申请</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
         </el-tab-pane>
 
         <el-tab-pane label="能力矩阵" name="capabilities">
@@ -612,12 +670,15 @@ import {
   getAiGovernanceCapability,
   getAiGovernanceCapabilities,
   getAiGovernanceConfig,
+  getAiGovernanceConfigPublishRequests,
   getAiGovernancePolicyCoverage,
   getAiGovernanceReadiness,
   getAiGovernanceTool,
   getAiGovernanceToolImpact,
   getAiGovernanceTools,
+  requestAiGovernanceConfigRollback,
   simulateAiGovernancePlan,
+  submitAiGovernanceConfigPublishRequest,
   validateAiGovernanceConfigDraft,
   validateAiGovernancePolicies
 } from '../../api/orchestrator'
@@ -630,6 +691,9 @@ const toolImpactLoading = ref(false)
 const readinessLoading = ref(false)
 const configLoading = ref(false)
 const draftValidationLoading = ref(false)
+const publishRecordsLoading = ref(false)
+const publishSubmitLoading = ref(false)
+const rollbackLoadingId = ref('')
 const capabilityDetailLoading = ref(false)
 const capabilityDetailVisible = ref(false)
 const capabilityDetailId = ref('')
@@ -644,8 +708,11 @@ const toolImpactPayload = ref<Record<string, any>>({})
 const readinessPayload = ref<Record<string, any>>({})
 const configPayload = ref<Record<string, any>>({})
 const draftValidationPayload = ref<Record<string, any>>({})
+const publishRecordsPayload = ref<Record<string, any>>({})
+const publishSubmitPayload = ref<Record<string, any>>({})
 const draftCapabilitiesText = ref('')
 const draftToolsText = ref('')
+const publishReason = ref('')
 const capabilityDetailPayload = ref<Record<string, any>>({})
 const toolDetailPayload = ref<Record<string, any>>({})
 const planResult = ref<Record<string, any> | null>(null)
@@ -718,6 +785,7 @@ const draftIssues = computed(() => {
   }))
 })
 const draftIssueCount = computed(() => Number(objectValue(draftReadiness.value.summary).issueCount ?? draftIssues.value.length))
+const publishRecords = computed(() => arrayValue(publishRecordsPayload.value.records))
 const capabilityDetail = computed(() => objectValue(capabilityDetailPayload.value))
 const capabilityExamples = computed(() => arrayValue(capabilityDetail.value.examples))
 const toolDetail = computed(() => objectValue(toolDetailPayload.value))
@@ -755,7 +823,7 @@ async function loadGovernance() {
   } finally {
     loading.value = false
   }
-  await Promise.all([loadPolicyCoverage(), loadToolImpact(), loadReadiness()])
+  await Promise.all([loadPolicyCoverage(), loadToolImpact(), loadReadiness(), loadPublishRecords()])
 }
 
 async function loadGovernanceConfig() {
@@ -783,9 +851,63 @@ async function validateCurrentGovernanceConfigDraft() {
       toolsConfig
     })
     draftValidationPayload.value = extractBody(response)
+    publishSubmitPayload.value = {}
     activeTab.value = 'config'
   } finally {
     draftValidationLoading.value = false
+  }
+}
+
+async function submitPublishRequest() {
+  if (!draftValidationPayload.value.draftId) {
+    await validateCurrentGovernanceConfigDraft()
+  }
+  const capabilitiesConfig = parseDraftJson(draftCapabilitiesText.value, '能力配置')
+  const toolsConfig = parseDraftJson(draftToolsText.value, '工具配置')
+  if (!capabilitiesConfig || !toolsConfig) return
+  publishSubmitLoading.value = true
+  try {
+    const response = await submitAiGovernanceConfigPublishRequest({
+      capabilitiesConfig,
+      toolsConfig,
+      reason: publishReason.value
+    })
+    publishSubmitPayload.value = extractBody(response)
+    publishRecordsPayload.value = objectValue(publishSubmitPayload.value.history)
+    const record = objectValue(publishSubmitPayload.value.record)
+    if (record.status === 'SUBMITTED') {
+      ElMessage.success('发布申请已记录，等待人工审核和重启发布')
+    } else {
+      ElMessage.warning('发布申请已阻断，请先处理校验问题')
+    }
+  } finally {
+    publishSubmitLoading.value = false
+  }
+}
+
+async function loadPublishRecords() {
+  publishRecordsLoading.value = true
+  try {
+    const response = await getAiGovernanceConfigPublishRequests(20)
+    publishRecordsPayload.value = extractBody(response)
+  } finally {
+    publishRecordsLoading.value = false
+  }
+}
+
+async function requestRollback(row: Record<string, any>) {
+  const requestId = stringValue(row.requestId)
+  if (!requestId) return
+  rollbackLoadingId.value = requestId
+  try {
+    const response = await requestAiGovernanceConfigRollback(requestId, {
+      reason: `从治理页面提交回滚申请：${requestId}`
+    })
+    const body = extractBody(response)
+    publishRecordsPayload.value = objectValue(body.history)
+    ElMessage.warning('回滚申请已记录，当前阶段不执行配置覆盖')
+  } finally {
+    rollbackLoadingId.value = ''
   }
 }
 
@@ -945,6 +1067,35 @@ function changeTypeLabel(changeType: string) {
   return changeType || '-'
 }
 
+function publishStatusTagType(status: string) {
+  if (status === 'SUBMITTED') return 'warning'
+  if (status === 'BLOCKED' || status === 'ROLLBACK_BLOCKED') return 'danger'
+  if (status === 'APPLIED') return 'success'
+  return 'info'
+}
+
+function publishStatusLabel(status: string) {
+  if (status === 'SUBMITTED') return '待审核'
+  if (status === 'BLOCKED') return '已阻断'
+  if (status === 'ROLLBACK_BLOCKED') return '回滚阻断'
+  if (status === 'APPLIED') return '已应用'
+  return status || '-'
+}
+
+function publishChangeCount(row: Record<string, any>, kind: string) {
+  const summary = objectValue(row.diffSummary)
+  if (kind === 'capability') {
+    return Number(summary.capabilityAddedCount || 0) + Number(summary.capabilityRemovedCount || 0) + Number(summary.capabilityModifiedCount || 0)
+  }
+  return Number(summary.toolAddedCount || 0) + Number(summary.toolRemovedCount || 0) + Number(summary.toolModifiedCount || 0)
+}
+
+function formatTime(value: any) {
+  const time = Number(value || 0)
+  if (!time) return '-'
+  return new Date(time).toLocaleString()
+}
+
 function toolNamesForPolicy(key: string) {
   return arrayValue(capabilityDetail.value.tools?.[key])
     .map((item) => item?.label ? `${item.label} (${item.name})` : item?.name)
@@ -1055,6 +1206,10 @@ function uniqueStrings(values: any[]): string[] {
 .editor-title span {
   color: #64748b;
   font-size: 12px;
+}
+
+.publish-panel {
+  margin-top: 16px;
 }
 
 .coverage-head {

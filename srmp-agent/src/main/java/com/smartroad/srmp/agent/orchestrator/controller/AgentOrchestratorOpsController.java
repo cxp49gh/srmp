@@ -191,6 +191,27 @@ public class AgentOrchestratorOpsController {
         return R.ok(remotePost("/api/srmp/langgraph/governance/config/draft/validate", payload));
     }
 
+    @GetMapping("/governance/config/publish/requests")
+    public R<Object> governanceConfigPublishRequests(@RequestParam(value = "limit", required = false, defaultValue = "20") Integer limit) {
+        return R.ok(remoteGet("/api/srmp/langgraph/governance/config/publish/requests?limit=" + safeLimit(limit)));
+    }
+
+    @PostMapping("/governance/config/publish/request")
+    public R<Object> governanceConfigPublishRequest(@RequestBody(required = false) Map<String, Object> body) {
+        Map<String, Object> payload = body == null ? new LinkedHashMap<String, Object>() : body;
+        return R.ok(remotePost("/api/srmp/langgraph/governance/config/publish/request", payload));
+    }
+
+    @PostMapping("/governance/config/publish/requests/{requestId:.+}/rollback")
+    public R<Object> governanceConfigPublishRollback(@PathVariable("requestId") String requestId,
+                                                     @RequestBody(required = false) Map<String, Object> body) {
+        Map<String, Object> payload = body == null ? new LinkedHashMap<String, Object>() : body;
+        String path = "/api/srmp/langgraph/governance/config/publish/requests/"
+                + UriUtils.encodePathSegment(requestId == null ? "" : requestId, StandardCharsets.UTF_8)
+                + "/rollback";
+        return R.ok(remotePost(path, payload));
+    }
+
     @GetMapping("/governance/capabilities")
     public R<Object> governanceCapabilities() {
         return R.ok(remoteGet("/api/srmp/langgraph/governance/capabilities"));
