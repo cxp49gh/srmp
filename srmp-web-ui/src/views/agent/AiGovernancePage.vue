@@ -7,6 +7,7 @@
       <div class="header-actions">
         <el-button :loading="loading" @click="loadGovernance">刷新</el-button>
         <el-button :loading="coverageLoading" @click="loadPolicyCoverage">运行策略样例</el-button>
+        <el-button :loading="toolImpactLoading" @click="loadToolImpact">刷新工具影响面</el-button>
         <el-button type="primary" :loading="planning" @click="simulatePlan">运行模拟</el-button>
       </div>
     </template>
@@ -81,6 +82,46 @@
               </template>
             </el-table-column>
             <el-table-column prop="description" label="说明" min-width="280" />
+          </el-table>
+        </el-tab-pane>
+
+        <el-tab-pane label="工具影响面" name="tool-impact">
+          <div class="coverage-head">
+            <div>
+              <strong>工具影响面</strong>
+              <span>按工具反查受影响能力和调用约束</span>
+            </div>
+            <el-button size="small" type="primary" :loading="toolImpactLoading" @click="loadToolImpact">刷新影响面</el-button>
+          </div>
+          <el-table :data="toolImpactTools" border stripe v-loading="toolImpactLoading">
+            <el-table-column prop="name" label="工具名" min-width="210" />
+            <el-table-column prop="label" label="展示名" width="150" />
+            <el-table-column label="风险" width="90">
+              <template #default="{ row }">
+                <el-tag :type="riskTagType(row.riskLevel)">{{ row.riskLevel || '-' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="affectedCapabilityCount" label="影响能力" width="100" />
+            <el-table-column label="Required" min-width="220">
+              <template #default="{ row }">
+                <div class="tag-list"><el-tag v-for="item in relationNames(row, 'requiredBy')" :key="item" size="small">{{ item }}</el-tag></div>
+              </template>
+            </el-table-column>
+            <el-table-column label="Optional" min-width="200">
+              <template #default="{ row }">
+                <div class="tag-list"><el-tag v-for="item in relationNames(row, 'optionalBy')" :key="item" size="small" type="info">{{ item }}</el-tag></div>
+              </template>
+            </el-table-column>
+            <el-table-column label="Adaptive" min-width="200">
+              <template #default="{ row }">
+                <div class="tag-list"><el-tag v-for="item in relationNames(row, 'adaptiveBy')" :key="item" size="small" type="warning">{{ item }}</el-tag></div>
+              </template>
+            </el-table-column>
+            <el-table-column label="Prohibited" min-width="220">
+              <template #default="{ row }">
+                <div class="tag-list"><el-tag v-for="item in relationNames(row, 'prohibitedBy')" :key="item" size="small" type="danger">{{ item }}</el-tag></div>
+              </template>
+            </el-table-column>
           </el-table>
         </el-tab-pane>
 
@@ -249,6 +290,7 @@ import AgentPageShell from './components/AgentPageShell.vue'
 import {
   getAiGovernanceCapabilities,
   getAiGovernancePolicyCoverage,
+  getAiGovernanceToolImpact,
   getAiGovernanceTools,
   simulateAiGovernancePlan,
   validateAiGovernancePolicies
@@ -258,10 +300,12 @@ const activeTab = ref('capabilities')
 const loading = ref(false)
 const planning = ref(false)
 const coverageLoading = ref(false)
+const toolImpactLoading = ref(false)
 const capabilitiesPayload = ref<Record<string, any>>({})
 const toolsPayload = ref<Record<string, any>>({})
 const validationPayload = ref<Record<string, any>>({})
 const coveragePayload = ref<Record<string, any>>({})
+const toolImpactPayload = ref<Record<string, any>>({})
 const planResult = ref<Record<string, any> | null>(null)
 
 const planForm = reactive({
@@ -288,6 +332,7 @@ const coverageCases = computed(() => arrayValue(coveragePayload.value.cases))
 const coverageFailedCount = computed(() => Number(coveragePayload.value.failedCount || coverageCases.value.filter((item) => item.status !== 'PASS').length))
 const coveragePassedCount = computed(() => Number(coveragePayload.value.passedCount || coverageCases.value.filter((item) => item.status === 'PASS').length))
 const coverageStatus = computed(() => coverageFailedCount.value > 0 ? '异常' : coverageCases.value.length ? '通过' : '未运行')
+const toolImpactTools = computed(() => arrayValue(toolImpactPayload.value.tools))
 const toolCategories = computed(() => uniqueStrings(tools.value.map((item) => item.category).filter(Boolean)))
 const planTools = computed(() => arrayValue(planResult.value?.toolPlan))
 const planMatchedRules = computed(() => arrayValue(planResult.value?.capability?.matchedRules))
@@ -309,7 +354,7 @@ async function loadGovernance() {
   } finally {
     loading.value = false
   }
-  await loadPolicyCoverage()
+  await Promise.all([loadPolicyCoverage(), loadToolImpact()])
 }
 
 async function loadPolicyCoverage() {
@@ -319,6 +364,16 @@ async function loadPolicyCoverage() {
     coveragePayload.value = extractBody(response)
   } finally {
     coverageLoading.value = false
+  }
+}
+
+async function loadToolImpact() {
+  toolImpactLoading.value = true
+  try {
+    const response = await getAiGovernanceToolImpact()
+    toolImpactPayload.value = extractBody(response)
+  } finally {
+    toolImpactLoading.value = false
   }
 }
 
@@ -359,6 +414,19 @@ function triggerTags(row: Record<string, any>) {
 
 function policyList(row: Record<string, any>, key: string) {
   return arrayValue(row.toolPolicy?.[key])
+}
+
+function relationNames(row: Record<string, any>, key: string) {
+  return arrayValue(row[key])
+    .map((item) => item?.name || item?.id)
+    .filter(Boolean)
+}
+
+function riskTagType(riskLevel: string) {
+  if (riskLevel === 'HIGH') return 'danger'
+  if (riskLevel === 'MEDIUM') return 'warning'
+  if (riskLevel === 'LOW') return 'info'
+  return 'success'
 }
 
 function extractBody(value: any): Record<string, any> {

@@ -190,6 +190,11 @@ public class AgentOrchestratorOpsController {
         return R.ok(remoteGet("/api/srmp/langgraph/governance/tools"));
     }
 
+    @GetMapping("/governance/tools/impact")
+    public R<Object> governanceToolsImpact() {
+        return R.ok(remoteGet("/api/srmp/langgraph/governance/tools/impact"));
+    }
+
     @GetMapping("/governance/policies/validate")
     public R<Object> governanceValidate() {
         return R.ok(remoteGet("/api/srmp/langgraph/governance/policies/validate"));

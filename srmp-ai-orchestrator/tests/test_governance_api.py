@@ -52,6 +52,26 @@ class GovernanceApiTest(unittest.TestCase):
         self.assertEqual("map.route_analysis", cases["map.route_analysis.context_metric"]["actualCapabilityId"])
         self.assertIn("gis.queryRegionSummary", cases["map.route_analysis.context_metric"]["actualToolNames"])
 
+    def test_tool_impact_endpoint_returns_capability_relations(self):
+        client = TestClient(app)
+
+        response = client.get("/api/srmp/langgraph/governance/tools/impact")
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        tools = {item["name"]: item for item in body["tools"]}
+
+        self.assertIn("knowledge.retrieve", tools)
+        knowledge = tools["knowledge.retrieve"]
+        self.assertGreaterEqual(knowledge["affectedCapabilityCount"], 2)
+        self.assertIn("knowledge.metric_explain", [item["id"] for item in knowledge["requiredBy"]])
+        self.assertIn("map.route_analysis", [item["id"] for item in knowledge["optionalBy"]])
+        self.assertIn("map.region_analysis", [item["id"] for item in knowledge["adaptiveBy"]])
+
+        region_summary = tools["gis.queryRegionSummary"]
+        self.assertIn("knowledge.metric_explain", [item["id"] for item in region_summary["prohibitedBy"]])
+        self.assertIn("map.route_analysis", [item["id"] for item in region_summary["requiredBy"]])
+
 
 if __name__ == "__main__":
     unittest.main()

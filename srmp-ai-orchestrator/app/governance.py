@@ -118,6 +118,35 @@ def governance_policy_examples() -> List[Dict[str, Any]]:
     return examples
 
 
+def governance_tool_impact() -> Dict[str, Any]:
+    registry = governance_registry()
+    tools: List[Dict[str, Any]] = []
+    for tool in registry.tools:
+        item = dict(tool)
+        relations = _tool_capability_relations(str(tool.get("name") or ""), registry.capabilities)
+        item.update(relations)
+        relation_counts = {
+            "required": len(relations["requiredBy"]),
+            "optional": len(relations["optionalBy"]),
+            "adaptive": len(relations["adaptiveBy"]),
+            "prohibited": len(relations["prohibitedBy"]),
+        }
+        item["relationCounts"] = relation_counts
+        item["affectedCapabilityCount"] = len({
+            capability.get("id")
+            for key in ("requiredBy", "optionalBy", "adaptiveBy")
+            for capability in relations[key]
+        })
+        item["riskLevel"] = _tool_risk_level(item)
+        tools.append(item)
+    return {
+        "version": registry.version,
+        "toolVersion": registry.tool_version,
+        "toolCount": len(tools),
+        "tools": tools,
+    }
+
+
 def normalize_capability(item: Dict[str, Any]) -> Dict[str, Any]:
     data = dict(item or {})
     data["id"] = str(data.get("id") or "").strip()
@@ -340,6 +369,40 @@ def _normalize_trigger_block(value: Dict[str, Any]) -> Dict[str, List[str]]:
         "includeKeywords": _string_list(value.get("includeKeywords")),
         "questionKeywords": _string_list(value.get("questionKeywords")),
     }
+
+
+def _tool_capability_relations(tool_name: str, capabilities: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    relations = {"requiredBy": [], "optionalBy": [], "adaptiveBy": [], "prohibitedBy": []}
+    mapping = {
+        "required": "requiredBy",
+        "optional": "optionalBy",
+        "adaptive": "adaptiveBy",
+        "prohibited": "prohibitedBy",
+    }
+    for capability in capabilities:
+        policy = normalize_tool_policy(capability.get("toolPolicy") or {})
+        summary = {
+            "id": capability.get("id"),
+            "name": capability.get("name"),
+            "category": capability.get("category"),
+            "enabled": capability.get("enabled", True),
+        }
+        for policy_key, relation_key in mapping.items():
+            if tool_name in policy.get(policy_key, []):
+                relations[relation_key].append(summary)
+    return relations
+
+
+def _tool_risk_level(tool: Dict[str, Any]) -> str:
+    if tool.get("writeRisk"):
+        return "HIGH"
+    required_count = len(tool.get("requiredBy") or [])
+    affected_count = int(tool.get("affectedCapabilityCount") or 0)
+    if required_count >= 3 or affected_count >= 5:
+        return "MEDIUM"
+    if required_count > 0 or affected_count > 0:
+        return "LOW"
+    return "NONE"
 
 
 def _normalize_policy_example(value: Dict[str, Any], capability_id: str) -> Dict[str, Any]:
