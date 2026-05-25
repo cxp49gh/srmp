@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, Header, HTTPException, Query
 
 from .config import settings
-from .governance import governance_capability_detail, governance_policy_examples, governance_summary, governance_tool_detail, governance_tool_impact, resolve_capability, validate_governance
+from .governance import governance_capability_detail, governance_policy_examples, governance_readiness, governance_summary, governance_tool_detail, governance_tool_impact, resolve_capability, validate_governance
 from .intent import recognize_intent
 from .java_tools import JavaToolGateway
 from .live_trace import LiveTraceStore
@@ -311,6 +311,17 @@ async def governance_tool(
     return detail
 
 
+@app.get("/api/srmp/langgraph/governance/readiness")
+async def governance_readiness_endpoint(
+    include_contract: bool = Query(default=True, alias="includeContract"),
+    run_coverage: bool = Query(default=True, alias="runCoverage"),
+    x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id"),
+) -> dict:
+    contract = await gateway.inspect_contract(tenant_id=x_tenant_id) if include_contract else None
+    policy_coverage = _policy_coverage_payload() if run_coverage else None
+    return governance_readiness(contract=contract, policy_coverage=policy_coverage)
+
+
 @app.get("/api/srmp/langgraph/governance/policies/validate")
 async def governance_policy_validate() -> dict:
     return validate_governance()
@@ -340,6 +351,10 @@ async def governance_plan_simulate(
 
 @app.get("/api/srmp/langgraph/governance/policies/coverage")
 async def governance_policy_coverage() -> dict:
+    return _policy_coverage_payload()
+
+
+def _policy_coverage_payload() -> Dict[str, Any]:
     cases = [_run_governance_policy_case(example) for example in governance_policy_examples()]
     failed = [item for item in cases if item.get("status") != "PASS"]
     return {

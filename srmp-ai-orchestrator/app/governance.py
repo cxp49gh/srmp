@@ -203,6 +203,72 @@ def governance_tool_detail(tool_name: str, contract: Optional[Dict[str, Any]] = 
     }
 
 
+def governance_readiness(
+    contract: Optional[Dict[str, Any]] = None,
+    policy_coverage: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    registry = governance_registry()
+    tool_impact = governance_tool_impact()
+    issues: List[Dict[str, Any]] = []
+
+    for item in registry.validation.get("errors") or []:
+        issues.append(_readiness_issue("ERROR", "CONFIG_ERROR", "CONFIG", str(item.get("message") or item.get("code") or ""), code=str(item.get("code") or "CONFIG_ERROR")))
+    for item in registry.validation.get("warnings") or []:
+        issues.append(_readiness_issue("WARN", "CONFIG_WARNING", "CONFIG", str(item.get("message") or item.get("code") or ""), code=str(item.get("code") or "CONFIG_WARNING")))
+
+    coverage_failed_count = 0
+    if isinstance(policy_coverage, dict):
+        failed_cases = [case for case in policy_coverage.get("cases") or [] if case.get("status") != "PASS"]
+        coverage_failed_count = len(failed_cases)
+        for case in failed_cases:
+            issues.append(_readiness_issue(
+                "ERROR",
+                "POLICY_CASE_FAILED",
+                "POLICY",
+                "策略样例失败：" + str(case.get("name") or case.get("id") or ""),
+                capability_id=str(case.get("expectedCapabilityId") or case.get("actualCapabilityId") or ""),
+                case_id=str(case.get("id") or ""),
+            ))
+
+    tool_rows = tool_impact.get("tools") or []
+    orphan_tools = [tool for tool in tool_rows if int(tool.get("affectedCapabilityCount") or 0) <= 0]
+    for tool in orphan_tools:
+        issues.append(_readiness_issue(
+            "WARN",
+            "TOOL_WITHOUT_CAPABILITY",
+            "TOOL",
+            "工具未被任何能力 required/optional/adaptive 使用：" + str(tool.get("name") or ""),
+            tool_name=str(tool.get("name") or ""),
+        ))
+
+    if isinstance(contract, dict):
+        issues.extend(_contract_readiness_issues(tool_rows, contract))
+
+    severity_counts = _severity_counts(issues)
+    status = "FAIL" if severity_counts["ERROR"] else "WARN" if severity_counts["WARN"] else "PASS"
+    return {
+        "version": registry.version,
+        "toolVersion": registry.tool_version,
+        "status": status,
+        "summary": {
+            "capabilityCount": len(registry.capabilities),
+            "toolCount": len(registry.tools),
+            "validationErrorCount": int(registry.validation.get("errorCount") or 0),
+            "validationWarningCount": int(registry.validation.get("warningCount") or 0),
+            "policyCaseCount": int((policy_coverage or {}).get("caseCount") or 0) if isinstance(policy_coverage, dict) else None,
+            "policyFailedCount": coverage_failed_count,
+            "orphanToolCount": len(orphan_tools),
+            "contractChecked": isinstance(contract, dict),
+            "issueCount": len(issues),
+            "errorCount": severity_counts["ERROR"],
+            "warningCount": severity_counts["WARN"],
+        },
+        "issues": issues,
+        "contract": _contract_readiness_summary(contract),
+        "policyCoverage": policy_coverage or {},
+    }
+
+
 def normalize_capability(item: Dict[str, Any]) -> Dict[str, Any]:
     data = dict(item or {})
     data["id"] = str(data.get("id") or "").strip()
@@ -529,6 +595,96 @@ def _tool_developer_guide() -> Dict[str, Any]:
             "PYTHONPATH=srmp-ai-orchestrator srmp-ai-orchestrator/.venv/bin/python -m unittest srmp-ai-orchestrator/tests/test_governance_api.py -v",
             "curl -s http://127.0.0.1:8080/api/agent/orchestrator/ops/governance/tools/<toolName>?includeContract=true",
         ],
+    }
+
+
+def _contract_readiness_issues(tool_rows: List[Dict[str, Any]], contract: Dict[str, Any]) -> List[Dict[str, Any]]:
+    issues: List[Dict[str, Any]] = []
+    missing_in_java = set(_string_list(contract.get("missingInJava")))
+    blocked_by_runtime = set(_string_list(contract.get("blockedByRuntimeWhitelist")))
+    write_blocked = set(_string_list(contract.get("writeBlocked")))
+    declared_tools = {str(tool.get("name") or ""): tool for tool in tool_rows}
+    for tool_name, tool in declared_tools.items():
+        affected = int(tool.get("affectedCapabilityCount") or 0)
+        severity = "ERROR" if affected > 0 else "WARN"
+        if tool_name in missing_in_java:
+            issues.append(_readiness_issue(
+                severity,
+                "TOOL_MISSING_IN_JAVA",
+                "CONTRACT",
+                "工具已配置但 Java Tool Gateway 未注册：" + tool_name,
+                tool_name=tool_name,
+            ))
+        if tool_name in blocked_by_runtime:
+            issues.append(_readiness_issue(
+                severity,
+                "TOOL_BLOCKED_BY_RUNTIME",
+                "CONTRACT",
+                "工具已注册但未进入 Runtime 白名单：" + tool_name,
+                tool_name=tool_name,
+            ))
+        if tool_name in write_blocked and affected > 0:
+            issues.append(_readiness_issue(
+                "WARN",
+                "WRITE_TOOL_BLOCKED",
+                "CONTRACT",
+                "写风险工具被 Runtime 拦截：" + tool_name,
+                tool_name=tool_name,
+            ))
+
+    java_tools = set(_string_list(contract.get("javaTools")))
+    for tool_name in sorted(java_tools - set(declared_tools.keys())):
+        issues.append(_readiness_issue(
+            "WARN",
+            "JAVA_TOOL_NOT_DECLARED",
+            "CONTRACT",
+            "Java Tool Gateway 存在未纳入治理配置的工具：" + tool_name,
+            tool_name=tool_name,
+        ))
+    return issues
+
+
+def _contract_readiness_summary(contract: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(contract, dict):
+        return {"checked": False}
+    return {
+        "checked": True,
+        "gatewayOk": bool(contract.get("ok")),
+        "javaToolCount": len(_string_list(contract.get("javaTools"))),
+        "runtimeAllowedToolCount": len(_string_list(contract.get("runtimeAllowedTools"))),
+        "missingInJavaCount": len(_string_list(contract.get("missingInJava"))),
+        "blockedByRuntimeCount": len(_string_list(contract.get("blockedByRuntimeWhitelist"))),
+        "writeBlockedCount": len(_string_list(contract.get("writeBlocked"))),
+    }
+
+
+def _readiness_issue(
+    severity: str,
+    issue_code: str,
+    source: str,
+    message: str,
+    code: Optional[str] = None,
+    tool_name: str = "",
+    capability_id: str = "",
+    case_id: str = "",
+) -> Dict[str, Any]:
+    return {
+        "severity": severity,
+        "code": issue_code,
+        "source": source,
+        "message": message,
+        "detailCode": code or issue_code,
+        "toolName": tool_name,
+        "capabilityId": capability_id,
+        "caseId": case_id,
+    }
+
+
+def _severity_counts(issues: List[Dict[str, Any]]) -> Dict[str, int]:
+    return {
+        "ERROR": sum(1 for item in issues if item.get("severity") == "ERROR"),
+        "WARN": sum(1 for item in issues if item.get("severity") == "WARN"),
+        "INFO": sum(1 for item in issues if item.get("severity") == "INFO"),
     }
 
 

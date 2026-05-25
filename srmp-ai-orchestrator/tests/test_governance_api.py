@@ -114,6 +114,31 @@ class GovernanceApiTest(unittest.TestCase):
         self.assertIn("srmp-ai-orchestrator/app/governance_data/tools.json", body["developerGuide"]["configFiles"])
         self.assertIn("在 Java AiToolRegistry 注册实现并暴露到 Tool Gateway", body["developerGuide"]["steps"])
 
+    def test_readiness_endpoint_aggregates_policy_contract_and_orphan_tools(self):
+        client = TestClient(app)
+        contract = {
+            "ok": True,
+            "javaTools": ["knowledge.retrieve", "gis.queryAssessmentResults", "gis.queryDiseases"],
+            "runtimeAllowedTools": ["knowledge.retrieve", "gis.queryAssessmentResults", "gis.queryDiseases"],
+            "missingInJava": ["gis.queryRegionSummary"],
+            "blockedByRuntimeWhitelist": [],
+            "writeBlocked": [],
+        }
+
+        with patch("app.main.gateway.inspect_contract", new=AsyncMock(return_value=contract)):
+            response = client.get("/api/srmp/langgraph/governance/readiness?includeContract=true&runCoverage=true")
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual("FAIL", body["status"])
+        self.assertEqual(0, body["summary"]["policyFailedCount"])
+        self.assertGreaterEqual(body["summary"]["orphanToolCount"], 1)
+        issues = {(item["code"], item.get("toolName")): item for item in body["issues"]}
+        self.assertIn(("TOOL_MISSING_IN_JAVA", "gis.queryRegionSummary"), issues)
+        self.assertEqual("ERROR", issues[("TOOL_MISSING_IN_JAVA", "gis.queryRegionSummary")]["severity"])
+        self.assertIn(("TOOL_WITHOUT_CAPABILITY", "template.match"), issues)
+        self.assertEqual("WARN", issues[("TOOL_WITHOUT_CAPABILITY", "template.match")]["severity"])
+
 
 if __name__ == "__main__":
     unittest.main()

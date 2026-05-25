@@ -108,6 +108,12 @@ export function getAiGovernanceTool(toolName: string, includeContract = true): P
   })
 }
 
+export function getAiGovernanceReadiness(includeContract = true, runCoverage = true): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/governance/readiness', {
+    params: { includeContract, runCoverage }
+  })
+}
+
 export function validateAiGovernancePolicies(): Promise<Record<string, any>> {
   return aiRequest.get('/api/agent/orchestrator/ops/governance/policies/validate')
 }

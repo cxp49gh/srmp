@@ -8,6 +8,7 @@
         <el-button :loading="loading" @click="loadGovernance">刷新</el-button>
         <el-button :loading="coverageLoading" @click="loadPolicyCoverage">运行策略样例</el-button>
         <el-button :loading="toolImpactLoading" @click="loadToolImpact">刷新工具影响面</el-button>
+        <el-button :loading="readinessLoading" @click="loadReadiness">运行治理体检</el-button>
         <el-button type="primary" :loading="planning" @click="simulatePlan">运行模拟</el-button>
       </div>
     </template>
@@ -35,6 +36,11 @@
           <p>通过 {{ coveragePassedCount }}；失败 {{ coverageFailedCount }}</p>
         </el-card>
         <el-card shadow="never" class="metric-card">
+          <span>治理体检</span>
+          <strong>{{ readinessStatus }}</strong>
+          <p>错误 {{ readinessErrorCount }}；告警 {{ readinessWarningCount }}</p>
+        </el-card>
+        <el-card shadow="never" class="metric-card">
           <span>配置版本</span>
           <strong>{{ capabilityVersion || '-' }}</strong>
           <p>工具 {{ toolVersion || '-' }}</p>
@@ -48,8 +54,45 @@
         show-icon
         title="治理配置存在错误，Runtime 应阻止生产发布。"
       />
+      <el-alert
+        v-if="readinessStatus === 'FAIL'"
+        class="mb"
+        type="error"
+        show-icon
+        title="治理体检发现阻断项，请先处理错误级问题。"
+      />
 
       <el-tabs v-model="activeTab" class="governance-tabs">
+        <el-tab-pane label="治理体检" name="readiness">
+          <div class="coverage-head">
+            <div>
+              <strong>治理体检</strong>
+              <span>汇总配置、策略样例、工具注册和影响面问题</span>
+            </div>
+            <el-button size="small" type="primary" :loading="readinessLoading" @click="loadReadiness">运行体检</el-button>
+          </div>
+          <section class="plan-summary readiness-summary">
+            <div><span>状态</span><strong>{{ readinessStatus }}</strong></div>
+            <div><span>问题</span><strong>{{ readinessIssueCount }}</strong></div>
+            <div><span>孤立工具</span><strong>{{ readinessSummary.orphanToolCount ?? '-' }}</strong></div>
+          </section>
+          <el-table :data="readinessIssues" border stripe v-loading="readinessLoading">
+            <el-table-column label="级别" width="90">
+              <template #default="{ row }">
+                <el-tag :type="issueTagType(row.severity)">{{ row.severity || '-' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="code" label="问题码" min-width="190" />
+            <el-table-column prop="source" label="来源" width="120" />
+            <el-table-column label="对象" min-width="210">
+              <template #default="{ row }">
+                <span>{{ row.toolName || row.capabilityId || row.caseId || '-' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="message" label="说明" min-width="320" />
+          </el-table>
+        </el-tab-pane>
+
         <el-tab-pane label="能力矩阵" name="capabilities">
           <el-table :data="capabilities" border stripe>
             <el-table-column prop="id" label="能力 ID" min-width="190" />
@@ -452,6 +495,7 @@ import {
   getAiGovernanceCapability,
   getAiGovernanceCapabilities,
   getAiGovernancePolicyCoverage,
+  getAiGovernanceReadiness,
   getAiGovernanceTool,
   getAiGovernanceToolImpact,
   getAiGovernanceTools,
@@ -464,6 +508,7 @@ const loading = ref(false)
 const planning = ref(false)
 const coverageLoading = ref(false)
 const toolImpactLoading = ref(false)
+const readinessLoading = ref(false)
 const capabilityDetailLoading = ref(false)
 const capabilityDetailVisible = ref(false)
 const capabilityDetailId = ref('')
@@ -475,6 +520,7 @@ const toolsPayload = ref<Record<string, any>>({})
 const validationPayload = ref<Record<string, any>>({})
 const coveragePayload = ref<Record<string, any>>({})
 const toolImpactPayload = ref<Record<string, any>>({})
+const readinessPayload = ref<Record<string, any>>({})
 const capabilityDetailPayload = ref<Record<string, any>>({})
 const toolDetailPayload = ref<Record<string, any>>({})
 const planResult = ref<Record<string, any> | null>(null)
@@ -504,6 +550,12 @@ const coverageFailedCount = computed(() => Number(coveragePayload.value.failedCo
 const coveragePassedCount = computed(() => Number(coveragePayload.value.passedCount || coverageCases.value.filter((item) => item.status === 'PASS').length))
 const coverageStatus = computed(() => coverageFailedCount.value > 0 ? '异常' : coverageCases.value.length ? '通过' : '未运行')
 const toolImpactTools = computed(() => arrayValue(toolImpactPayload.value.tools))
+const readinessIssues = computed(() => arrayValue(readinessPayload.value.issues))
+const readinessSummary = computed(() => objectValue(readinessPayload.value.summary))
+const readinessStatus = computed(() => stringValue(readinessPayload.value.status || '未运行'))
+const readinessIssueCount = computed(() => Number(readinessSummary.value.issueCount ?? readinessIssues.value.length))
+const readinessErrorCount = computed(() => Number(readinessSummary.value.errorCount ?? readinessIssues.value.filter((item) => item.severity === 'ERROR').length))
+const readinessWarningCount = computed(() => Number(readinessSummary.value.warningCount ?? readinessIssues.value.filter((item) => item.severity === 'WARN').length))
 const capabilityDetail = computed(() => objectValue(capabilityDetailPayload.value))
 const capabilityExamples = computed(() => arrayValue(capabilityDetail.value.examples))
 const toolDetail = computed(() => objectValue(toolDetailPayload.value))
@@ -540,7 +592,7 @@ async function loadGovernance() {
   } finally {
     loading.value = false
   }
-  await Promise.all([loadPolicyCoverage(), loadToolImpact()])
+  await Promise.all([loadPolicyCoverage(), loadToolImpact(), loadReadiness()])
 }
 
 async function loadPolicyCoverage() {
@@ -560,6 +612,16 @@ async function loadToolImpact() {
     toolImpactPayload.value = extractBody(response)
   } finally {
     toolImpactLoading.value = false
+  }
+}
+
+async function loadReadiness() {
+  readinessLoading.value = true
+  try {
+    const response = await getAiGovernanceReadiness(true, true)
+    readinessPayload.value = extractBody(response)
+  } finally {
+    readinessLoading.value = false
   }
 }
 
@@ -643,6 +705,12 @@ function riskTagType(riskLevel: string) {
 
 function boolTagType(value: boolean) {
   return value ? 'success' : 'danger'
+}
+
+function issueTagType(severity: string) {
+  if (severity === 'ERROR') return 'danger'
+  if (severity === 'WARN') return 'warning'
+  return 'info'
 }
 
 function toolNamesForPolicy(key: string) {

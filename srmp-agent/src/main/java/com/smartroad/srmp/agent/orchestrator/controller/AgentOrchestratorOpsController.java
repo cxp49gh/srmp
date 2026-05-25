@@ -210,6 +210,14 @@ public class AgentOrchestratorOpsController {
         return R.ok(remoteGet(path));
     }
 
+    @GetMapping("/governance/readiness")
+    public R<Object> governanceReadiness(@RequestParam(value = "includeContract", required = false, defaultValue = "true") Boolean includeContract,
+                                         @RequestParam(value = "runCoverage", required = false, defaultValue = "true") Boolean runCoverage) {
+        String path = "/api/srmp/langgraph/governance/readiness?includeContract=" + Boolean.TRUE.equals(includeContract)
+                + "&runCoverage=" + Boolean.TRUE.equals(runCoverage);
+        return R.ok(remoteGet(path));
+    }
+
     @GetMapping("/governance/policies/validate")
     public R<Object> governanceValidate() {
         return R.ok(remoteGet("/api/srmp/langgraph/governance/policies/validate"));
