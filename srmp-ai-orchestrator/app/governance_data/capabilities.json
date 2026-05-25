@@ -1,0 +1,179 @@
+{
+  "version": "phase52-governance-v1",
+  "capabilities": [
+    {
+      "id": "knowledge.metric_explain",
+      "name": "指标解释",
+      "category": "KNOWLEDGE",
+      "enabled": true,
+      "priority": 100,
+      "intent": "KNOWLEDGE_QA",
+      "legacyIntents": ["KNOWLEDGE_QA"],
+      "triggers": {
+        "includeKeywords": ["指标", "MQI", "PQI", "PCI", "RQI", "RDI", "SCI", "BCI", "TCI"],
+        "questionKeywords": ["解释", "说明", "介绍", "含义", "定义", "是什么", "什么意思", "如何理解", "怎么计算", "计算公式"]
+      },
+      "contextPolicy": {
+        "contextUsage": "KNOWLEDGE_ONLY",
+        "ignoreBusinessScopeByDefault": true,
+        "businessScopeRequiresExplicitPhrase": ["当前", "这条", "该路线", "这个对象", "结合地图", "为什么低"]
+      },
+      "toolPolicy": {
+        "required": ["knowledge.retrieve"],
+        "optional": [],
+        "adaptive": [],
+        "prohibited": ["gis.queryRegionSummary", "gis.queryDiseases", "gis.queryAssessmentResults", "gis.queryDiseasesByStakeRange", "gis.queryNearbyObjects"]
+      }
+    },
+    {
+      "id": "knowledge.maintenance_qa",
+      "name": "养护知识问答",
+      "category": "KNOWLEDGE",
+      "enabled": true,
+      "priority": 70,
+      "intent": "KNOWLEDGE_QA",
+      "legacyIntents": ["KNOWLEDGE_QA", "GENERAL_CHAT"],
+      "triggers": {
+        "includeKeywords": ["规范", "标准", "工艺", "依据", "怎么处理", "如何处置"]
+      },
+      "contextPolicy": {
+        "contextUsage": "KNOWLEDGE_ONLY"
+      },
+      "toolPolicy": {
+        "required": ["knowledge.retrieve"],
+        "optional": [],
+        "adaptive": ["knowledge.retrieve"],
+        "prohibited": ["gis.queryRegionSummary", "gis.queryDiseases", "gis.queryAssessmentResults", "gis.queryDiseasesByStakeRange", "gis.queryNearbyObjects"]
+      }
+    },
+    {
+      "id": "map.disease_analysis",
+      "name": "病害分析",
+      "category": "MAP_ANALYSIS",
+      "enabled": true,
+      "priority": 80,
+      "intent": "OBJECT_ANALYSIS",
+      "legacyIntents": ["OBJECT_ANALYSIS", "NEARBY_ANALYSIS"],
+      "triggers": {
+        "objectTypes": ["DISEASE"]
+      },
+      "contextPolicy": {
+        "contextUsage": "OBJECT_REQUIRED"
+      },
+      "toolPolicy": {
+        "required": ["gis.queryNearbyObjects"],
+        "optional": ["knowledge.retrieve"],
+        "adaptive": ["knowledge.retrieve"],
+        "prohibited": ["gis.queryRegionSummary"]
+      }
+    },
+    {
+      "id": "map.assessment_analysis",
+      "name": "评定结果分析",
+      "category": "MAP_ANALYSIS",
+      "enabled": true,
+      "priority": 80,
+      "intent": "OBJECT_ANALYSIS",
+      "legacyIntents": ["OBJECT_ANALYSIS"],
+      "triggers": {
+        "objectTypes": ["ASSESSMENT_RESULT"]
+      },
+      "contextPolicy": {
+        "contextUsage": "OBJECT_REQUIRED"
+      },
+      "toolPolicy": {
+        "required": ["gis.queryAssessmentResults", "gis.queryDiseasesByStakeRange"],
+        "optional": ["knowledge.retrieve"],
+        "adaptive": ["knowledge.retrieve", "gis.queryAssessmentResults"],
+        "prohibited": []
+      }
+    },
+    {
+      "id": "map.section_analysis",
+      "name": "路段分析",
+      "category": "MAP_ANALYSIS",
+      "enabled": true,
+      "priority": 78,
+      "intent": "OBJECT_ANALYSIS",
+      "legacyIntents": ["OBJECT_ANALYSIS"],
+      "triggers": {
+        "objectTypes": ["ROAD_SECTION"]
+      },
+      "contextPolicy": {
+        "contextUsage": "OBJECT_REQUIRED"
+      },
+      "toolPolicy": {
+        "required": ["gis.queryAssessmentResults", "gis.queryDiseases", "gis.queryDiseasesByStakeRange"],
+        "optional": ["knowledge.retrieve"],
+        "adaptive": ["knowledge.retrieve", "gis.queryAssessmentResults"],
+        "prohibited": []
+      }
+    },
+    {
+      "id": "map.route_analysis",
+      "name": "路线分析",
+      "category": "MAP_ANALYSIS",
+      "enabled": true,
+      "priority": 75,
+      "intent": "ROUTE_ANALYSIS",
+      "legacyIntents": ["ROUTE_ANALYSIS"],
+      "triggers": {
+        "actions": ["ANALYZE_ROUTE"],
+        "modes": ["ROUTE"],
+        "objectTypes": ["ROAD_ROUTE"]
+      },
+      "contextPolicy": {
+        "contextUsage": "ROUTE_REQUIRED"
+      },
+      "toolPolicy": {
+        "required": ["gis.queryRegionSummary", "gis.queryAssessmentResults", "gis.queryDiseases"],
+        "optional": ["knowledge.retrieve"],
+        "adaptive": ["knowledge.retrieve", "gis.queryRegionSummary"],
+        "prohibited": []
+      }
+    },
+    {
+      "id": "map.region_analysis",
+      "name": "区域分析",
+      "category": "MAP_ANALYSIS",
+      "enabled": true,
+      "priority": 75,
+      "intent": "REGION_ANALYSIS",
+      "legacyIntents": ["REGION_ANALYSIS"],
+      "triggers": {
+        "actions": ["ANALYZE_REGION"],
+        "modes": ["REGION", "BOX", "POLYGON", "SELECTION"]
+      },
+      "contextPolicy": {
+        "contextUsage": "REGION_REQUIRED"
+      },
+      "toolPolicy": {
+        "required": ["gis.queryRegionSummary"],
+        "optional": ["knowledge.retrieve"],
+        "adaptive": ["knowledge.retrieve", "gis.queryRegionSummary"],
+        "prohibited": []
+      }
+    },
+    {
+      "id": "solution.generate",
+      "name": "方案生成",
+      "category": "SOLUTION",
+      "enabled": true,
+      "priority": 90,
+      "intent": "SOLUTION_GENERATE",
+      "legacyIntents": ["SOLUTION_GENERATE"],
+      "triggers": {
+        "actions": ["GENERATE_OBJECT_SOLUTION", "GENERATE_REGION_SOLUTION", "GENERATE_ROUTE_REPORT"]
+      },
+      "contextPolicy": {
+        "contextUsage": "BUSINESS_SCOPE_REQUIRED"
+      },
+      "toolPolicy": {
+        "required": ["solution.generateDraft"],
+        "optional": ["knowledge.retrieve"],
+        "adaptive": ["knowledge.retrieve"],
+        "prohibited": []
+      }
+    }
+  ]
+}

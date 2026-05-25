@@ -1,0 +1,200 @@
+{
+  "version": "phase52-governance-v1",
+  "tools": [
+    {
+      "name": "knowledge.retrieve",
+      "label": "检索知识库",
+      "category": "KNOWLEDGE",
+      "readOnly": true,
+      "writeRisk": false,
+      "enabled": true,
+      "description": "检索向量知识库，返回养护规范、处置建议和评定指标资料片段。",
+      "inputSchema": {
+        "required": ["query"],
+        "optional": ["topK"]
+      },
+      "resultContract": {
+        "countField": "count",
+        "itemField": "items"
+      },
+      "governance": {
+        "adaptiveAllowed": true,
+        "customerVisible": true,
+        "adminVisible": true
+      }
+    },
+    {
+      "name": "gis.queryDiseases",
+      "label": "查询病害",
+      "category": "GIS",
+      "readOnly": true,
+      "writeRisk": false,
+      "enabled": true,
+      "description": "查询当前路线、对象或区域相关病害。",
+      "inputSchema": {
+        "required": [],
+        "optional": ["tenantId", "projectId", "routeCode", "year", "sectionTier", "limit", "viewport"]
+      },
+      "scopeSupport": {
+        "contextScopes": ["ROUTE", "OBJECT", "REGION"]
+      },
+      "resultContract": {
+        "countField": "totalCount",
+        "itemField": "items",
+        "scopeField": "queryScope",
+        "warningField": "scopeWarnings"
+      },
+      "governance": {
+        "adaptiveAllowed": false,
+        "customerVisible": false,
+        "adminVisible": true
+      }
+    },
+    {
+      "name": "gis.queryAssessmentResults",
+      "label": "查询评定结果",
+      "category": "GIS",
+      "readOnly": true,
+      "writeRisk": false,
+      "enabled": true,
+      "description": "查询路线、区域或对象相关评定结果。",
+      "inputSchema": {
+        "required": [],
+        "optional": ["tenantId", "projectId", "routeCode", "year", "sectionTier", "direction", "stakeStart", "stakeEnd", "limit"]
+      },
+      "scopeSupport": {
+        "objectTypes": ["ROAD_ROUTE", "ROAD_SECTION", "ASSESSMENT_RESULT"],
+        "contextScopes": ["ROUTE", "OBJECT", "REGION"]
+      },
+      "resultContract": {
+        "countField": "totalCount",
+        "itemField": "items",
+        "scopeField": "queryScope",
+        "warningField": "scopeWarnings"
+      },
+      "governance": {
+        "adaptiveAllowed": true,
+        "customerVisible": false,
+        "adminVisible": true
+      }
+    },
+    {
+      "name": "gis.queryDiseasesByStakeRange",
+      "label": "查询桩号范围病害",
+      "category": "GIS",
+      "readOnly": true,
+      "writeRisk": false,
+      "enabled": true,
+      "description": "按当前评定单元或路段桩号范围查询病害记录。",
+      "inputSchema": {
+        "required": ["routeCode", "stakeStart", "stakeEnd"],
+        "optional": ["tenantId", "projectId", "year", "direction", "sectionTier", "limit"]
+      },
+      "scopeSupport": {
+        "objectTypes": ["ASSESSMENT_RESULT", "ROAD_SECTION"],
+        "contextScopes": ["OBJECT", "ROUTE"]
+      },
+      "resultContract": {
+        "countField": "totalCount",
+        "itemField": "items",
+        "scopeField": "queryScope",
+        "warningField": "scopeWarnings"
+      },
+      "governance": {
+        "adaptiveAllowed": false,
+        "customerVisible": false,
+        "adminVisible": true
+      }
+    },
+    {
+      "name": "gis.queryRegionSummary",
+      "label": "查询区域统计",
+      "category": "GIS",
+      "readOnly": true,
+      "writeRisk": false,
+      "enabled": true,
+      "description": "查询当前路线或框选区域的路况统计摘要。",
+      "inputSchema": {
+        "required": [],
+        "optional": ["tenantId", "projectId", "routeCode", "year", "geometry", "viewport", "limit"]
+      },
+      "scopeSupport": {
+        "contextScopes": ["REGION", "ROUTE"]
+      },
+      "resultContract": {
+        "countField": "totalCount",
+        "scopeField": "queryScope",
+        "warningField": "scopeWarnings"
+      },
+      "governance": {
+        "adaptiveAllowed": true,
+        "customerVisible": false,
+        "adminVisible": true
+      }
+    },
+    {
+      "name": "gis.queryNearbyObjects",
+      "label": "查询周边对象",
+      "category": "GIS",
+      "readOnly": true,
+      "writeRisk": false,
+      "enabled": true,
+      "description": "查询当前地图对象周边病害和评定结果。",
+      "inputSchema": {
+        "required": [],
+        "optional": ["tenantId", "projectId", "routeCode", "year", "objectType", "objectId", "limit"]
+      },
+      "scopeSupport": {
+        "objectTypes": ["DISEASE"],
+        "contextScopes": ["OBJECT"]
+      },
+      "resultContract": {
+        "countField": "totalCount",
+        "itemField": "items",
+        "scopeField": "queryScope",
+        "warningField": "scopeWarnings"
+      },
+      "governance": {
+        "adaptiveAllowed": false,
+        "customerVisible": false,
+        "adminVisible": true
+      }
+    },
+    {
+      "name": "template.match",
+      "label": "匹配方案模板",
+      "category": "TEMPLATE",
+      "readOnly": true,
+      "writeRisk": false,
+      "enabled": true,
+      "description": "检查方案模板匹配情况。",
+      "inputSchema": {
+        "required": [],
+        "optional": ["intent", "routeCode", "year", "solutionType"]
+      },
+      "governance": {
+        "adaptiveAllowed": false,
+        "customerVisible": false,
+        "adminVisible": true
+      }
+    },
+    {
+      "name": "solution.generateDraft",
+      "label": "生成方案草稿",
+      "category": "SOLUTION",
+      "readOnly": true,
+      "writeRisk": false,
+      "enabled": true,
+      "description": "基于当前地图对象、路线或区域生成方案草稿预览。",
+      "inputSchema": {
+        "required": [],
+        "optional": ["action", "solutionType", "mapContext", "businessEvidence"]
+      },
+      "governance": {
+        "adaptiveAllowed": false,
+        "customerVisible": true,
+        "adminVisible": true
+      }
+    }
+  ]
+}
