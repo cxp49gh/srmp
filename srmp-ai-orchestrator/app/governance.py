@@ -221,6 +221,10 @@ def _match_capability(
     score = float(capability.get("priority") or 0)
     rules: List[str] = []
     concrete_match = False
+    context_policy = capability.get("contextPolicy") or {}
+
+    if _should_defer_to_business_scope(context_policy, request, mode, obj, message):
+        return 0, [], ""
 
     actions = triggers.get("actions") or []
     if actions and action in actions:
@@ -268,9 +272,34 @@ def _match_capability(
 
     if not concrete_match:
         return 0, [], ""
-    context_policy = capability.get("contextPolicy") or {}
     context_usage = str(context_policy.get("contextUsage") or "DEFAULT")
     return score, rules, context_usage
+
+
+def _should_defer_to_business_scope(
+    context_policy: Dict[str, Any],
+    request: MapAiAgentRequest,
+    mode: str,
+    obj: Dict[str, Any],
+    message: str,
+) -> bool:
+    if not context_policy.get("ignoreBusinessScopeByDefault"):
+        return False
+    explicit_phrases = _string_list(context_policy.get("businessScopeRequiresExplicitPhrase"))
+    if explicit_phrases and not any(phrase in message for phrase in explicit_phrases):
+        return False
+    return _has_business_scope(request, mode, obj)
+
+
+def _has_business_scope(request: MapAiAgentRequest, mode: str, obj: Dict[str, Any]) -> bool:
+    ctx = request.mapContext
+    if obj:
+        return True
+    if not ctx:
+        return False
+    if ctx.routeCode or ctx.regionSummary or ctx.geometry:
+        return True
+    return mode in {"OBJECT", "ROUTE", "REGION", "BOX", "POLYGON", "SELECTION"}
 
 
 def _capability_summary(capability: Dict[str, Any]) -> Dict[str, Any]:

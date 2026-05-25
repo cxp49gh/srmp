@@ -75,6 +75,22 @@ class AdaptiveWorkflowTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("strategyVersion", payload)
         self.assertNotIn("orchestratorStrategy", payload)
 
+    async def test_workflow_response_exposes_capability_metadata(self):
+        gateway = SufficientFakeGateway()
+        workflow = LangGraphWorkflow(gateway=gateway, llm_client=FakeLlmClient())
+        request = MapAiAgentRequest(
+            message="解释 PCI 指标",
+            mapContext=MapAiContext(mode="ROUTE", routeCode="Y016140727", year=2026),
+            options={"traceId": "capability-run-1", "useKnowledge": True},
+        )
+
+        response = await workflow.run(request, tenant_id="default", trace_id=None)
+
+        self.assertEqual("knowledge.metric_explain", response.answerMeta["capabilityId"])
+        self.assertEqual("指标解释", response.answerMeta["capabilityName"])
+        self.assertEqual("knowledge.metric_explain", response.trace["capability"]["capabilityId"])
+        self.assertEqual("knowledge.metric_explain", response.data["capabilityId"])
+
 
 class AdaptiveFakeGateway:
     def __init__(self):

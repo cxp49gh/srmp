@@ -110,6 +110,26 @@ class AdaptiveObservabilityTest(unittest.TestCase):
         self.assertEqual("ROAD_SECTION_LEDGER", record["businessScope"]["assessmentObjectType"])
         self.assertEqual("UP", record["businessScope"]["direction"])
 
+    def test_record_success_flattens_capability_metadata(self):
+        store = RuntimeAuditStore(max_records=10, persist_enabled=False)
+        response = MapAiAgentResponse(
+            answer="ok",
+            answerMeta={"capabilityId": "map.route_analysis", "capabilityName": "路线分析"},
+            data={"capability": {"capabilityId": "map.route_analysis", "name": "路线分析"}},
+            trace={"traceId": "capability-trace", "capability": {"capabilityId": "map.route_analysis", "name": "路线分析"}},
+        )
+
+        record = store.record_success(
+            request=MapAiAgentRequest(message="分析当前路线"),
+            response=response,
+            tenant_id="default",
+            trace_id="capability-trace",
+            cost_ms=12,
+        )
+
+        self.assertEqual("map.route_analysis", record["capabilityId"])
+        self.assertEqual("路线分析", record["capabilityName"])
+
     def test_summary_aggregates_adaptive_planning(self):
         store = RuntimeAuditStore(max_records=10, persist_enabled=False)
         store.record_success(

@@ -48,6 +48,10 @@ class MapAgentSolutionEvidenceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("businessEvidence", draft_call.args)
         self.assertEqual(4, draft_call.args["businessEvidence"]["toolSuccessCount"])
         self.assertEqual("SOLUTION_PREVIEW", response.actionResult.type)
+        self.assertEqual("solution.generate", response.answerMeta["capabilityId"])
+        self.assertEqual("方案生成", response.answerMeta["capabilityName"])
+        self.assertEqual("solution.generate", response.trace["capability"]["capabilityId"])
+        self.assertEqual("solution.generate", response.data["capabilityId"])
 
 
 class RecordingGateway:

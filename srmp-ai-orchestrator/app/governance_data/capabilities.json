@@ -16,7 +16,7 @@
       "contextPolicy": {
         "contextUsage": "KNOWLEDGE_ONLY",
         "ignoreBusinessScopeByDefault": true,
-        "businessScopeRequiresExplicitPhrase": ["当前", "这条", "该路线", "这个对象", "结合地图", "为什么低"]
+        "businessScopeRequiresExplicitPhrase": ["结合当前", "结合地图", "当前路线", "当前对象", "这条路线", "该路线", "这个对象", "为什么低", "偏低", "低分原因"]
       },
       "toolPolicy": {
         "required": ["knowledge.retrieve"],

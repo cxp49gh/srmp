@@ -2,6 +2,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from .java_tools import JavaToolGateway, extract_knowledge_sources
+from .governance import resolve_capability
 from .live_trace import LiveTraceStore
 from .observability import _business_scope_from_request
 from .plan_execution import build_plan_execution, normalize_plan_preview
@@ -83,6 +84,11 @@ class MapAgentRunWorkflow:
         resolved_trace_id = self._trace_id(request, trace_id)
         self._start_live_trace(resolved_trace_id, normalize_action(request.action), "solution_generation_graph", request)
         agent_request = self._to_agent_request(request, request.action)
+        capability = resolve_capability(
+            agent_request,
+            fallback_intent="SOLUTION_GENERATE",
+            intent_detail={"action": normalize_action(request.action)},
+        )
         evidence_started_at = time.perf_counter()
         self._start_live_step(resolved_trace_id, "solution_evidence_collect", "查询业务证据")
         try:
@@ -133,6 +139,13 @@ class MapAgentRunWorkflow:
             "llmSuccess": False,
             "llmStatus": "SKIPPED",
         }
+        answer_meta = dict(answer_meta)
+        answer_meta.update({
+            "capabilityId": capability.get("capabilityId"),
+            "capabilityName": capability.get("name"),
+            "capabilityIntent": capability.get("intent"),
+            "capabilityContextUsage": capability.get("contextUsage"),
+        })
         tool_results = list(evidence_results) + [tool_result]
         source_summaries = data.get("sourceSummaries") if isinstance(data.get("sourceSummaries"), list) else []
         knowledge_sources = extract_knowledge_sources(evidence_results)
@@ -155,6 +168,8 @@ class MapAgentRunWorkflow:
             data={
                 "orchestratorProvider": "langgraph",
                 "graphName": "solution_generation_graph",
+                "capabilityId": capability.get("capabilityId"),
+                "capability": capability,
                 "toolTotalCount": len(tool_results),
                 "toolSuccessCount": tool_success_count,
                 "toolFailedCount": tool_failed_count,
@@ -163,6 +178,8 @@ class MapAgentRunWorkflow:
                 "businessEvidence": business_evidence,
             },
         )
+        response.trace = dict(response.trace or {})
+        response.trace["capability"] = capability
         self._complete_live_step(resolved_trace_id, {
             "name": "solution_generate",
             "label": "生成方案预览",

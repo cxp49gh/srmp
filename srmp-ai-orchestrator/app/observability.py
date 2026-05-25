@@ -138,6 +138,7 @@ class RuntimeAuditStore:
             or (tool_total > 0 and tool_success == 0)
         )
         business_scope = _business_scope_from_request(request)
+        capability = _capability_from_response(response)
         record = {
             "id": str(uuid.uuid4()),
             "ts": _now_ms(),
@@ -149,6 +150,9 @@ class RuntimeAuditStore:
             "mode": response.mode,
             "intent": response.intent,
             "action": action,
+            "capabilityId": capability.get("capabilityId"),
+            "capabilityName": capability.get("name") or capability.get("capabilityName"),
+            "capability": _compact_value(capability),
             "graphName": graph_name,
             "actionResultType": action_result.get("type"),
             "actionResultStatus": action_result_status,
@@ -236,6 +240,7 @@ class RuntimeAuditStore:
                 "recentFailedTools": _recent_failed_tools(recent),
                 "intentBuckets": _bucket(records, "intent"),
                 "actionBuckets": _bucket(records, "action", max_items=12),
+                "capabilityBuckets": _bucket(records, "capabilityId", max_items=12),
                 "graphBuckets": _bucket(records, "graphName", max_items=12),
                 "writeBlockedCount": sum(1 for item in records if item.get("writeBlocked")),
                 "needsConfirmationCount": sum(1 for item in records if item.get("needsConfirmation")),
@@ -531,10 +536,41 @@ def _compact_response(response: MapAiAgentResponse) -> Dict[str, Any]:
         "intent": response.intent,
         "action": getattr(response, "action", None),
         "actionResult": _compact_value(action_result),
+        "answerMeta": _compact_value(response.answerMeta or {}),
         "sourceCount": len(response.sources or []),
         "toolResultCount": len(response.toolResults or []),
         "data": _compact_value(response.data or {}, depth=0),
     }
+
+
+def _capability_from_response(response: MapAiAgentResponse) -> Dict[str, Any]:
+    answer_meta = response.answerMeta or {}
+    data = response.data or {}
+    trace = response.trace or {}
+    capability = data.get("capability") if isinstance(data, dict) else None
+    if not isinstance(capability, dict) and isinstance(trace, dict):
+        capability = trace.get("capability")
+    if not isinstance(capability, dict):
+        capability = {}
+
+    capability_id = (
+        capability.get("capabilityId")
+        or (answer_meta.get("capabilityId") if isinstance(answer_meta, dict) else None)
+        or (data.get("capabilityId") if isinstance(data, dict) else None)
+    )
+    capability_name = (
+        capability.get("name")
+        or capability.get("capabilityName")
+        or (answer_meta.get("capabilityName") if isinstance(answer_meta, dict) else None)
+    )
+    if not capability_id and not capability_name:
+        return {}
+    result = dict(capability)
+    if capability_id:
+        result["capabilityId"] = capability_id
+    if capability_name:
+        result["name"] = capability_name
+    return result
 
 
 def _adaptive_planning_from_response(response: MapAiAgentResponse) -> Dict[str, Any]:

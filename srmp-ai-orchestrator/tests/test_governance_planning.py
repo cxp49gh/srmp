@@ -40,6 +40,24 @@ class GovernancePlanningTest(unittest.TestCase):
         self.assertIn("gis.queryDiseases", names)
         self.assertIn("knowledge.retrieve", names)
 
+    def test_metric_question_with_explicit_route_context_uses_route_policy(self):
+        request = MapAiAgentRequest(
+            message="结合当前路线解释 PCI 为什么低",
+            mapContext=MapAiContext(mode="ROUTE", routeCode="Y016140727", year=2026),
+            options={"useKnowledge": True},
+        )
+        fallback_intent, detail = recognize_intent(request)
+        capability = resolve_capability(request, fallback_intent, detail)
+
+        calls = plan_tools(request, capability["intent"], detail, capability=capability)
+        names = [item.toolName for item in calls]
+
+        self.assertEqual("map.route_analysis", capability["capabilityId"])
+        self.assertIn("gis.queryRegionSummary", names)
+        self.assertIn("gis.queryAssessmentResults", names)
+        self.assertIn("gis.queryDiseases", names)
+        self.assertIn("knowledge.retrieve", names)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -39,6 +39,10 @@ export interface AiExecutionSnapshot {
     status?: string
     costMs?: number
     fallback?: boolean
+    capabilityId?: string
+    capabilityName?: string
+    capabilityIntent?: string
+    capabilityContextUsage?: string
     toolTotalCount?: number
     toolSuccessCount?: number
     toolFailedCount?: number
@@ -57,6 +61,7 @@ export interface AiExecutionSnapshot {
   }
   quality?: Record<string, any>
   businessScope: Record<string, any>
+  capability: Record<string, any>
   raw: Record<string, any>
   warnings: string[]
   repairActions: AiExecutionRepairAction[]
@@ -87,7 +92,8 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
   const replayResult = firstRecordOrNull(input.replayResult) || null
   const replayResponse = firstRecordOrNull(replayResult?.response, replayResult?.data?.response) || null
   const responsePreview = asRecord(record?.responsePreview || record?.response_preview)
-  const responseData = firstRecord(responsePreview.data, replayResponse?.data, replayResult?.data)
+  const rawResponse = asRecord(record?.rawResponse || record?.raw_response)
+  const responseData = firstRecord(responsePreview.data, rawResponse.data, replayResponse?.data, replayResult?.data)
   const solution = asRecord(input.solution)
   const rawSteps = firstArray(
     trace?.steps,
@@ -101,6 +107,8 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     input.answerMeta,
     solution.answerMeta,
     solution.answer_meta,
+    rawResponse.answerMeta,
+    rawResponse.answer_meta,
     responseData.answerMeta,
     responseData.answer_meta,
     responsePreview.answerMeta,
@@ -118,6 +126,8 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     solution.tool_results,
     responseData.toolResults,
     responseData.tool_results,
+    rawResponse.toolResults,
+    rawResponse.tool_results,
     replayResponse?.toolResults,
     replayResponse?.tool_results,
     responsePreview.toolResults,
@@ -131,6 +141,8 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     input.sources,
     solution.sources,
     solution.knowledgeSources,
+    rawResponse.sources,
+    rawResponse.knowledgeSources,
     responseData.sources,
     responseData.knowledgeSources,
     replayResponse?.sources,
@@ -162,6 +174,16 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     replayResponse?.quality,
     trace?.quality
   )) as Record<string, any>
+  const capability = sanitizeInternalDiagnostics(firstRecord(
+    answerMeta.capability,
+    trace?.capability,
+    rawResponse.capability,
+    rawResponse.data?.capability,
+    responseData.capability,
+    responsePreview.capability,
+    replayResponse?.trace?.capability,
+    record?.capability
+  )) as Record<string, any>
 
   if (!trace && !record && !replayResult && !Object.keys(solution).length) return null
 
@@ -175,6 +197,10 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     status: stringValue(record?.status || trace?.status || replayResult?.status || responsePreview.status || (replayResult ? 'SUCCESS' : undefined)),
     costMs: numberValue(trace?.costMs ?? trace?.cost_ms ?? trace?.totalCostMs ?? trace?.total_cost_ms ?? replayResult?.costMs ?? replayResult?.cost_ms ?? record?.costMs ?? record?.cost_ms ?? record?.total_cost_ms),
     fallback: booleanValue(answerMeta.fallback ?? trace?.fallback ?? record?.fallbackLike ?? record?.fallback_like ?? record?.fallback),
+    capabilityId: stringValue(answerMeta.capabilityId || answerMeta.capability_id || capability.capabilityId || capability.capability_id || responseData.capabilityId || responseData.capability_id || record?.capabilityId || record?.capability_id),
+    capabilityName: stringValue(answerMeta.capabilityName || answerMeta.capability_name || capability.name || capability.capabilityName || capability.capability_name || record?.capabilityName || record?.capability_name),
+    capabilityIntent: stringValue(answerMeta.capabilityIntent || answerMeta.capability_intent || capability.intent || record?.capabilityIntent || record?.capability_intent),
+    capabilityContextUsage: stringValue(answerMeta.capabilityContextUsage || answerMeta.capability_context_usage || capability.contextUsage || capability.context_usage),
     toolTotalCount: numberValue(responseData.toolTotalCount ?? responseData.tool_total_count ?? record?.toolTotalCount ?? record?.tool_total_count ?? liveToolSummary.planned ?? evidenceData.toolTotalCount ?? tools.length),
     toolSuccessCount: numberValue(responseData.toolSuccessCount ?? responseData.tool_success_count ?? record?.toolSuccessCount ?? record?.tool_success_count ?? liveToolSummary.success ?? evidenceData.toolSuccessCount ?? tools.filter((item) => item.success).length),
     toolFailedCount: numberValue(responseData.toolFailedCount ?? responseData.tool_failed_count ?? record?.toolFailedCount ?? record?.tool_failed_count ?? liveToolSummary.failed ?? evidenceData.toolFailedCount ?? tools.filter((item) => !item.success).length),
@@ -196,6 +222,7 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     },
     quality,
     businessScope,
+    capability,
     raw: sanitizeInternalDiagnostics(compactRaw(input)) as Record<string, any>,
     warnings: buildWarnings(answerMeta, steps, summary.sourceCount, sources.length, tools, summary.status, currentStep),
     repairActions: buildRepairActions(tools, answerMeta)
@@ -205,6 +232,8 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
 function extractTrace(input: AiExecutionInput): Record<string, any> | null {
   return firstRecordOrNull(
     input.solution?.trace,
+    input.record?.rawResponse?.trace,
+    input.record?.raw_response?.trace,
     input.replayResult?.trace,
     input.replayResult?.data?.trace,
     input.replayResult?.response?.trace,

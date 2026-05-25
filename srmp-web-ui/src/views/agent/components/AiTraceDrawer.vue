@@ -10,6 +10,8 @@
       <el-descriptions :column="2" border size="small" class="trace-meta">
         <el-descriptions-item label="Provider">{{ snapshot.summary.provider || '-' }}</el-descriptions-item>
         <el-descriptions-item label="意图">{{ snapshot.summary.intent || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="能力">{{ capabilityLabel }}</el-descriptions-item>
+        <el-descriptions-item label="能力意图">{{ snapshot.summary.capabilityIntent || '-' }}</el-descriptions-item>
         <el-descriptions-item label="状态">{{ snapshot.summary.status || '-' }}</el-descriptions-item>
         <el-descriptions-item label="耗时">{{ snapshot.summary.costMs || 0 }} ms</el-descriptions-item>
         <el-descriptions-item label="工具">{{ snapshot.summary.toolSuccessCount || 0 }}/{{ snapshot.summary.toolTotalCount || 0 }}</el-descriptions-item>
@@ -177,6 +179,11 @@ const snapshot = computed(() => toAiExecutionSnapshot({
 const drawerRepairActions = computed(() => {
   if (props.repairActions?.length) return props.repairActions
   return snapshot.value?.repairActions || []
+})
+const capabilityLabel = computed(() => {
+  const summary = snapshot.value?.summary
+  if (!summary) return '-'
+  return [summary.capabilityName, summary.capabilityId].filter(Boolean).join(' / ') || '-'
 })
 
 function tagType(status: string) {

@@ -676,12 +676,20 @@ class LangGraphWorkflow:
             },
         )
         answer_meta = dict(answer_meta)
+        capability = dict(state.get("capability") or {})
+        capability_id = capability.get("capabilityId")
+        if capability_id:
+            answer_meta["capabilityId"] = capability_id
+            answer_meta["capabilityName"] = capability.get("name")
+            answer_meta["capabilityIntent"] = capability.get("intent")
+            answer_meta["capabilityContextUsage"] = capability.get("contextUsage")
         answer_meta["planExecutionStatus"] = plan_execution.get("status")
         answer_meta["adaptivePlanningStatus"] = adaptive_planning.get("status")
         trace_payload = {
             "traceId": state.get("trace_id"),
             "orchestratorProvider": "langgraph",
             "nodeFlow": NODE_FLOW,
+            "capability": capability,
             "steps": state.get("steps", []),
             "planExecution": plan_execution,
             "adaptivePlanning": adaptive_planning,
@@ -710,6 +718,8 @@ class LangGraphWorkflow:
                 "orchestratorFallback": False,
                 "intent": state.get("intent"),
                 "intentDetail": state.get("intent_detail", {}),
+                "capabilityId": capability_id,
+                "capability": capability,
                 "nodeFlow": NODE_FLOW,
                 "toolPlan": [item.model_dump(exclude_none=True) for item in state.get("tool_plan", [])],
                 "toolResults": [item.model_dump(exclude_none=True) for item in tool_results],

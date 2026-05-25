@@ -48,6 +48,7 @@
           <p>{{ item.user_message || item.userMessage || '-' }}</p>
           <div class="meta-line">
             <span>{{ item.request_type || item.requestType || item.mode || '-' }}</span>
+            <span v-if="capabilityLabelOf(item)">能力 {{ capabilityLabelOf(item) }}</span>
             <span v-if="item.businessScope?.projectId">项目 {{ item.businessScope.projectId }}</span>
             <span v-if="item.businessScope?.routeCode">路线 {{ item.businessScope.routeCode }}</span>
             <span>{{ item.total_cost_ms ?? item.totalCostMs ?? 0 }}ms</span>
@@ -90,12 +91,34 @@
               <strong>{{ llmStatusLabel }}</strong>
             </div>
             <div class="summary-cell">
+              <span>能力</span>
+              <strong>{{ capabilitySummaryLabel }}</strong>
+            </div>
+            <div class="summary-cell">
               <span>工具</span>
               <strong>{{ toolSummaryLabel }}</strong>
             </div>
             <div class="summary-cell">
               <span>证据</span>
               <strong>{{ evidenceSummaryLabel }}</strong>
+            </div>
+          </section>
+
+          <section v-if="selectedExecutionSnapshot?.summary.capabilityId" class="detail-section">
+            <div class="section-title">
+              <h3>命中能力</h3>
+              <span>{{ capabilitySummaryLabel }}</span>
+            </div>
+            <div class="scope-grid">
+              <div><span>能力 ID</span><strong>{{ selectedExecutionSnapshot.summary.capabilityId || '-' }}</strong></div>
+              <div><span>业务名称</span><strong>{{ selectedExecutionSnapshot.summary.capabilityName || '-' }}</strong></div>
+              <div><span>意图</span><strong>{{ selectedExecutionSnapshot.summary.capabilityIntent || '-' }}</strong></div>
+              <div><span>上下文策略</span><strong>{{ selectedExecutionSnapshot.summary.capabilityContextUsage || '-' }}</strong></div>
+              <div><span>工具策略</span><strong>{{ capabilityToolPolicyLabel }}</strong></div>
+              <div><span>置信度</span><strong>{{ selectedExecutionSnapshot.capability.confidence ?? '-' }}</strong></div>
+            </div>
+            <div v-if="capabilityMatchedRules.length" class="tag-list">
+              <el-tag v-for="rule in capabilityMatchedRules" :key="rule" size="small" type="info">{{ rule }}</el-tag>
             </div>
           </section>
 
@@ -276,6 +299,24 @@ const selectedRepairActions = computed(() => reconcileRepairActions(
   selectedExecutionSnapshot.value?.repairActions || [],
   traceKnowledgeReadiness.value.status
 ))
+const capabilitySummaryLabel = computed(() => {
+  const summary = selectedExecutionSnapshot.value?.summary
+  if (!summary) return '未知'
+  return [summary.capabilityName, summary.capabilityId].filter(Boolean).join(' / ') || '未知'
+})
+const capabilityMatchedRules = computed(() => {
+  const rules = selectedExecutionSnapshot.value?.capability?.matchedRules
+  return Array.isArray(rules) ? rules.map((item) => String(item)).filter(Boolean) : []
+})
+const capabilityToolPolicyLabel = computed(() => {
+  const policy = selectedExecutionSnapshot.value?.capability?.toolPolicy || selectedExecutionSnapshot.value?.capability?.tool_policy || {}
+  const required = Array.isArray(policy.required) ? policy.required.length : 0
+  const optional = Array.isArray(policy.optional) ? policy.optional.length : 0
+  const adaptive = Array.isArray(policy.adaptive) ? policy.adaptive.length : 0
+  const prohibited = Array.isArray(policy.prohibited) ? policy.prohibited.length : 0
+  if (!required && !optional && !adaptive && !prohibited) return '-'
+  return `必选 ${required} / 可选 ${optional} / 自适应 ${adaptive} / 禁用 ${prohibited}`
+})
 
 const llmStatusLabel = computed(() => {
   const meta = selectedExecutionSnapshot.value?.answerMeta || {}
@@ -486,13 +527,25 @@ function buildTracePayload(value: Record<string, any> | null): Record<string, an
     totalCostMs: value.total_cost_ms ?? value.totalCostMs,
     costMs: value.cost_ms ?? value.costMs,
     error: value.error_message || value.errorMessage,
+    capability: firstRecord(value.capability, value.responsePreview?.data?.capability, value.response_preview?.data?.capability, value.rawResponse?.data?.capability, value.raw_response?.data?.capability),
     steps: Array.isArray(value.steps) ? value.steps : []
   }
 }
 
 function extractAnswerMeta(value: Record<string, any> | null): Record<string, any> {
   if (!value) return {}
-  const direct = firstRecord(value.answerMeta, value.answer_meta, value.responsePreview?.answerMeta, value.response_preview?.answerMeta)
+  const direct = firstRecord(
+    value.answerMeta,
+    value.answer_meta,
+    value.responsePreview?.answerMeta,
+    value.response_preview?.answerMeta,
+    value.responsePreview?.data?.answerMeta,
+    value.response_preview?.data?.answerMeta,
+    value.rawResponse?.answerMeta,
+    value.raw_response?.answerMeta,
+    value.rawResponse?.data?.answerMeta,
+    value.raw_response?.data?.answerMeta
+  )
   if (Object.keys(direct).length) return direct
   for (const step of Array.isArray(value.steps) ? value.steps : []) {
     const data = firstRecord(step.data, step.step_data)
@@ -542,6 +595,14 @@ function traceIdOf(value?: Record<string, any> | null) {
 function isFallback(value?: Record<string, any> | null) {
   const raw = value?.fallback ?? value?.fallbackLike ?? value?.fallback_like
   return raw === true || String(raw).toLowerCase() === 'true'
+}
+
+function capabilityLabelOf(value?: Record<string, any> | null) {
+  const answerMeta = firstRecord(value?.answerMeta, value?.answer_meta, value?.rawResponse?.answerMeta, value?.raw_response?.answerMeta, value?.rawResponse?.data?.answerMeta, value?.raw_response?.data?.answerMeta)
+  const capability = firstRecord(value?.capability, value?.responsePreview?.data?.capability, value?.response_preview?.data?.capability, value?.rawResponse?.data?.capability, value?.raw_response?.data?.capability)
+  const name = stringValue(value?.capabilityName, value?.capability_name, answerMeta.capabilityName, answerMeta.capability_name, capability.name, capability.capabilityName, capability.capability_name)
+  const id = stringValue(value?.capabilityId, value?.capability_id, answerMeta.capabilityId, answerMeta.capability_id, capability.capabilityId, capability.capability_id)
+  return [name, id].filter(Boolean).join(' / ')
 }
 
 function tagType(status?: string) {
@@ -678,7 +739,7 @@ function shouldShowAnswerSourceAlert(value: any) {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 10px;
   margin-bottom: 12px;
 }
@@ -843,6 +904,13 @@ function shouldShowAnswerSourceAlert(value: any) {
 
 .tool-list {
   border-top: 1px solid #eef2f7;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
 }
 
 .tool-row {
