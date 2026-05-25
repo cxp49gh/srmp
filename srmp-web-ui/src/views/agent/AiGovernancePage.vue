@@ -6,6 +6,7 @@
     <template #actions>
       <div class="header-actions">
         <el-button :loading="loading" @click="loadGovernance">刷新</el-button>
+        <el-button :loading="coverageLoading" @click="loadPolicyCoverage">运行策略样例</el-button>
         <el-button type="primary" :loading="planning" @click="simulatePlan">运行模拟</el-button>
       </div>
     </template>
@@ -26,6 +27,11 @@
           <span>策略校验</span>
           <strong>{{ validationStatus }}</strong>
           <p>错误 {{ validationErrorCount }}；告警 {{ validationWarningCount }}</p>
+        </el-card>
+        <el-card shadow="never" class="metric-card">
+          <span>策略样例</span>
+          <strong>{{ coverageStatus }}</strong>
+          <p>通过 {{ coveragePassedCount }}；失败 {{ coverageFailedCount }}</p>
         </el-card>
         <el-card shadow="never" class="metric-card">
           <span>配置版本</span>
@@ -99,6 +105,55 @@
             <el-table-column label="Prohibited" min-width="240">
               <template #default="{ row }">
                 <div class="tag-list"><el-tag v-for="item in policyList(row, 'prohibited')" :key="item" size="small" type="danger">{{ item }}</el-tag></div>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+
+        <el-tab-pane label="策略样例" name="coverage">
+          <div class="coverage-head">
+            <div>
+              <strong>样例矩阵</strong>
+              <span>用配置中的典型请求校验能力命中和工具边界</span>
+            </div>
+            <el-button size="small" type="primary" :loading="coverageLoading" @click="loadPolicyCoverage">运行样例</el-button>
+          </div>
+          <el-alert
+            v-if="coverageFailedCount > 0"
+            class="mb"
+            type="error"
+            show-icon
+            title="存在失败样例，请检查能力触发条件或工具策略。"
+          />
+          <el-table :data="coverageCases" border stripe v-loading="coverageLoading">
+            <el-table-column prop="id" label="样例 ID" min-width="230" />
+            <el-table-column prop="name" label="场景" min-width="150" />
+            <el-table-column label="状态" width="90">
+              <template #default="{ row }">
+                <el-tag :type="row.status === 'PASS' ? 'success' : 'danger'">{{ row.status || '-' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="能力命中" min-width="240">
+              <template #default="{ row }">
+                <div class="stacked">
+                  <strong>{{ row.actualCapabilityName || row.actualCapabilityId || '-' }}</strong>
+                  <span>{{ row.actualCapabilityId || '-' }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="计划工具" min-width="320">
+              <template #default="{ row }">
+                <div class="tag-list">
+                  <el-tag v-for="item in arrayValue(row.actualToolNames)" :key="item" size="small">{{ item }}</el-tag>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="问题" min-width="260">
+              <template #default="{ row }">
+                <span v-if="arrayValue(row.warnings).length === 0" class="muted">无</span>
+                <div v-else class="stacked">
+                  <span v-for="item in arrayValue(row.warnings)" :key="item.code || item.message" class="error">{{ item.message || item.code }}</span>
+                </div>
               </template>
             </el-table-column>
           </el-table>
@@ -193,6 +248,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import AgentPageShell from './components/AgentPageShell.vue'
 import {
   getAiGovernanceCapabilities,
+  getAiGovernancePolicyCoverage,
   getAiGovernanceTools,
   simulateAiGovernancePlan,
   validateAiGovernancePolicies
@@ -201,9 +257,11 @@ import {
 const activeTab = ref('capabilities')
 const loading = ref(false)
 const planning = ref(false)
+const coverageLoading = ref(false)
 const capabilitiesPayload = ref<Record<string, any>>({})
 const toolsPayload = ref<Record<string, any>>({})
 const validationPayload = ref<Record<string, any>>({})
+const coveragePayload = ref<Record<string, any>>({})
 const planResult = ref<Record<string, any> | null>(null)
 
 const planForm = reactive({
@@ -226,6 +284,10 @@ const validation = computed(() => objectValue(validationPayload.value.validation
 const validationErrorCount = computed(() => Number(validation.value.errorCount || 0))
 const validationWarningCount = computed(() => Number(validation.value.warningCount || 0))
 const validationStatus = computed(() => validationErrorCount.value > 0 ? '异常' : '通过')
+const coverageCases = computed(() => arrayValue(coveragePayload.value.cases))
+const coverageFailedCount = computed(() => Number(coveragePayload.value.failedCount || coverageCases.value.filter((item) => item.status !== 'PASS').length))
+const coveragePassedCount = computed(() => Number(coveragePayload.value.passedCount || coverageCases.value.filter((item) => item.status === 'PASS').length))
+const coverageStatus = computed(() => coverageFailedCount.value > 0 ? '异常' : coverageCases.value.length ? '通过' : '未运行')
 const toolCategories = computed(() => uniqueStrings(tools.value.map((item) => item.category).filter(Boolean)))
 const planTools = computed(() => arrayValue(planResult.value?.toolPlan))
 const planMatchedRules = computed(() => arrayValue(planResult.value?.capability?.matchedRules))
@@ -246,6 +308,17 @@ async function loadGovernance() {
     validationPayload.value = extractBody(validationRes)
   } finally {
     loading.value = false
+  }
+  await loadPolicyCoverage()
+}
+
+async function loadPolicyCoverage() {
+  coverageLoading.value = true
+  try {
+    const response = await getAiGovernancePolicyCoverage()
+    coveragePayload.value = extractBody(response)
+  } finally {
+    coverageLoading.value = false
   }
 }
 
@@ -327,7 +400,7 @@ function uniqueStrings(values: any[]): string[] {
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
 }
 
@@ -357,6 +430,39 @@ function uniqueStrings(values: any[]): string[] {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.coverage-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.coverage-head div {
+  display: grid;
+  gap: 4px;
+}
+
+.coverage-head span,
+.muted {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.stacked {
+  display: grid;
+  gap: 4px;
+}
+
+.stacked span {
+  color: #64748b;
+  word-break: break-all;
+}
+
+.stacked .error {
+  color: #dc2626;
 }
 
 .simulator-grid {

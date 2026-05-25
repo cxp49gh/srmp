@@ -33,6 +33,25 @@ class GovernanceApiTest(unittest.TestCase):
         self.assertEqual("knowledge.metric_explain", body["capabilityId"])
         self.assertEqual(["knowledge.retrieve"], [item["toolName"] for item in body["toolPlan"]])
 
+    def test_policy_coverage_endpoint_runs_configured_examples(self):
+        client = TestClient(app)
+
+        response = client.get("/api/srmp/langgraph/governance/policies/coverage")
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        cases = {item["id"]: item for item in body["cases"]}
+
+        self.assertGreaterEqual(body["caseCount"], 8)
+        self.assertEqual(0, body["failedCount"])
+        self.assertIn("knowledge.metric_explain.basic", cases)
+        self.assertEqual("PASS", cases["knowledge.metric_explain.basic"]["status"])
+        self.assertEqual("knowledge.metric_explain", cases["knowledge.metric_explain.basic"]["actualCapabilityId"])
+        self.assertEqual(["knowledge.retrieve"], cases["knowledge.metric_explain.basic"]["actualToolNames"])
+        self.assertIn("map.route_analysis.context_metric", cases)
+        self.assertEqual("map.route_analysis", cases["map.route_analysis.context_metric"]["actualCapabilityId"])
+        self.assertIn("gis.queryRegionSummary", cases["map.route_analysis.context_metric"]["actualToolNames"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -23,7 +23,24 @@
         "optional": [],
         "adaptive": [],
         "prohibited": ["gis.queryRegionSummary", "gis.queryDiseases", "gis.queryAssessmentResults", "gis.queryDiseasesByStakeRange", "gis.queryNearbyObjects"]
-      }
+      },
+      "examples": [
+        {
+          "id": "knowledge.metric_explain.basic",
+          "name": "解释 PCI 指标",
+          "request": {
+            "message": "解释 PCI 指标",
+            "mapContext": {"mode": "ROUTE", "routeCode": "Y016140727", "year": 2026},
+            "options": {"useKnowledge": true}
+          },
+          "expect": {
+            "capabilityId": "knowledge.metric_explain",
+            "requiredTools": ["knowledge.retrieve"],
+            "exactToolNames": ["knowledge.retrieve"],
+            "prohibitedTools": ["gis.queryRegionSummary", "gis.queryDiseases", "gis.queryAssessmentResults", "gis.queryDiseasesByStakeRange", "gis.queryNearbyObjects"]
+          }
+        }
+      ]
     },
     {
       "id": "knowledge.maintenance_qa",
@@ -44,7 +61,23 @@
         "optional": [],
         "adaptive": ["knowledge.retrieve"],
         "prohibited": ["gis.queryRegionSummary", "gis.queryDiseases", "gis.queryAssessmentResults", "gis.queryDiseasesByStakeRange", "gis.queryNearbyObjects"]
-      }
+      },
+      "examples": [
+        {
+          "id": "knowledge.maintenance_qa.basic",
+          "name": "养护规范依据问答",
+          "request": {
+            "message": "裂缝处置规范依据是什么",
+            "mapContext": {"mode": "FREE", "year": 2026},
+            "options": {"useKnowledge": true}
+          },
+          "expect": {
+            "capabilityId": "knowledge.maintenance_qa",
+            "requiredTools": ["knowledge.retrieve"],
+            "prohibitedTools": ["gis.queryRegionSummary", "gis.queryDiseases", "gis.queryAssessmentResults", "gis.queryDiseasesByStakeRange", "gis.queryNearbyObjects"]
+          }
+        }
+      ]
     },
     {
       "id": "map.disease_analysis",
@@ -65,7 +98,28 @@
         "optional": ["knowledge.retrieve"],
         "adaptive": ["knowledge.retrieve"],
         "prohibited": ["gis.queryRegionSummary"]
-      }
+      },
+      "examples": [
+        {
+          "id": "map.disease_analysis.object",
+          "name": "点击病害分析",
+          "request": {
+            "message": "分析当前病害",
+            "mapContext": {
+              "mode": "OBJECT",
+              "routeCode": "Y016140727",
+              "year": 2026,
+              "mapObject": {"objectType": "DISEASE", "objectId": "disease-1", "routeCode": "Y016140727"}
+            },
+            "options": {"useKnowledge": true}
+          },
+          "expect": {
+            "capabilityId": "map.disease_analysis",
+            "requiredTools": ["gis.queryNearbyObjects"],
+            "prohibitedTools": ["gis.queryRegionSummary"]
+          }
+        }
+      ]
     },
     {
       "id": "map.assessment_analysis",
@@ -86,7 +140,27 @@
         "optional": ["knowledge.retrieve"],
         "adaptive": ["knowledge.retrieve", "gis.queryAssessmentResults"],
         "prohibited": []
-      }
+      },
+      "examples": [
+        {
+          "id": "map.assessment_analysis.object",
+          "name": "点击评定结果分析",
+          "request": {
+            "message": "分析当前评定结果",
+            "mapContext": {
+              "mode": "OBJECT",
+              "routeCode": "Y016140727",
+              "year": 2026,
+              "mapObject": {"objectType": "ASSESSMENT_RESULT", "objectId": "assessment-1", "routeCode": "Y016140727", "startStake": 0, "endStake": 14.072}
+            },
+            "options": {"useKnowledge": true}
+          },
+          "expect": {
+            "capabilityId": "map.assessment_analysis",
+            "requiredTools": ["gis.queryAssessmentResults", "gis.queryDiseasesByStakeRange"]
+          }
+        }
+      ]
     },
     {
       "id": "map.section_analysis",
@@ -107,7 +181,27 @@
         "optional": ["knowledge.retrieve"],
         "adaptive": ["knowledge.retrieve", "gis.queryAssessmentResults"],
         "prohibited": []
-      }
+      },
+      "examples": [
+        {
+          "id": "map.section_analysis.object",
+          "name": "点击路段分析",
+          "request": {
+            "message": "分析当前路段",
+            "mapContext": {
+              "mode": "OBJECT",
+              "routeCode": "Y016140727",
+              "year": 2026,
+              "mapObject": {"objectType": "ROAD_SECTION", "objectId": "section-1", "routeCode": "Y016140727", "startStake": 0, "endStake": 14.072}
+            },
+            "options": {"useKnowledge": true}
+          },
+          "expect": {
+            "capabilityId": "map.section_analysis",
+            "requiredTools": ["gis.queryAssessmentResults", "gis.queryDiseases", "gis.queryDiseasesByStakeRange"]
+          }
+        }
+      ]
     },
     {
       "id": "map.route_analysis",
@@ -130,7 +224,36 @@
         "optional": ["knowledge.retrieve"],
         "adaptive": ["knowledge.retrieve", "gis.queryRegionSummary"],
         "prohibited": []
-      }
+      },
+      "examples": [
+        {
+          "id": "map.route_analysis.action",
+          "name": "点击分析路线",
+          "request": {
+            "action": "ANALYZE_ROUTE",
+            "message": "分析当前路线",
+            "mapContext": {"mode": "ROUTE", "routeCode": "Y016140727", "year": 2026},
+            "options": {"useKnowledge": true}
+          },
+          "expect": {
+            "capabilityId": "map.route_analysis",
+            "requiredTools": ["gis.queryRegionSummary", "gis.queryAssessmentResults", "gis.queryDiseases"]
+          }
+        },
+        {
+          "id": "map.route_analysis.context_metric",
+          "name": "结合路线解释低分指标",
+          "request": {
+            "message": "结合当前路线解释 PCI 为什么低",
+            "mapContext": {"mode": "ROUTE", "routeCode": "Y016140727", "year": 2026},
+            "options": {"useKnowledge": true}
+          },
+          "expect": {
+            "capabilityId": "map.route_analysis",
+            "requiredTools": ["gis.queryRegionSummary", "gis.queryAssessmentResults", "gis.queryDiseases", "knowledge.retrieve"]
+          }
+        }
+      ]
     },
     {
       "id": "map.region_analysis",
@@ -152,7 +275,28 @@
         "optional": ["knowledge.retrieve"],
         "adaptive": ["knowledge.retrieve", "gis.queryRegionSummary"],
         "prohibited": []
-      }
+      },
+      "examples": [
+        {
+          "id": "map.region_analysis.action",
+          "name": "框选区域分析",
+          "request": {
+            "action": "ANALYZE_REGION",
+            "message": "分析当前区域",
+            "mapContext": {
+              "mode": "REGION",
+              "routeCode": "Y016140727",
+              "year": 2026,
+              "geometry": {"type": "Polygon", "coordinates": [[[112.1, 37.1], [112.2, 37.1], [112.2, 37.2], [112.1, 37.1]]]}
+            },
+            "options": {"useKnowledge": true}
+          },
+          "expect": {
+            "capabilityId": "map.region_analysis",
+            "requiredTools": ["gis.queryRegionSummary"]
+          }
+        }
+      ]
     },
     {
       "id": "solution.generate",
@@ -173,7 +317,28 @@
         "optional": ["knowledge.retrieve"],
         "adaptive": ["knowledge.retrieve"],
         "prohibited": []
-      }
+      },
+      "examples": [
+        {
+          "id": "solution.generate.object",
+          "name": "生成对象方案",
+          "request": {
+            "action": "GENERATE_OBJECT_SOLUTION",
+            "message": "生成当前对象的结构化养护建议",
+            "mapContext": {
+              "mode": "OBJECT",
+              "routeCode": "Y016140727",
+              "year": 2026,
+              "mapObject": {"objectType": "ROAD_SECTION", "objectId": "section-1", "routeCode": "Y016140727", "startStake": 0, "endStake": 14.072}
+            },
+            "options": {"useKnowledge": true}
+          },
+          "expect": {
+            "capabilityId": "solution.generate",
+            "requiredTools": ["gis.queryAssessmentResults", "gis.queryDiseases", "gis.queryDiseasesByStakeRange", "knowledge.retrieve"]
+          }
+        }
+      ]
     }
   ]
 }

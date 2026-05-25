@@ -195,6 +195,11 @@ public class AgentOrchestratorOpsController {
         return R.ok(remoteGet("/api/srmp/langgraph/governance/policies/validate"));
     }
 
+    @GetMapping("/governance/policies/coverage")
+    public R<Object> governanceCoverage() {
+        return R.ok(remoteGet("/api/srmp/langgraph/governance/policies/coverage"));
+    }
+
     @PostMapping("/governance/plan-simulate")
     public R<Object> governancePlanSimulate(@RequestBody(required = false) Map<String, Object> body) {
         Map<String, Object> payload = body == null ? new LinkedHashMap<String, Object>() : body;

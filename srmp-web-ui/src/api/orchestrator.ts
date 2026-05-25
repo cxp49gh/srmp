@@ -102,6 +102,10 @@ export function validateAiGovernancePolicies(): Promise<Record<string, any>> {
   return aiRequest.get('/api/agent/orchestrator/ops/governance/policies/validate')
 }
 
+export function getAiGovernancePolicyCoverage(): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/governance/policies/coverage')
+}
+
 export function simulateAiGovernancePlan(data: OrchestratorPlanRequest): Promise<Record<string, any>> {
   return aiRequest.post('/api/agent/orchestrator/ops/governance/plan-simulate', data || {})
 }

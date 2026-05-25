@@ -105,6 +105,19 @@ def validate_governance() -> Dict[str, Any]:
     }
 
 
+def governance_policy_examples() -> List[Dict[str, Any]]:
+    registry = governance_registry()
+    examples: List[Dict[str, Any]] = []
+    for capability in registry.capabilities:
+        for example in capability.get("examples") or []:
+            item = dict(example)
+            item["capabilityId"] = capability.get("id")
+            item["capabilityName"] = capability.get("name")
+            item["capabilityCategory"] = capability.get("category")
+            examples.append(item)
+    return examples
+
+
 def normalize_capability(item: Dict[str, Any]) -> Dict[str, Any]:
     data = dict(item or {})
     data["id"] = str(data.get("id") or "").strip()
@@ -117,6 +130,7 @@ def normalize_capability(item: Dict[str, Any]) -> Dict[str, Any]:
     data["triggers"] = _normalize_trigger_block(data.get("triggers") or {})
     data["contextPolicy"] = dict(data.get("contextPolicy") or {})
     data["toolPolicy"] = normalize_tool_policy(data.get("toolPolicy") or {})
+    data["examples"] = [_normalize_policy_example(example, data["id"]) for example in data.get("examples") or [] if isinstance(example, dict)]
     return data
 
 
@@ -326,6 +340,19 @@ def _normalize_trigger_block(value: Dict[str, Any]) -> Dict[str, List[str]]:
         "includeKeywords": _string_list(value.get("includeKeywords")),
         "questionKeywords": _string_list(value.get("questionKeywords")),
     }
+
+
+def _normalize_policy_example(value: Dict[str, Any], capability_id: str) -> Dict[str, Any]:
+    data = dict(value or {})
+    data["id"] = str(data.get("id") or capability_id + ".example").strip()
+    data["name"] = str(data.get("name") or data["id"]).strip()
+    data["request"] = dict(data.get("request") or {})
+    expect = dict(data.get("expect") or {})
+    expect["capabilityId"] = str(expect.get("capabilityId") or capability_id).strip()
+    for key in ("requiredTools", "prohibitedTools", "exactToolNames"):
+        expect[key] = _string_list(expect.get(key))
+    data["expect"] = expect
+    return data
 
 
 def _string_list(value: Any) -> List[str]:

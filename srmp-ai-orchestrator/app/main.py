@@ -6,12 +6,15 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, Header, HTTPException, Query
 
 from .config import settings
-from .governance import governance_summary, validate_governance
+from .governance import governance_policy_examples, governance_summary, resolve_capability, validate_governance
+from .intent import recognize_intent
 from .java_tools import JavaToolGateway
 from .live_trace import LiveTraceStore
 from .llm_client import LlmClient
 from .map_agent_run import MapAgentRunWorkflow
 from .observability import runtime_audit_store
+from .plan_preview import enrich_tool_plan
+from .planner import plan_tools
 from .schemas import MapAgentRunRequest, MapAgentRunResponse, MapAiAgentRequest, MapAiAgentResponse, ToolCall
 from .workflow import LANGGRAPH_AVAILABLE, LangGraphWorkflow, strategy_metadata
 
@@ -114,6 +117,64 @@ def _runtime_config_payload() -> Dict[str, Any]:
         "warningCount": len(warnings),
         "redaction": {"enabled": settings.audit_redact_enabled, "keys": list(settings.audit_redact_keys or [])},
     }
+
+
+def _run_governance_policy_case(example: Dict[str, Any]) -> Dict[str, Any]:
+    request_payload = example.get("request") if isinstance(example.get("request"), dict) else {}
+    expect = example.get("expect") if isinstance(example.get("expect"), dict) else {}
+    request = MapAiAgentRequest(**request_payload)
+    fallback_intent, detail = recognize_intent(request)
+    capability = resolve_capability(request, fallback_intent=fallback_intent, intent_detail=detail)
+    intent = capability.get("intent") or fallback_intent
+    tool_plan = enrich_tool_plan(plan_tools(request, intent, detail, capability=capability))
+    actual_tool_names = [str(item.get("toolName") or "") for item in tool_plan if item.get("toolName")]
+    expected_capability = str(expect.get("capabilityId") or example.get("capabilityId") or "")
+    required_tools = _string_list(expect.get("requiredTools"))
+    prohibited_tools = _string_list(expect.get("prohibitedTools"))
+    exact_tools = _string_list(expect.get("exactToolNames"))
+    missing_tools = [name for name in required_tools if name not in actual_tool_names]
+    prohibited_hits = [name for name in prohibited_tools if name in actual_tool_names]
+    capability_mismatch = bool(expected_capability and expected_capability != capability.get("capabilityId"))
+    exact_mismatch = bool(exact_tools and exact_tools != actual_tool_names)
+    warnings: List[Dict[str, str]] = []
+    if capability_mismatch:
+        warnings.append({
+            "code": "CAPABILITY_MISMATCH",
+            "message": "期望能力 " + expected_capability + "，实际命中 " + str(capability.get("capabilityId") or ""),
+        })
+    if missing_tools:
+        warnings.append({"code": "REQUIRED_TOOL_MISSING", "message": "缺少必选工具：" + ", ".join(missing_tools)})
+    if prohibited_hits:
+        warnings.append({"code": "PROHIBITED_TOOL_PLANNED", "message": "计划误用了禁用工具：" + ", ".join(prohibited_hits)})
+    if exact_mismatch:
+        warnings.append({"code": "EXACT_TOOLS_MISMATCH", "message": "计划工具与精确期望不一致。"})
+    status = "PASS" if not warnings else "FAIL"
+    return {
+        "id": str(example.get("id") or ""),
+        "name": str(example.get("name") or example.get("id") or ""),
+        "status": status,
+        "expectedCapabilityId": expected_capability,
+        "actualCapabilityId": capability.get("capabilityId"),
+        "actualCapabilityName": capability.get("name"),
+        "actualIntent": intent,
+        "fallbackIntent": fallback_intent,
+        "expectedRequiredTools": required_tools,
+        "expectedProhibitedTools": prohibited_tools,
+        "expectedExactToolNames": exact_tools,
+        "actualToolNames": actual_tool_names,
+        "missingRequiredTools": missing_tools,
+        "prohibitedToolNames": prohibited_hits,
+        "warnings": warnings,
+        "request": request.model_dump(exclude_none=True),
+        "capability": capability,
+        "toolPlan": tool_plan,
+    }
+
+
+def _string_list(value: Any) -> List[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item or "").strip()]
 
 
 def _check_item(name: str, ok: bool, detail: Any = None, level: str = "CRITICAL") -> Dict[str, Any]:
@@ -248,6 +309,19 @@ async def governance_plan_simulate(
         "sourceHints": plan.get("sourceHints") or [],
         "warnings": plan.get("warnings") or [],
         "steps": plan.get("steps") or [],
+    }
+
+
+@app.get("/api/srmp/langgraph/governance/policies/coverage")
+async def governance_policy_coverage() -> dict:
+    cases = [_run_governance_policy_case(example) for example in governance_policy_examples()]
+    failed = [item for item in cases if item.get("status") != "PASS"]
+    return {
+        "version": governance_summary().get("version"),
+        "caseCount": len(cases),
+        "passedCount": len(cases) - len(failed),
+        "failedCount": len(failed),
+        "cases": cases,
     }
 
 
