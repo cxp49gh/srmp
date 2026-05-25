@@ -13,8 +13,8 @@
 ### Task 1: Capability And Tool Registry
 
 **Files:**
-- Create: `srmp-ai-orchestrator/app/governance/capabilities.json`
-- Create: `srmp-ai-orchestrator/app/governance/tools.json`
+- Create: `srmp-ai-orchestrator/app/governance_data/capabilities.json`
+- Create: `srmp-ai-orchestrator/app/governance_data/tools.json`
 - Create: `srmp-ai-orchestrator/app/governance.py`
 - Test: `srmp-ai-orchestrator/tests/test_governance_registry.py`
 

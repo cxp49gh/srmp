@@ -66,6 +66,7 @@ def plan_adaptive_tools(
     evidence: Dict[str, Any],
     tool_results: List[ToolResult],
     existing_plan: List[ToolCall],
+    capability: Optional[Dict[str, Any]] = None,
     iteration: int = 1,
 ) -> AdaptivePlanningDecision:
     options = request.options or {}
@@ -84,7 +85,7 @@ def plan_adaptive_tools(
         return _decision(True, False, "SKIPPED_LIMIT", "已达到工具调用数量上限。", max_iterations, max_added_tools, evidence or {}, evidence_sufficient)
 
     executed_tool_names = {item.toolName for item in tool_results or [] if item.toolName}
-    candidates = build_adaptive_tool_calls(request, intent, intent_detail or {}, evidence or {}, executed_tool_names)
+    candidates = build_adaptive_tool_calls(request, intent, intent_detail or {}, evidence or {}, executed_tool_names, capability=capability)
     remaining_slots = settings.max_tool_calls - len(tool_results or [])
     added_calls, skipped = _filter_candidates(candidates, executed_tool_names, existing_plan or [], remaining_slots, max_added_tools)
     if not added_calls:
@@ -122,6 +123,7 @@ def build_adaptive_tool_calls(
     intent_detail: Optional[Dict[str, Any]],
     evidence: Dict[str, Any],
     executed_tool_names: Set[str],
+    capability: Optional[Dict[str, Any]] = None,
 ) -> List[ToolCall]:
     ctx = request.mapContext
     candidates: List[ToolCall] = []
@@ -144,7 +146,25 @@ def build_adaptive_tool_calls(
     if intent in {"OBJECT_ANALYSIS", "SOLUTION_GENERATE"}:
         candidates.append(ToolCall(toolName="gis.queryAssessmentResults", args=context_args(ctx, {"limit": 20}), reason="第一轮证据不足，补充评定结果"))
 
-    return candidates
+    return _filter_by_capability_policy(candidates, capability)
+
+
+def _filter_by_capability_policy(candidates: List[ToolCall], capability: Optional[Dict[str, Any]]) -> List[ToolCall]:
+    if not isinstance(capability, dict):
+        return candidates
+    policy = capability.get("toolPolicy") if isinstance(capability.get("toolPolicy"), dict) else {}
+    adaptive = _string_set(policy.get("adaptive"))
+    prohibited = _string_set(policy.get("prohibited"))
+    if not adaptive and not prohibited:
+        return candidates
+    result: List[ToolCall] = []
+    for call in candidates:
+        if call.toolName in prohibited:
+            continue
+        if adaptive and call.toolName not in adaptive:
+            continue
+        result.append(call)
+    return result
 
 
 def _filter_candidates(
@@ -238,6 +258,12 @@ def _bool_option(options: Dict[str, Any], key: str, default: bool) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _string_set(value: Any) -> Set[str]:
+    if not isinstance(value, list):
+        return set()
+    return {str(item).strip() for item in value if str(item or "").strip()}
 
 
 def _is_region_request(intent: str, mode: str) -> bool:

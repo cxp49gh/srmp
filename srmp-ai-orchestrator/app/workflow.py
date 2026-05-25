@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple, TypedDict
 from .adaptive_planner import plan_adaptive_tools, summarize_evidence
 from .answer_enhancers import enhance_answer
 from .config import settings
+from .governance import resolve_capability
 from .intent import recognize_intent
 from .java_tools import JavaToolGateway, extract_knowledge_sources
 from .live_trace import LiveTraceStore
@@ -78,6 +79,7 @@ class AgentState(TypedDict, total=False):
     context_summary: Dict[str, Any]
     intent: str
     intent_detail: Dict[str, Any]
+    capability: Dict[str, Any]
     tool_plan: List[ToolCall]
     toolPlan: List[ToolCall]
     tool_results: List[ToolResult]
@@ -139,6 +141,8 @@ class LangGraphWorkflow:
             "strategy": strategy_metadata(),
             "action": final_state["request"].action,
             "intent": final_state.get("intent"),
+            "capabilityId": (final_state.get("capability") or {}).get("capabilityId"),
+            "capability": final_state.get("capability", {}),
             "contextSummary": final_state.get("context_summary", {}),
             "normalizedRequest": final_state["request"].model_dump(exclude_none=True),
             "toolPlan": enriched_tool_plan,
@@ -276,9 +280,19 @@ class LangGraphWorkflow:
         return {"context_summary": summary}
 
     async def _intent_recognize(self, state: AgentState) -> Dict[str, Any]:
-        intent, detail = recognize_intent(state["request"])
-        self._step(state, "intent_recognize", "识别用户意图", {"intent": intent, "intentDetail": detail})
-        return {"intent": intent, "intent_detail": detail}
+        fallback_intent, detail = recognize_intent(state["request"])
+        capability = resolve_capability(state["request"], fallback_intent=fallback_intent, intent_detail=detail)
+        intent = capability.get("intent") or fallback_intent
+        detail = dict(detail or {})
+        detail["capabilityId"] = capability.get("capabilityId")
+        detail["capabilityName"] = capability.get("name")
+        self._step(
+            state,
+            "intent_recognize",
+            "识别用户意图",
+            {"intent": intent, "fallbackIntent": fallback_intent, "intentDetail": detail, "capability": capability},
+        )
+        return {"intent": intent, "intent_detail": detail, "capability": capability}
 
     async def _context_enrich(self, state: AgentState) -> Dict[str, Any]:
         if not settings.enable_context_enrich:
@@ -318,8 +332,13 @@ class LangGraphWorkflow:
         return {"request": request, "context_summary": summary}
 
     async def _tool_plan(self, state: AgentState) -> Dict[str, Any]:
-        calls = plan_tools(state["request"], state["intent"], state.get("intent_detail", {}))
-        self._step(state, "tool_plan", "规划只读工具", {"readOnly": not settings.allow_write_tools, "tools": [item.model_dump() for item in calls]})
+        calls = plan_tools(state["request"], state["intent"], state.get("intent_detail", {}), capability=state.get("capability"))
+        self._step(
+            state,
+            "tool_plan",
+            "规划只读工具",
+            {"readOnly": not settings.allow_write_tools, "capability": state.get("capability", {}), "tools": [item.model_dump() for item in calls]},
+        )
         return {"tool_plan": calls}
 
     async def _tool_execute(self, state: AgentState) -> Dict[str, Any]:
@@ -410,6 +429,7 @@ class LangGraphWorkflow:
             evidence=state.get("evidence", {}),
             tool_results=state.get("tool_results", []),
             existing_plan=state.get("tool_plan", []),
+            capability=state.get("capability"),
         )
         summary = decision.to_summary()
         self._step(

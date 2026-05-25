@@ -5,12 +5,22 @@ from .intent import is_explicit_solution_draft_request, normalize_object_type
 from .schemas import MapAiAgentRequest, MapAiContext, ToolCall
 
 
-def plan_tools(request: MapAiAgentRequest, intent: str, intent_detail: Optional[Dict[str, Any]] = None) -> List[ToolCall]:
+def plan_tools(
+    request: MapAiAgentRequest,
+    intent: str,
+    intent_detail: Optional[Dict[str, Any]] = None,
+    capability: Optional[Dict[str, Any]] = None,
+) -> List[ToolCall]:
     ctx = request.mapContext
     obj = ctx.mapObject if ctx and ctx.mapObject else request.mapObject or {}
     mode = str(ctx.mode or "").upper() if ctx and ctx.mode else ""
     action = str(request.action or (request.options or {}).get("action") or "").upper()
     calls: List[ToolCall] = []
+
+    if should_use_capability_policy(capability, intent):
+        plan_capability_tools(calls, request, intent, capability or {})
+        if calls:
+            return dedupe_and_limit(calls)
 
     if intent == "NEARBY_ANALYSIS":
         add(calls, "gis.queryNearbyObjects", context_args(ctx, {"limit": 20}), "查询当前对象周边病害和评定结果")
@@ -37,6 +47,72 @@ def plan_tools(request: MapAiAgentRequest, intent: str, intent_detail: Optional[
     if not calls:
         add(calls, "knowledge.retrieve", {"query": build_query(request, intent), "topK": option_int(request, "topK", 5)}, "默认知识库问答")
     return dedupe_and_limit(calls)
+
+
+def should_use_capability_policy(capability: Optional[Dict[str, Any]], intent: str) -> bool:
+    if not isinstance(capability, dict):
+        return False
+    capability_id = str(capability.get("capabilityId") or "")
+    category = str(capability.get("category") or "").upper()
+    if not capability_id or capability_id.startswith("legacy."):
+        return False
+    # Solution generation still has action-specific evidence collection in the legacy planner.
+    return category != "SOLUTION" and intent != "SOLUTION_GENERATE"
+
+
+def plan_capability_tools(calls: List[ToolCall], request: MapAiAgentRequest, intent: str, capability: Dict[str, Any]) -> None:
+    policy = capability.get("toolPolicy") if isinstance(capability.get("toolPolicy"), dict) else {}
+    prohibited = set(_policy_list(policy, "prohibited"))
+    required = _policy_list(policy, "required")
+    optional = _policy_list(policy, "optional")
+    for tool_name in required:
+        if tool_name in prohibited:
+            continue
+        add_capability_tool(calls, request, intent, tool_name, "required", capability)
+    for tool_name in optional:
+        if tool_name in prohibited:
+            continue
+        if tool_name == "knowledge.retrieve" and not should_use_knowledge(request.options, intent):
+            continue
+        add_capability_tool(calls, request, intent, tool_name, "optional", capability)
+
+
+def add_capability_tool(calls: List[ToolCall], request: MapAiAgentRequest, intent: str, tool_name: str, relation: str, capability: Dict[str, Any]) -> None:
+    ctx = request.mapContext
+    obj = ctx.mapObject if ctx and ctx.mapObject else request.mapObject or {}
+    capability_name = capability.get("name") or capability.get("capabilityId") or intent
+    reason = f"{capability_name} {relation} 工具"
+    if tool_name == "gis.queryNearbyObjects":
+        add(calls, tool_name, context_args(ctx, {"limit": 20}), reason)
+        return
+    if tool_name == "gis.queryRegionSummary":
+        add(calls, tool_name, region_args(ctx, {"limit": 50}), reason)
+        return
+    if tool_name == "gis.queryAssessmentResults":
+        limit = 50 if intent in {"ROUTE_ANALYSIS", "REGION_ANALYSIS"} else 20
+        add(calls, tool_name, context_args(ctx, {"limit": limit}), reason)
+        return
+    if tool_name == "gis.queryDiseases":
+        add(calls, tool_name, context_args(ctx, {"limit": 50}), reason)
+        return
+    if tool_name == "gis.queryDiseasesByStakeRange":
+        add(calls, tool_name, stake_args(ctx, obj, {"limit": 50}), reason)
+        return
+    if tool_name == "knowledge.retrieve":
+        add(calls, tool_name, {"query": build_query(request, intent), "topK": option_int(request, "topK", 5)}, reason)
+        return
+    if tool_name == "template.match":
+        add(calls, tool_name, {"intent": intent, "routeCode": ctx.routeCode if ctx else None, "year": ctx.year if ctx else None}, reason)
+        return
+    if tool_name == "solution.generateDraft":
+        add(calls, tool_name, {"intent": intent, "routeCode": ctx.routeCode if ctx else None, "year": ctx.year if ctx else None}, reason)
+
+
+def _policy_list(policy: Dict[str, Any], key: str) -> List[str]:
+    value = policy.get(key)
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item or "").strip()]
 
 
 def plan_object_tools(calls: List[ToolCall], ctx: Optional[MapAiContext], obj: Dict[str, Any]) -> None:
