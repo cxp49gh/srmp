@@ -48,6 +48,8 @@ def recognize_intent(request: MapAiAgentRequest) -> Tuple[str, Dict[str, Any]]:
         return "TEMPLATE_VERIFY", detail
     if detail["solutionDraftRequested"]:
         return "SOLUTION_GENERATE", detail
+    if is_metric_explanation_request(message):
+        return "KNOWLEDGE_QA", detail
     if contains_any(message, "周边", "附近", "相邻", "集中区"):
         return "NEARBY_ANALYSIS", detail
     if contains_any(message, "区域", "框选", "范围") or mode in {"REGION", "BOX", "POLYGON", "SELECTION"} or detail["hasRegionSummary"] or detail["hasGeometry"]:
@@ -59,6 +61,24 @@ def recognize_intent(request: MapAiAgentRequest) -> Tuple[str, Dict[str, Any]]:
     if obj or mode == "OBJECT":
         return "OBJECT_ANALYSIS", detail
     return "GENERAL_CHAT", detail
+
+
+def is_metric_explanation_request(message: str) -> bool:
+    if not message:
+        return False
+    return contains_any(message, "指标", "MQI", "PQI", "PCI", "RQI", "RDI", "SCI", "BCI", "TCI") and contains_any(
+        message,
+        "解释",
+        "说明",
+        "介绍",
+        "含义",
+        "定义",
+        "是什么",
+        "什么意思",
+        "如何理解",
+        "怎么计算",
+        "计算公式",
+    )
 
 
 def normalize_object_type(value: Optional[str]) -> str:

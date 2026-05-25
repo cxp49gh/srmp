@@ -106,6 +106,25 @@ class BusinessScopePlanningTest(unittest.TestCase):
         self.assertIn("gis.queryDiseases", names)
         self.assertIn("knowledge.retrieve", names)
 
+    def test_metric_explanation_prefers_knowledge_qa_over_route_context(self):
+        request = MapAiAgentRequest(
+            message="解释 PCI 指标",
+            mapContext=MapAiContext(
+                tenantId="tenant-a",
+                mode="ROUTE",
+                routeCode="Y016140727",
+                year=2026,
+            ),
+            options={"useKnowledge": True, "topK": 3},
+        )
+
+        intent, detail = recognize_intent(request)
+        calls = plan_tools(request, intent, detail)
+        names = [call.toolName for call in calls]
+
+        self.assertEqual("KNOWLEDGE_QA", intent)
+        self.assertEqual(["knowledge.retrieve"], names)
+
     def test_route_report_does_not_duplicate_route_object_queries(self):
         request = MapAiAgentRequest(
             message="生成路线养护报告",
