@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, Header, HTTPException, Query
 
 from .config import settings
+from .governance import governance_summary, validate_governance
 from .java_tools import JavaToolGateway
 from .live_trace import LiveTraceStore
 from .llm_client import LlmClient
@@ -196,6 +197,58 @@ async def strategy() -> dict:
 @app.get("/api/srmp/langgraph/runtime/config")
 async def runtime_config() -> dict:
     return _runtime_config_payload()
+
+
+@app.get("/api/srmp/langgraph/governance/capabilities")
+async def governance_capabilities() -> dict:
+    summary = governance_summary()
+    return {
+        "version": summary.get("version"),
+        "configValid": summary.get("configValid"),
+        "validation": summary.get("validation"),
+        "capabilityCount": summary.get("capabilityCount"),
+        "enabledCapabilityCount": summary.get("enabledCapabilityCount"),
+        "capabilities": summary.get("capabilities") or [],
+    }
+
+
+@app.get("/api/srmp/langgraph/governance/tools")
+async def governance_tools() -> dict:
+    summary = governance_summary()
+    return {
+        "version": summary.get("toolVersion"),
+        "configValid": summary.get("configValid"),
+        "validation": summary.get("validation"),
+        "toolCount": summary.get("toolCount"),
+        "tools": summary.get("tools") or [],
+    }
+
+
+@app.get("/api/srmp/langgraph/governance/policies/validate")
+async def governance_policy_validate() -> dict:
+    return validate_governance()
+
+
+@app.post("/api/srmp/langgraph/governance/plan-simulate")
+async def governance_plan_simulate(
+    request: MapAiAgentRequest,
+    x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id"),
+    x_ai_trace_id: Optional[str] = Header(default=None, alias="X-AI-Trace-Id"),
+) -> dict:
+    plan = await workflow.plan(request=request, tenant_id=x_tenant_id, trace_id=x_ai_trace_id)
+    return {
+        "traceId": plan.get("traceId"),
+        "strategy": plan.get("strategy"),
+        "action": plan.get("action"),
+        "intent": plan.get("intent"),
+        "capabilityId": plan.get("capabilityId"),
+        "capability": plan.get("capability") or {},
+        "contextSummary": plan.get("contextSummary") or {},
+        "toolPlan": plan.get("toolPlan") or [],
+        "sourceHints": plan.get("sourceHints") or [],
+        "warnings": plan.get("warnings") or [],
+        "steps": plan.get("steps") or [],
+    }
 
 
 @app.get("/api/srmp/langgraph/diagnostics/health")

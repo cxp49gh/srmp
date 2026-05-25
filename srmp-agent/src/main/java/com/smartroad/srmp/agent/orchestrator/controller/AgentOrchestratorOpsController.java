@@ -180,6 +180,27 @@ public class AgentOrchestratorOpsController {
         return R.ok(remoteGet("/api/srmp/langgraph/runtime/config"));
     }
 
+    @GetMapping("/governance/capabilities")
+    public R<Object> governanceCapabilities() {
+        return R.ok(remoteGet("/api/srmp/langgraph/governance/capabilities"));
+    }
+
+    @GetMapping("/governance/tools")
+    public R<Object> governanceTools() {
+        return R.ok(remoteGet("/api/srmp/langgraph/governance/tools"));
+    }
+
+    @GetMapping("/governance/policies/validate")
+    public R<Object> governanceValidate() {
+        return R.ok(remoteGet("/api/srmp/langgraph/governance/policies/validate"));
+    }
+
+    @PostMapping("/governance/plan-simulate")
+    public R<Object> governancePlanSimulate(@RequestBody(required = false) Map<String, Object> body) {
+        Map<String, Object> payload = body == null ? new LinkedHashMap<String, Object>() : body;
+        return R.ok(remotePost("/api/srmp/langgraph/governance/plan-simulate", payload));
+    }
+
     @GetMapping("/health-detail")
     public R<Object> healthDetail(@RequestParam(value = "includeGateway", required = false, defaultValue = "true") Boolean includeGateway,
                                   @RequestParam(value = "includeContract", required = false, defaultValue = "true") Boolean includeContract) {
