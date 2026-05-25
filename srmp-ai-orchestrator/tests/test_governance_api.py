@@ -1,3 +1,4 @@
+import copy
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -179,6 +180,34 @@ class GovernanceApiTest(unittest.TestCase):
         error_codes = [item["code"] for item in body["validation"]["errors"]]
         self.assertIn("TOOL_NOT_FOUND", error_codes)
         self.assertGreaterEqual(body["readiness"]["summary"]["validationErrorCount"], 1)
+
+    def test_config_draft_validate_returns_diff_against_active_config(self):
+        client = TestClient(app)
+        active = client.get("/api/srmp/langgraph/governance/config").json()
+        capabilities_config = copy.deepcopy(active["capabilitiesConfig"])
+        tools_config = copy.deepcopy(active["toolsConfig"])
+        capabilities_config["capabilities"][0]["name"] = "指标解释草稿"
+        tools_config["tools"][0]["description"] = "草稿中的知识检索工具说明"
+
+        response = client.post(
+            "/api/srmp/langgraph/governance/config/draft/validate",
+            json={"capabilitiesConfig": capabilities_config, "toolsConfig": tools_config},
+        )
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        diff = body["diff"]
+        self.assertTrue(diff["changed"])
+        self.assertEqual(active["capabilitiesHash"], diff["baseHashes"]["capabilities"])
+        self.assertEqual(body["capabilitiesHash"], diff["draftHashes"]["capabilities"])
+        self.assertGreaterEqual(diff["summary"]["capabilityModifiedCount"], 1)
+        self.assertGreaterEqual(diff["summary"]["toolModifiedCount"], 1)
+        capability_changes = {item["id"]: item for item in diff["capabilities"]}
+        tool_changes = {item["name"]: item for item in diff["tools"]}
+        self.assertEqual("MODIFIED", capability_changes["knowledge.metric_explain"]["changeType"])
+        self.assertIn("name", capability_changes["knowledge.metric_explain"]["changedFields"])
+        self.assertEqual("MODIFIED", tool_changes["knowledge.retrieve"]["changeType"])
+        self.assertIn("description", tool_changes["knowledge.retrieve"]["changedFields"])
 
 
 if __name__ == "__main__":

@@ -82,6 +82,8 @@ def governance_config_draft_validate(payload: Dict[str, Any]) -> Dict[str, Any]:
     capabilities_raw = dict((payload or {}).get("capabilitiesConfig") or {})
     tools_raw = dict((payload or {}).get("toolsConfig") or {})
     registry = build_governance_registry(capabilities_raw, tools_raw)
+    active_capabilities_raw = _load_json(_capabilities_path())
+    active_tools_raw = _load_json(_tools_path())
     result = _governance_config_payload(
         registry=registry,
         capabilities_raw=capabilities_raw,
@@ -97,6 +99,12 @@ def governance_config_draft_validate(payload: Dict[str, Any]) -> Dict[str, Any]:
         "toolsConfig": tools_raw,
     })[:16]
     result["readiness"] = governance_readiness_for_registry(registry)
+    result["diff"] = governance_config_diff(
+        base_capabilities_raw=active_capabilities_raw,
+        base_tools_raw=active_tools_raw,
+        draft_capabilities_raw=capabilities_raw,
+        draft_tools_raw=tools_raw,
+    )
     return result
 
 
@@ -447,6 +455,141 @@ def _governance_config_payload(
             "validationWarningCount": int(registry.validation.get("warningCount") or 0),
         },
     }
+
+
+def governance_config_diff(
+    base_capabilities_raw: Dict[str, Any],
+    base_tools_raw: Dict[str, Any],
+    draft_capabilities_raw: Dict[str, Any],
+    draft_tools_raw: Dict[str, Any],
+) -> Dict[str, Any]:
+    capability_changes = _list_config_changes(
+        base_items=base_capabilities_raw.get("capabilities") or [],
+        draft_items=draft_capabilities_raw.get("capabilities") or [],
+        key="id",
+        label_key="name",
+        output_key="id",
+    )
+    tool_changes = _list_config_changes(
+        base_items=base_tools_raw.get("tools") or [],
+        draft_items=draft_tools_raw.get("tools") or [],
+        key="name",
+        label_key="label",
+        output_key="name",
+    )
+    root_changed_fields = {
+        "capabilities": _changed_fields(
+            {k: v for k, v in base_capabilities_raw.items() if k != "capabilities"},
+            {k: v for k, v in draft_capabilities_raw.items() if k != "capabilities"},
+        ),
+        "tools": _changed_fields(
+            {k: v for k, v in base_tools_raw.items() if k != "tools"},
+            {k: v for k, v in draft_tools_raw.items() if k != "tools"},
+        ),
+    }
+    summary = {
+        "capabilityAddedCount": sum(1 for item in capability_changes if item.get("changeType") == "ADDED"),
+        "capabilityRemovedCount": sum(1 for item in capability_changes if item.get("changeType") == "REMOVED"),
+        "capabilityModifiedCount": sum(1 for item in capability_changes if item.get("changeType") == "MODIFIED"),
+        "toolAddedCount": sum(1 for item in tool_changes if item.get("changeType") == "ADDED"),
+        "toolRemovedCount": sum(1 for item in tool_changes if item.get("changeType") == "REMOVED"),
+        "toolModifiedCount": sum(1 for item in tool_changes if item.get("changeType") == "MODIFIED"),
+        "rootChangedCount": len(root_changed_fields["capabilities"]) + len(root_changed_fields["tools"]),
+    }
+    summary["changeCount"] = sum(int(value or 0) for value in summary.values())
+    return {
+        "changed": bool(summary["changeCount"]),
+        "baseHashes": {
+            "capabilities": _stable_hash(base_capabilities_raw),
+            "tools": _stable_hash(base_tools_raw),
+        },
+        "draftHashes": {
+            "capabilities": _stable_hash(draft_capabilities_raw),
+            "tools": _stable_hash(draft_tools_raw),
+        },
+        "summary": summary,
+        "rootChangedFields": root_changed_fields,
+        "capabilities": capability_changes,
+        "tools": tool_changes,
+    }
+
+
+def _list_config_changes(
+    base_items: List[Dict[str, Any]],
+    draft_items: List[Dict[str, Any]],
+    key: str,
+    label_key: str,
+    output_key: str,
+) -> List[Dict[str, Any]]:
+    base_by_key = _index_config_items(base_items, key)
+    draft_by_key = _index_config_items(draft_items, key)
+    changes: List[Dict[str, Any]] = []
+    for item_key in sorted(set(base_by_key.keys()) | set(draft_by_key.keys())):
+        before = base_by_key.get(item_key)
+        after = draft_by_key.get(item_key)
+        if before is None and after is not None:
+            changes.append(_config_change_item(output_key, item_key, "ADDED", [], before, after, label_key))
+            continue
+        if before is not None and after is None:
+            changes.append(_config_change_item(output_key, item_key, "REMOVED", [], before, after, label_key))
+            continue
+        changed_fields = _changed_fields(before or {}, after or {})
+        if changed_fields:
+            changes.append(_config_change_item(output_key, item_key, "MODIFIED", changed_fields, before, after, label_key))
+    return changes
+
+
+def _index_config_items(items: List[Dict[str, Any]], key: str) -> Dict[str, Dict[str, Any]]:
+    indexed: Dict[str, Dict[str, Any]] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        item_key = str(item.get(key) or "").strip()
+        if item_key:
+            indexed[item_key] = item
+    return indexed
+
+
+def _config_change_item(
+    output_key: str,
+    item_key: str,
+    change_type: str,
+    changed_fields: List[str],
+    before: Optional[Dict[str, Any]],
+    after: Optional[Dict[str, Any]],
+    label_key: str,
+) -> Dict[str, Any]:
+    current = after if isinstance(after, dict) else before if isinstance(before, dict) else {}
+    item = {
+        output_key: item_key,
+        "label": str((current or {}).get(label_key) or item_key),
+        "changeType": change_type,
+        "changedFields": changed_fields,
+    }
+    if isinstance(before, dict):
+        item["before"] = _config_item_preview(before, label_key)
+    if isinstance(after, dict):
+        item["after"] = _config_item_preview(after, label_key)
+    return item
+
+
+def _config_item_preview(item: Dict[str, Any], label_key: str) -> Dict[str, Any]:
+    preview = {
+        "label": item.get(label_key),
+        "enabled": item.get("enabled"),
+    }
+    for key in ("category", "intent", "priority", "readOnly", "writeRisk"):
+        if key in item:
+            preview[key] = item.get(key)
+    return preview
+
+
+def _changed_fields(before: Dict[str, Any], after: Dict[str, Any]) -> List[str]:
+    fields = []
+    for key in sorted(set((before or {}).keys()) | set((after or {}).keys())):
+        if (before or {}).get(key) != (after or {}).get(key):
+            fields.append(str(key))
+    return fields
 
 
 def _capabilities_path() -> Path:

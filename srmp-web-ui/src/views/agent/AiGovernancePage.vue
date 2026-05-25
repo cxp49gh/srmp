@@ -109,7 +109,8 @@
             </div>
             <div class="head-buttons">
               <el-button size="small" :loading="configLoading" @click="loadGovernanceConfig">刷新配置</el-button>
-              <el-button size="small" type="primary" :loading="draftValidationLoading" @click="validateCurrentGovernanceConfigDraft">校验当前配置</el-button>
+              <el-button size="small" @click="resetDraftEditor">重置草稿</el-button>
+              <el-button size="small" type="primary" :loading="draftValidationLoading" @click="validateCurrentGovernanceConfigDraft">校验当前草稿</el-button>
             </div>
           </div>
           <section class="plan-summary config-summary" v-loading="configLoading">
@@ -126,6 +127,35 @@
             </div>
           </div>
 
+          <div class="config-editor-grid">
+            <section class="config-editor-panel">
+              <div class="editor-title">
+                <strong>能力配置草稿</strong>
+                <span>{{ draftCapabilitiesText.length }} 字符</span>
+              </div>
+              <el-input
+                v-model="draftCapabilitiesText"
+                type="textarea"
+                :rows="14"
+                resize="vertical"
+                spellcheck="false"
+              />
+            </section>
+            <section class="config-editor-panel">
+              <div class="editor-title">
+                <strong>工具配置草稿</strong>
+                <span>{{ draftToolsText.length }} 字符</span>
+              </div>
+              <el-input
+                v-model="draftToolsText"
+                type="textarea"
+                :rows="14"
+                resize="vertical"
+                spellcheck="false"
+              />
+            </section>
+          </div>
+
           <div class="coverage-head">
             <div>
               <strong>草稿校验结果</strong>
@@ -138,6 +168,30 @@
             <div><span>配置错误</span><strong>{{ draftValidationErrorCount }}</strong></div>
             <div><span>问题总数</span><strong>{{ draftIssueCount }}</strong></div>
           </section>
+          <section class="plan-summary diff-summary" v-if="draftDiff.mode || draftDiff.changed !== undefined">
+            <div><span>能力变更</span><strong>{{ diffCapabilityChangeCount }}</strong></div>
+            <div><span>工具变更</span><strong>{{ diffToolChangeCount }}</strong></div>
+            <div><span>根配置变更</span><strong>{{ diffRootChangeCount }}</strong></div>
+            <div><span>是否有变更</span><strong>{{ draftDiff.changed ? '是' : '否' }}</strong></div>
+          </section>
+          <el-table v-if="draftConfigChanges.length" class="mb" :data="draftConfigChanges" border stripe>
+            <el-table-column prop="kind" label="类型" width="90" />
+            <el-table-column prop="key" label="对象" min-width="220" />
+            <el-table-column label="变更" width="110">
+              <template #default="{ row }">
+                <el-tag :type="changeTagType(row.changeType)">{{ changeTypeLabel(row.changeType) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="字段" min-width="260">
+              <template #default="{ row }">
+                <div class="tag-list">
+                  <el-tag v-for="item in arrayValue(row.changedFields)" :key="item" size="small" effect="plain">{{ item }}</el-tag>
+                  <span v-if="arrayValue(row.changedFields).length === 0" class="muted">整项</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="label" label="名称" min-width="180" />
+          </el-table>
           <el-table :data="draftIssues" border stripe v-loading="draftValidationLoading">
             <el-table-column label="级别" width="90">
               <template #default="{ row }">
@@ -552,6 +606,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import AgentPageShell from './components/AgentPageShell.vue'
 import {
   getAiGovernanceCapability,
@@ -589,6 +644,8 @@ const toolImpactPayload = ref<Record<string, any>>({})
 const readinessPayload = ref<Record<string, any>>({})
 const configPayload = ref<Record<string, any>>({})
 const draftValidationPayload = ref<Record<string, any>>({})
+const draftCapabilitiesText = ref('')
+const draftToolsText = ref('')
 const capabilityDetailPayload = ref<Record<string, any>>({})
 const toolDetailPayload = ref<Record<string, any>>({})
 const planResult = ref<Record<string, any> | null>(null)
@@ -627,6 +684,27 @@ const readinessWarningCount = computed(() => Number(readinessSummary.value.warni
 const configFiles = computed(() => objectValue(configPayload.value.configFiles))
 const draftValidation = computed(() => objectValue(draftValidationPayload.value.validation))
 const draftReadiness = computed(() => objectValue(draftValidationPayload.value.readiness))
+const draftDiff = computed(() => objectValue(draftValidationPayload.value.diff))
+const draftDiffSummary = computed(() => objectValue(draftDiff.value.summary))
+const diffCapabilityChangeCount = computed(() => Number(draftDiffSummary.value.capabilityAddedCount || 0) + Number(draftDiffSummary.value.capabilityRemovedCount || 0) + Number(draftDiffSummary.value.capabilityModifiedCount || 0))
+const diffToolChangeCount = computed(() => Number(draftDiffSummary.value.toolAddedCount || 0) + Number(draftDiffSummary.value.toolRemovedCount || 0) + Number(draftDiffSummary.value.toolModifiedCount || 0))
+const diffRootChangeCount = computed(() => Number(draftDiffSummary.value.rootChangedCount || 0))
+const draftConfigChanges = computed(() => [
+  ...arrayValue(draftDiff.value.capabilities).map((item) => ({
+    kind: '能力',
+    key: item.id,
+    label: item.label,
+    changeType: item.changeType,
+    changedFields: item.changedFields
+  })),
+  ...arrayValue(draftDiff.value.tools).map((item) => ({
+    kind: '工具',
+    key: item.name,
+    label: item.label,
+    changeType: item.changeType,
+    changedFields: item.changedFields
+  }))
+])
 const draftValidationErrorCount = computed(() => Number(draftValidation.value.errorCount || 0))
 const draftStatus = computed(() => draftValidationErrorCount.value > 0 ? 'FAIL' : draftValidationPayload.value.mode ? 'PASS' : '未运行')
 const draftIssues = computed(() => {
@@ -685,6 +763,7 @@ async function loadGovernanceConfig() {
   try {
     const response = await getAiGovernanceConfig()
     configPayload.value = extractBody(response)
+    resetDraftEditor()
   } finally {
     configLoading.value = false
   }
@@ -694,17 +773,44 @@ async function validateCurrentGovernanceConfigDraft() {
   if (!configPayload.value.capabilitiesConfig || !configPayload.value.toolsConfig) {
     await loadGovernanceConfig()
   }
+  const capabilitiesConfig = parseDraftJson(draftCapabilitiesText.value, '能力配置')
+  const toolsConfig = parseDraftJson(draftToolsText.value, '工具配置')
+  if (!capabilitiesConfig || !toolsConfig) return
   draftValidationLoading.value = true
   try {
     const response = await validateAiGovernanceConfigDraft({
-      capabilitiesConfig: configPayload.value.capabilitiesConfig || {},
-      toolsConfig: configPayload.value.toolsConfig || {}
+      capabilitiesConfig,
+      toolsConfig
     })
     draftValidationPayload.value = extractBody(response)
     activeTab.value = 'config'
   } finally {
     draftValidationLoading.value = false
   }
+}
+
+function resetDraftEditor() {
+  draftCapabilitiesText.value = prettyJson(configPayload.value.capabilitiesConfig || {})
+  draftToolsText.value = prettyJson(configPayload.value.toolsConfig || {})
+  draftValidationPayload.value = {}
+}
+
+function parseDraftJson(value: string, label: string): Record<string, any> | null {
+  try {
+    const parsed = JSON.parse(value || '{}')
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      ElMessage.error(`${label} 必须是 JSON 对象`)
+      return null
+    }
+    return parsed
+  } catch (error: any) {
+    ElMessage.error(`${label} JSON 格式错误：${error?.message || '无法解析'}`)
+    return null
+  }
+}
+
+function prettyJson(value: any): string {
+  return JSON.stringify(value || {}, null, 2)
 }
 
 async function loadPolicyCoverage() {
@@ -825,6 +931,20 @@ function issueTagType(severity: string) {
   return 'info'
 }
 
+function changeTagType(changeType: string) {
+  if (changeType === 'ADDED') return 'success'
+  if (changeType === 'REMOVED') return 'danger'
+  if (changeType === 'MODIFIED') return 'warning'
+  return 'info'
+}
+
+function changeTypeLabel(changeType: string) {
+  if (changeType === 'ADDED') return '新增'
+  if (changeType === 'REMOVED') return '删除'
+  if (changeType === 'MODIFIED') return '修改'
+  return changeType || '-'
+}
+
 function toolNamesForPolicy(key: string) {
   return arrayValue(capabilityDetail.value.tools?.[key])
     .map((item) => item?.label ? `${item.label} (${item.name})` : item?.name)
@@ -905,6 +1025,36 @@ function uniqueStrings(values: any[]): string[] {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.config-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.config-editor-panel {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.editor-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.editor-title strong {
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.editor-title span {
+  color: #64748b;
+  font-size: 12px;
 }
 
 .coverage-head {
@@ -1057,6 +1207,10 @@ function uniqueStrings(values: any[]): string[] {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.diff-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .plan-summary div {
   padding: 10px;
   border: 1px solid #e5e7eb;
@@ -1094,6 +1248,7 @@ function uniqueStrings(values: any[]): string[] {
 @media (max-width: 1100px) {
   .metric-grid,
   .simulator-grid,
+  .config-editor-grid,
   .plan-summary,
   .policy-grid,
   .status-grid {
