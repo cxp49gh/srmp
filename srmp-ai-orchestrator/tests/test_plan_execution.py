@@ -26,6 +26,43 @@ class PlanExecutionHelpersTest(unittest.TestCase):
         self.assertEqual("NO_PLAN", result["status"])
         self.assertEqual("run-1", result["runTraceId"])
 
+    def test_runtime_tool_plan_is_used_when_preview_plan_is_missing(self):
+        plan = normalize_plan_preview(None)
+
+        result = build_plan_execution(
+            plan,
+            {
+                "runTraceId": "run-runtime-plan-1",
+                "actualAction": "ANALYZE_ROUTE",
+                "actualIntent": "ROUTE_ANALYSIS",
+                "toolPlan": [
+                    {"toolName": "gis.queryAssessmentResults"},
+                    {"toolName": "gis.queryDiseases"},
+                    {"toolName": "knowledge.retrieve"},
+                ],
+                "toolResults": [
+                    {"toolName": "gis.queryAssessmentResults", "success": True},
+                    {"toolName": "gis.queryDiseases", "success": True},
+                    {"toolName": "knowledge.retrieve", "success": True},
+                ],
+                "sources": [{"sourceType": "KNOWLEDGE"}],
+                "evidence": {"businessHitCount": 3, "knowledgeHitCount": 1},
+            },
+        )
+
+        self.assertFalse(plan["available"])
+        self.assertTrue(result["available"])
+        self.assertEqual("MATCHED", result["status"])
+        self.assertIsNone(result["planTraceId"])
+        self.assertEqual("ANALYZE_ROUTE", result["plannedAction"])
+        self.assertEqual("ROUTE_ANALYSIS", result["plannedIntent"])
+        self.assertEqual(
+            ["gis.queryAssessmentResults", "gis.queryDiseases", "knowledge.retrieve"],
+            result["plannedToolNames"],
+        )
+        self.assertEqual([], result["missingToolNames"])
+        self.assertEqual([], result["extraToolNames"])
+
     def test_matching_action_intent_and_tools_returns_matched(self):
         plan = normalize_plan_preview(
             {
@@ -189,6 +226,28 @@ class PlanExecutionRunWorkflowTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("MATCHED", response.answerMeta["planExecutionStatus"])
         self.assertEqual(plan_execution, response.trace["planExecution"])
 
+    async def test_map_agent_run_uses_runtime_tool_plan_when_preview_is_missing(self):
+        workflow = MapAgentRunWorkflow(base_workflow=FakeRuntimePlanWorkflow(), gateway=FakeGateway())
+        request = MapAgentRunRequest(
+            action="ANALYZE_ROUTE",
+            message="分析当前路线",
+            options={"traceId": "run-runtime-plan-wrapper-1"},
+        )
+
+        response = await workflow.run(request=request, tenant_id="default", trace_id=None)
+        plan_execution = response.planExecution
+
+        self.assertTrue(plan_execution["available"])
+        self.assertEqual("MATCHED", plan_execution["status"])
+        self.assertEqual("ANALYZE_ROUTE", plan_execution["plannedAction"])
+        self.assertEqual("ROUTE_ANALYSIS", plan_execution["plannedIntent"])
+        self.assertEqual(
+            ["gis.queryAssessmentResults", "gis.queryDiseases"],
+            plan_execution["plannedToolNames"],
+        )
+        self.assertEqual(plan_execution, response.data["planExecution"])
+        self.assertEqual(plan_execution, response.trace["planExecution"])
+
 
 class FakeBaseWorkflow:
     async def run(self, request, tenant_id, trace_id):
@@ -202,6 +261,29 @@ class FakeBaseWorkflow:
             data={
                 "answerMeta": {"answerSource": "FALLBACK", "llmSuccess": False},
                 "evidence": {"businessHitCount": 3, "knowledgeHitCount": 0},
+            },
+        )
+
+
+class FakeRuntimePlanWorkflow:
+    async def run(self, request, tenant_id, trace_id):
+        return MapAiAgentResponse(
+            answer="路线分析完成",
+            intent="ROUTE_ANALYSIS",
+            toolResults=[
+                {"toolName": "gis.queryAssessmentResults", "success": True, "count": 2},
+                {"toolName": "gis.queryDiseases", "success": True, "count": 4},
+            ],
+            sources=[],
+            knowledgeSources=[],
+            trace={"traceId": "run-runtime-plan-wrapper-1"},
+            data={
+                "answerMeta": {"answerSource": "LLM", "llmSuccess": True},
+                "toolPlan": [
+                    {"toolName": "gis.queryAssessmentResults"},
+                    {"toolName": "gis.queryDiseases"},
+                ],
+                "evidence": {"businessHitCount": 6, "knowledgeHitCount": 0},
             },
         )
 
