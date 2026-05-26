@@ -261,6 +261,7 @@
               <el-table-column label="操作" width="110" fixed="right">
                 <template #default="{ row }">
                   <div class="action-links">
+                    <el-button link type="primary" :loading="publishDetailLoading && publishDetailId === row.requestId" @click="openPublishDetail(row)">详情</el-button>
                     <el-button v-if="isLatestPublishRecord(row) && row.status === 'SUBMITTED'" link type="success" :loading="decisionLoadingId === row.requestId + ':approve'" @click="decidePublish(row, 'approve')">通过</el-button>
                     <el-button v-if="isLatestPublishRecord(row) && (row.status === 'SUBMITTED' || row.status === 'APPROVED')" link type="danger" :loading="decisionLoadingId === row.requestId + ':reject'" @click="decidePublish(row, 'reject')">驳回</el-button>
                     <el-button v-if="isLatestPublishRecord(row) && row.status === 'APPROVED'" link type="primary" :loading="decisionLoadingId === row.requestId + ':apply'" @click="decidePublish(row, 'apply')">已应用</el-button>
@@ -519,6 +520,58 @@
         </el-tab-pane>
       </el-tabs>
 
+      <el-drawer v-model="publishDetailVisible" size="58%" class="publish-drawer">
+        <template #header>
+          <div class="drawer-title">
+            <strong>发布包详情</strong>
+            <span>{{ publishDetail.requestId || publishDetailId }}</span>
+          </div>
+        </template>
+        <el-skeleton v-if="publishDetailLoading" :rows="8" animated />
+        <template v-else>
+          <section class="drawer-section">
+            <h3>发布包</h3>
+            <section class="plan-summary publish-summary">
+              <div><span>最新状态</span><strong>{{ publishStatusLabel(publishDetail.latestRecord?.status) }}</strong></div>
+              <div><span>能力 Hash</span><strong>{{ shortHash(publishPackage.draftHashes?.capabilities) || '-' }}</strong></div>
+              <div><span>工具 Hash</span><strong>{{ shortHash(publishPackage.draftHashes?.tools) || '-' }}</strong></div>
+            </section>
+          </section>
+
+          <section class="drawer-section">
+            <h3>状态时间线</h3>
+            <el-table :data="publishTimeline" border stripe size="small">
+              <el-table-column prop="createdAtMs" label="时间" min-width="170">
+                <template #default="{ row }">{{ formatTime(row.createdAtMs) }}</template>
+              </el-table-column>
+              <el-table-column prop="recordType" label="类型" width="150" />
+              <el-table-column label="状态" width="130">
+                <template #default="{ row }">
+                  <el-tag :type="publishStatusTagType(row.status)">{{ publishStatusLabel(row.status) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="actor" label="操作人" width="120" />
+              <el-table-column prop="reason" label="说明" min-width="220" />
+            </el-table>
+          </section>
+
+          <section class="drawer-section">
+            <h3>配置快照</h3>
+            <div v-if="publishSnapshotAvailable" class="snapshot-grid">
+              <div>
+                <span>能力配置</span>
+                <el-input :model-value="publishCapabilitiesSnapshotText" type="textarea" :rows="16" readonly resize="vertical" />
+              </div>
+              <div>
+                <span>工具配置</span>
+                <el-input :model-value="publishToolsSnapshotText" type="textarea" :rows="16" readonly resize="vertical" />
+              </div>
+            </div>
+            <el-empty v-else description="该记录没有保存配置快照" />
+          </section>
+        </template>
+      </el-drawer>
+
       <el-drawer v-model="capabilityDetailVisible" size="50%" class="capability-drawer">
         <template #header>
           <div class="drawer-title">
@@ -677,6 +730,7 @@ import {
   getAiGovernanceCapability,
   getAiGovernanceCapabilities,
   getAiGovernanceConfig,
+  getAiGovernanceConfigPublishRequest,
   getAiGovernanceConfigPublishRequests,
   getAiGovernancePolicyCoverage,
   getAiGovernanceReadiness,
@@ -700,6 +754,9 @@ const configLoading = ref(false)
 const draftValidationLoading = ref(false)
 const publishRecordsLoading = ref(false)
 const publishSubmitLoading = ref(false)
+const publishDetailLoading = ref(false)
+const publishDetailVisible = ref(false)
+const publishDetailId = ref('')
 const rollbackLoadingId = ref('')
 const decisionLoadingId = ref('')
 const capabilityDetailLoading = ref(false)
@@ -718,6 +775,7 @@ const configPayload = ref<Record<string, any>>({})
 const draftValidationPayload = ref<Record<string, any>>({})
 const publishRecordsPayload = ref<Record<string, any>>({})
 const publishSubmitPayload = ref<Record<string, any>>({})
+const publishDetailPayload = ref<Record<string, any>>({})
 const draftCapabilitiesText = ref('')
 const draftToolsText = ref('')
 const publishReason = ref('')
@@ -794,6 +852,13 @@ const draftIssues = computed(() => {
 })
 const draftIssueCount = computed(() => Number(objectValue(draftReadiness.value.summary).issueCount ?? draftIssues.value.length))
 const publishRecords = computed(() => arrayValue(publishRecordsPayload.value.records))
+const publishDetail = computed(() => objectValue(publishDetailPayload.value))
+const publishPackage = computed(() => objectValue(publishDetail.value.package))
+const publishTimeline = computed(() => arrayValue(publishDetail.value.timeline))
+const publishSnapshot = computed(() => objectValue(publishDetail.value.configSnapshot))
+const publishSnapshotAvailable = computed(() => Object.keys(publishSnapshot.value).length > 0)
+const publishCapabilitiesSnapshotText = computed(() => prettyJson(publishSnapshot.value.capabilitiesConfig || {}))
+const publishToolsSnapshotText = computed(() => prettyJson(publishSnapshot.value.toolsConfig || {}))
 const latestPublishRecordIds = computed(() => {
   const seen = new Set<string>()
   const latest = new Set<string>()
@@ -927,6 +992,20 @@ async function requestRollback(row: Record<string, any>) {
     ElMessage.warning('回滚申请已记录，当前阶段不执行配置覆盖')
   } finally {
     rollbackLoadingId.value = ''
+  }
+}
+
+async function openPublishDetail(row: Record<string, any>) {
+  const requestId = stringValue(row.targetRequestId || row.requestId)
+  if (!requestId) return
+  publishDetailId.value = requestId
+  publishDetailVisible.value = true
+  publishDetailLoading.value = true
+  try {
+    const response = await getAiGovernanceConfigPublishRequest(requestId)
+    publishDetailPayload.value = extractBody(response)
+  } finally {
+    publishDetailLoading.value = false
   }
 }
 
@@ -1273,6 +1352,23 @@ function uniqueStrings(values: any[]): string[] {
   gap: 2px 8px;
 }
 
+.snapshot-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.snapshot-grid > div {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.snapshot-grid span {
+  color: #64748b;
+  font-size: 12px;
+}
+
 .coverage-head {
   display: flex;
   align-items: center;
@@ -1465,6 +1561,7 @@ function uniqueStrings(values: any[]): string[] {
   .metric-grid,
   .simulator-grid,
   .config-editor-grid,
+  .snapshot-grid,
   .plan-summary,
   .policy-grid,
   .status-grid {

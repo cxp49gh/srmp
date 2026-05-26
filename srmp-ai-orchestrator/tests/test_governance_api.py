@@ -1,4 +1,6 @@
 import copy
+import os
+import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -208,6 +210,42 @@ class GovernanceApiTest(unittest.TestCase):
         self.assertIn("name", capability_changes["knowledge.metric_explain"]["changedFields"])
         self.assertEqual("MODIFIED", tool_changes["knowledge.retrieve"]["changeType"])
         self.assertIn("description", tool_changes["knowledge.retrieve"]["changedFields"])
+
+    def test_publish_request_detail_keeps_snapshot_out_of_list_and_in_detail(self):
+        client = TestClient(app)
+        active = client.get("/api/srmp/langgraph/governance/config").json()
+        capabilities_config = copy.deepcopy(active["capabilitiesConfig"])
+        tools_config = copy.deepcopy(active["toolsConfig"])
+        capabilities_config["capabilities"][0]["name"] = "发布包快照测试"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_path = os.path.join(temp_dir, "publish.jsonl")
+            with patch.dict(os.environ, {"SRMP_AGENT_GOVERNANCE_PUBLISH_LOG_PATH": log_path}):
+                submit_response = client.post(
+                    "/api/srmp/langgraph/governance/config/publish/request",
+                    json={
+                        "capabilitiesConfig": capabilities_config,
+                        "toolsConfig": tools_config,
+                        "reason": "测试发布详情快照",
+                    },
+                )
+                self.assertEqual(200, submit_response.status_code)
+                request_id = submit_response.json()["record"]["requestId"]
+
+                list_response = client.get("/api/srmp/langgraph/governance/config/publish/requests")
+                self.assertEqual(200, list_response.status_code)
+                list_record = list_response.json()["records"][0]
+                self.assertTrue(list_record["configSnapshotAvailable"])
+                self.assertNotIn("configSnapshot", list_record)
+
+                detail_response = client.get(f"/api/srmp/langgraph/governance/config/publish/requests/{request_id}")
+                self.assertEqual(200, detail_response.status_code)
+                detail = detail_response.json()
+                self.assertTrue(detail["found"])
+                self.assertEqual(request_id, detail["requestId"])
+                self.assertEqual("发布包快照测试", detail["configSnapshot"]["capabilitiesConfig"]["capabilities"][0]["name"])
+                self.assertEqual(1, len(detail["timeline"]))
+                self.assertTrue(detail["package"]["draftHashes"]["capabilities"])
 
 
 if __name__ == "__main__":

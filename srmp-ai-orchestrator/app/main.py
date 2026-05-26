@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, Header, HTTPException, Query
 
 from .config import settings
-from .governance import governance_capability_detail, governance_config_bundle, governance_config_draft_validate, governance_config_publish_decision, governance_config_publish_requests, governance_config_publish_rollback, governance_config_publish_submit, governance_policy_examples, governance_readiness, governance_summary, governance_tool_detail, governance_tool_impact, resolve_capability, validate_governance
+from .governance import governance_capability_detail, governance_config_bundle, governance_config_draft_validate, governance_config_publish_decision, governance_config_publish_request_detail, governance_config_publish_requests, governance_config_publish_rollback, governance_config_publish_submit, governance_policy_examples, governance_readiness, governance_summary, governance_tool_detail, governance_tool_impact, resolve_capability, validate_governance
 from .intent import recognize_intent
 from .java_tools import JavaToolGateway
 from .live_trace import LiveTraceStore
@@ -298,6 +298,11 @@ async def governance_config_publish_request_endpoint(
     x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
 ) -> dict:
     return governance_config_publish_submit(body or {}, actor=x_operator_id or x_user_id or "", tenant_id=x_tenant_id or "")
+
+
+@app.get("/api/srmp/langgraph/governance/config/publish/requests/{request_id}")
+async def governance_config_publish_request_detail_endpoint(request_id: str) -> dict:
+    return governance_config_publish_request_detail(request_id)
 
 
 @app.post("/api/srmp/langgraph/governance/config/publish/requests/{request_id}/rollback")

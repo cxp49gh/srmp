@@ -202,6 +202,13 @@ public class AgentOrchestratorOpsController {
         return R.ok(remotePost("/api/srmp/langgraph/governance/config/publish/request", payload));
     }
 
+    @GetMapping("/governance/config/publish/requests/{requestId:.+}")
+    public R<Object> governanceConfigPublishRequestDetail(@PathVariable("requestId") String requestId) {
+        String path = "/api/srmp/langgraph/governance/config/publish/requests/"
+                + UriUtils.encodePathSegment(requestId == null ? "" : requestId, StandardCharsets.UTF_8);
+        return R.ok(remoteGet(path));
+    }
+
     @PostMapping("/governance/config/publish/requests/{requestId:.+}/rollback")
     public R<Object> governanceConfigPublishRollback(@PathVariable("requestId") String requestId,
                                                      @RequestBody(required = false) Map<String, Object> body) {

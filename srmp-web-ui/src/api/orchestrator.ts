@@ -128,6 +128,10 @@ export function getAiGovernanceConfigPublishRequests(limit = 20): Promise<Record
   })
 }
 
+export function getAiGovernanceConfigPublishRequest(requestId: string): Promise<Record<string, any>> {
+  return aiRequest.get(`/api/agent/orchestrator/ops/governance/config/publish/requests/${encodeURIComponent(requestId)}`)
+}
+
 export function submitAiGovernanceConfigPublishRequest(data: Record<string, any>): Promise<Record<string, any>> {
   return aiRequest.post('/api/agent/orchestrator/ops/governance/config/publish/request', data || {})
 }

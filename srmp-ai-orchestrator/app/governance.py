@@ -123,6 +123,40 @@ def governance_config_publish_requests(limit: int = 20) -> Dict[str, Any]:
     }
 
 
+def governance_config_publish_request_detail(request_id: str) -> Dict[str, Any]:
+    requested_id = str(request_id or "").strip()
+    records = _read_publish_records(limit=100, include_config_snapshot=True)
+    requested_record = _publish_record_by_id(requested_id, records) or {}
+    target = str(requested_record.get("targetRequestId") or requested_id).strip()
+    timeline = [
+        record
+        for record in records
+        if record.get("requestId") == target or record.get("targetRequestId") == target
+    ]
+    timeline.sort(key=lambda item: int(item.get("createdAtMs") or 0))
+    latest = _find_publish_record(target) or {}
+    origin = _origin_publish_record(target, records) or latest
+    config_snapshot = origin.get("configSnapshot") if isinstance(origin, dict) else {}
+    return {
+        "mode": "PUBLISH_DETAIL",
+        "requestId": target,
+        "requestedId": requested_id,
+        "found": bool(latest),
+        "latestRecord": _publish_record_summary(latest) if latest else {},
+        "originRecord": _publish_record_summary(origin) if origin else {},
+        "timeline": [_publish_record_summary(record) for record in timeline],
+        "configSnapshot": config_snapshot if isinstance(config_snapshot, dict) else {},
+        "package": {
+            "baseHashes": (origin or {}).get("baseHashes") or {},
+            "draftHashes": (origin or {}).get("draftHashes") or {},
+            "diffSummary": (origin or {}).get("diffSummary") or {},
+            "publishMode": "restart-required",
+            "runtimeMutable": False,
+            "requiresRestart": True,
+        },
+    }
+
+
 def governance_config_publish_submit(
     payload: Dict[str, Any],
     actor: str = "",
@@ -152,6 +186,10 @@ def governance_config_publish_submit(
         "validationWarningCount": int((validation.get("validation") or {}).get("warningCount") or 0),
         "readinessIssueCount": int(((validation.get("readiness") or {}).get("summary") or {}).get("issueCount") or 0),
         "blockers": blockers,
+        "configSnapshot": {
+            "capabilitiesConfig": dict((payload or {}).get("capabilitiesConfig") or {}),
+            "toolsConfig": dict((payload or {}).get("toolsConfig") or {}),
+        },
         "operation": {
             "appliesRuntimeConfig": False,
             "writesConfigFiles": False,
@@ -788,7 +826,7 @@ def _publish_log_path() -> Path:
     return Path(os.getenv("SRMP_AGENT_GOVERNANCE_PUBLISH_LOG_PATH") or DEFAULT_PUBLISH_LOG_PATH)
 
 
-def _read_publish_records(limit: int = 20) -> List[Dict[str, Any]]:
+def _read_publish_records(limit: int = 20, include_config_snapshot: bool = False) -> List[Dict[str, Any]]:
     path = _publish_log_path()
     if not path.exists():
         return []
@@ -808,7 +846,20 @@ def _read_publish_records(limit: int = 20) -> List[Dict[str, Any]]:
     except Exception:  # noqa: BLE001
         return []
     records.sort(key=lambda item: int(item.get("createdAtMs") or 0), reverse=True)
-    return records[: max(1, min(int(limit or 20), 100))]
+    limited = records[: max(1, min(int(limit or 20), 100))]
+    if include_config_snapshot:
+        return limited
+    return [_publish_record_summary(record) for record in limited]
+
+
+def _publish_record_summary(record: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(record, dict):
+        return {}
+    summary = dict(record)
+    if "configSnapshot" in summary:
+        snapshot = summary.pop("configSnapshot")
+        summary["configSnapshotAvailable"] = isinstance(snapshot, dict) and bool(snapshot)
+    return summary
 
 
 def _append_publish_record(record: Dict[str, Any]) -> None:
@@ -825,8 +876,33 @@ def _find_publish_record(request_id: str) -> Optional[Dict[str, Any]]:
     target = str(request_id or "").strip()
     if not target:
         return None
-    for record in _read_publish_records(limit=100):
+    for record in _read_publish_records(limit=100, include_config_snapshot=True):
         if record.get("requestId") == target and record.get("status") != "DECISION_BLOCKED":
+            return record
+    return None
+
+
+def _origin_publish_record(request_id: str, records: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    target = str(request_id or "").strip()
+    if not target:
+        return None
+    candidates = [
+        record
+        for record in records
+        if record.get("requestId") == target and record.get("recordType") == "PUBLISH_REQUEST"
+    ]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: int(item.get("createdAtMs") or 0))
+    return candidates[0]
+
+
+def _publish_record_by_id(request_id: str, records: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    target = str(request_id or "").strip()
+    if not target:
+        return None
+    for record in records:
+        if record.get("requestId") == target:
             return record
     return None
 
