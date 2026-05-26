@@ -32,7 +32,7 @@
             collapse-tags-tooltip
             clearable
             size="small"
-            @update:model-value="(value) => updatePolicy(row.id, block.key, value)"
+            @update:model-value="(value: string[]) => updatePolicy(row.id, block.key, value)"
           >
             <el-option
               v-for="tool in toolOptions"

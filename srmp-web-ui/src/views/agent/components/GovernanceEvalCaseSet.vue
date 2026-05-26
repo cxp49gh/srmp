@@ -118,7 +118,7 @@ import {
 
 const props = defineProps<{
   capabilitiesConfig: Record<string, any>
-  coveragePayload?: Record<string, any>
+  coveragePayload: Record<string, any>
   loading?: boolean
 }>()
 
