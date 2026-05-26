@@ -37,6 +37,38 @@ class GovernanceApiTest(unittest.TestCase):
         self.assertEqual("knowledge.metric_explain", body["capabilityId"])
         self.assertEqual(["knowledge.retrieve"], [item["toolName"] for item in body["toolPlan"]])
 
+    def test_plan_simulate_uses_draft_registry_when_wrapper_payload_is_sent(self):
+        client = TestClient(app)
+        active = client.get("/api/srmp/langgraph/governance/config").json()
+        capabilities_config = copy.deepcopy(active["capabilitiesConfig"])
+        tools_config = copy.deepcopy(active["toolsConfig"])
+        route_capability = next(item for item in capabilities_config["capabilities"] if item["id"] == "map.route_analysis")
+        route_capability["toolPolicy"]["required"] = ["knowledge.retrieve"]
+        route_capability["toolPolicy"]["optional"] = []
+        route_capability["toolPolicy"]["adaptive"] = []
+        route_capability["toolPolicy"]["prohibited"] = ["gis.queryRegionSummary", "gis.queryAssessmentResults", "gis.queryDiseases"]
+
+        response = client.post(
+            "/api/srmp/langgraph/governance/plan-simulate",
+            json={
+                "request": {
+                    "action": "ANALYZE_ROUTE",
+                    "message": "分析当前路线",
+                    "mapContext": {"mode": "ROUTE", "routeCode": "Y016140727", "year": 2026},
+                    "options": {"useKnowledge": True},
+                },
+                "capabilitiesConfig": capabilities_config,
+                "toolsConfig": tools_config,
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual("DRAFT_PLAN_SIMULATE", body["mode"])
+        self.assertEqual("map.route_analysis", body["capabilityId"])
+        self.assertEqual(["knowledge.retrieve"], [item["toolName"] for item in body["toolPlan"]])
+        self.assertIn("gis.queryRegionSummary", body["capability"]["toolPolicy"]["prohibited"])
+
     def test_policy_coverage_endpoint_runs_configured_examples(self):
         client = TestClient(app)
 

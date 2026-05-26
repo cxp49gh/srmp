@@ -426,6 +426,46 @@ def governance_draft_policy_coverage(payload: Dict[str, Any]) -> Dict[str, Any]:
     return coverage
 
 
+def governance_plan_simulate_for_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    request_payload = payload.get("request") if isinstance(payload.get("request"), dict) else payload
+    capabilities_raw = payload.get("capabilitiesConfig") if isinstance(payload.get("capabilitiesConfig"), dict) else None
+    tools_raw = payload.get("toolsConfig") if isinstance(payload.get("toolsConfig"), dict) else None
+    is_draft = capabilities_raw is not None and tools_raw is not None
+    registry = build_governance_registry(
+        capabilities_raw or _load_json(_capabilities_path()),
+        tools_raw or _load_json(_tools_path()),
+    )
+    request = MapAiAgentRequest(**(request_payload or {}))
+    fallback_intent, detail = recognize_intent(request)
+    capability = resolve_capability_for_registry(
+        registry,
+        request,
+        fallback_intent=fallback_intent,
+        intent_detail=detail,
+    )
+    intent = capability.get("intent") or fallback_intent
+    tool_plan = enrich_tool_plan(plan_tools(request, intent, detail, capability=capability))
+    ctx = request.mapContext
+    return {
+        "mode": "DRAFT_PLAN_SIMULATE" if is_draft else "ACTIVE_PLAN_SIMULATE",
+        "action": request.action,
+        "intent": intent,
+        "capabilityId": capability.get("capabilityId"),
+        "capability": capability,
+        "contextSummary": {
+            "mode": ctx.mode if ctx else None,
+            "routeCode": ctx.routeCode if ctx else None,
+            "year": ctx.year if ctx else None,
+        },
+        "toolPlan": tool_plan,
+        "warnings": registry.validation.get("errors") or [],
+        "draftId": _stable_hash({
+            "capabilitiesConfig": capabilities_raw or {},
+            "toolsConfig": tools_raw or {},
+        })[:16] if is_draft else "",
+    }
+
+
 def _run_governance_policy_case(
     example: Dict[str, Any],
     registry: Optional[GovernanceRegistry] = None,

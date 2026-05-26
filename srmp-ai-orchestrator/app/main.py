@@ -16,6 +16,7 @@ from .governance import (
     governance_config_publish_rollback,
     governance_config_publish_submit,
     governance_draft_policy_coverage,
+    governance_plan_simulate_for_payload,
     governance_policy_coverage_for_registry,
     governance_readiness,
     governance_registry,
@@ -340,10 +341,14 @@ async def governance_policy_validate() -> dict:
 
 @app.post("/api/srmp/langgraph/governance/plan-simulate")
 async def governance_plan_simulate(
-    request: MapAiAgentRequest,
+    body: Optional[Dict[str, Any]] = None,
     x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id"),
     x_ai_trace_id: Optional[str] = Header(default=None, alias="X-AI-Trace-Id"),
 ) -> dict:
+    payload = body or {}
+    if isinstance(payload.get("request"), dict) or isinstance(payload.get("capabilitiesConfig"), dict) or isinstance(payload.get("toolsConfig"), dict):
+        return governance_plan_simulate_for_payload(payload)
+    request = MapAiAgentRequest(**payload)
     plan = await workflow.plan(request=request, tenant_id=x_tenant_id, trace_id=x_ai_trace_id)
     return {
         "traceId": plan.get("traceId"),
