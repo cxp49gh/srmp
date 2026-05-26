@@ -14,3 +14,12 @@ test('governance page wires the matrix editor', () => {
   assert.match(page, /name="matrix"/)
   assert.match(page, /能力-工具矩阵/)
 })
+
+test('governance page wires evaluation cases and draft coverage', () => {
+  const page = readFileSync('srmp-web-ui/src/views/agent/AiGovernancePage.vue', 'utf8')
+  assert.match(page, /GovernanceEvalCaseSet/)
+  assert.match(page, /runDraftPolicyCoverage/)
+  assert.match(page, /name="eval-cases"/)
+  const api = readFileSync('srmp-web-ui/src/api/orchestrator.ts', 'utf8')
+  assert.match(api, /getAiGovernanceDraftPolicyCoverage/)
+})

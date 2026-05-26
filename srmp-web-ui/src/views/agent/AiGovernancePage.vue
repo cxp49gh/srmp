@@ -282,6 +282,16 @@
           />
         </el-tab-pane>
 
+        <el-tab-pane label="评测用例集" name="eval-cases">
+          <GovernanceEvalCaseSet
+            :capabilities-config="draftCapabilitiesConfig"
+            :coverage-payload="draftCoveragePayload"
+            :loading="draftCoverageLoading"
+            @update:capabilities-config="applyStructuredCapabilitiesConfig"
+            @run-coverage="runDraftPolicyCoverage"
+          />
+        </el-tab-pane>
+
         <el-tab-pane label="能力矩阵" name="capabilities">
           <el-table :data="capabilities" border stripe>
             <el-table-column prop="id" label="能力 ID" min-width="190" />
@@ -778,6 +788,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, type LocationQuery } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import AgentPageShell from './components/AgentPageShell.vue'
+import GovernanceEvalCaseSet from './components/GovernanceEvalCaseSet.vue'
 import GovernanceMatrixEditor from './components/GovernanceMatrixEditor.vue'
 import {
   decideAiGovernanceConfigPublishRequest,
@@ -786,6 +797,7 @@ import {
   getAiGovernanceConfig,
   getAiGovernanceConfigPublishRequest,
   getAiGovernanceConfigPublishRequests,
+  getAiGovernanceDraftPolicyCoverage,
   getAiGovernancePolicyCoverage,
   getAiGovernanceReadiness,
   getAiGovernanceTool,
@@ -807,6 +819,7 @@ const toolImpactLoading = ref(false)
 const readinessLoading = ref(false)
 const configLoading = ref(false)
 const draftValidationLoading = ref(false)
+const draftCoverageLoading = ref(false)
 const publishRecordsLoading = ref(false)
 const publishSubmitLoading = ref(false)
 const publishDetailLoading = ref(false)
@@ -828,6 +841,7 @@ const toolImpactPayload = ref<Record<string, any>>({})
 const readinessPayload = ref<Record<string, any>>({})
 const configPayload = ref<Record<string, any>>({})
 const draftValidationPayload = ref<Record<string, any>>({})
+const draftCoveragePayload = ref<Record<string, any>>({})
 const publishRecordsPayload = ref<Record<string, any>>({})
 const publishSubmitPayload = ref<Record<string, any>>({})
 const publishDetailPayload = ref<Record<string, any>>({})
@@ -1104,11 +1118,13 @@ function resetDraftEditor() {
   draftCapabilitiesText.value = prettyJson(configPayload.value.capabilitiesConfig || {})
   draftToolsText.value = prettyJson(configPayload.value.toolsConfig || {})
   draftValidationPayload.value = {}
+  draftCoveragePayload.value = {}
 }
 
 function applyStructuredCapabilitiesConfig(value: Record<string, any>) {
   draftCapabilitiesText.value = prettyJson(value || {})
   draftValidationPayload.value = {}
+  draftCoveragePayload.value = {}
   publishSubmitPayload.value = {}
 }
 
@@ -1146,6 +1162,24 @@ async function loadPolicyCoverage() {
     coveragePayload.value = extractBody(response)
   } finally {
     coverageLoading.value = false
+  }
+}
+
+async function runDraftPolicyCoverage(caseIds: string[] = []) {
+  const capabilitiesConfig = parseDraftJson(draftCapabilitiesText.value, '能力配置')
+  const toolsConfig = parseDraftJson(draftToolsText.value, '工具配置')
+  if (!capabilitiesConfig || !toolsConfig) return
+  draftCoverageLoading.value = true
+  try {
+    const response = await getAiGovernanceDraftPolicyCoverage({
+      capabilitiesConfig,
+      toolsConfig,
+      caseIds
+    })
+    draftCoveragePayload.value = extractBody(response)
+    activeTab.value = 'eval-cases'
+  } finally {
+    draftCoverageLoading.value = false
   }
 }
 
