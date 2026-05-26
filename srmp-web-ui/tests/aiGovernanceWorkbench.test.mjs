@@ -15,6 +15,21 @@ test('governance page wires the matrix editor', () => {
   assert.match(page, /能力-工具矩阵/)
 })
 
+test('governance page wires editable tool catalog to draft tools config', () => {
+  const page = readFileSync('srmp-web-ui/src/views/agent/AiGovernancePage.vue', 'utf8')
+  assert.match(page, /GovernanceToolCatalogEditor/)
+  assert.match(page, /:tools-config="draftToolsConfig"/)
+  assert.match(page, /applyStructuredToolsConfig/)
+})
+
+test('governance page sends draft configs into plan simulation', () => {
+  const page = readFileSync('srmp-web-ui/src/views/agent/AiGovernancePage.vue', 'utf8')
+  assert.match(page, /capabilitiesConfig:\s*draftCapabilitiesConfig/)
+  assert.match(page, /toolsConfig:\s*draftToolsConfig/)
+  assert.match(page, /request:\s*\{/)
+  assert.match(page, /planResult\.mode/)
+})
+
 test('governance page wires evaluation cases and draft coverage', () => {
   const page = readFileSync('srmp-web-ui/src/views/agent/AiGovernancePage.vue', 'utf8')
   assert.match(page, /GovernanceEvalCaseSet/)

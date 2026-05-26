@@ -13,6 +13,21 @@ export interface CapabilityMatrixRow {
   raw: Record<string, any>
 }
 
+export interface ToolCatalogRow {
+  name: string
+  label: string
+  category: string
+  description: string
+  enabled: boolean
+  readOnly: boolean
+  writeRisk: boolean
+  adaptiveAllowed: boolean
+  customerVisible: boolean
+  adminVisible: boolean
+  allowUnboundUsage: boolean
+  raw: Record<string, any>
+}
+
 export interface EvaluationCaseRow {
   id: string
   name: string
@@ -65,6 +80,63 @@ export function updateCapabilityToolPolicy(
       ...capability,
       toolPolicy: nextPolicy
     }
+  })
+  return next
+}
+
+export function buildToolCatalogRows(toolsConfig: Record<string, any>): ToolCatalogRow[] {
+  return arrayValue(toolsConfig?.tools).map((tool) => {
+    const governance = objectValue(tool.governance)
+    const name = stringValue(tool.name)
+    return {
+      name,
+      label: stringValue(tool.label || name),
+      category: stringValue(tool.category),
+      description: stringValue(tool.description),
+      enabled: tool.enabled !== false,
+      readOnly: booleanValue(tool.readOnly, true),
+      writeRisk: booleanValue(tool.writeRisk, false),
+      adaptiveAllowed: booleanValue(governance.adaptiveAllowed ?? tool.adaptiveAllowed, false),
+      customerVisible: booleanValue(governance.customerVisible ?? tool.customerVisible, false),
+      adminVisible: booleanValue(governance.adminVisible ?? tool.adminVisible, true),
+      allowUnboundUsage: booleanValue(governance.allowUnboundUsage ?? tool.allowUnboundUsage, false),
+      raw: tool
+    }
+  })
+}
+
+export function updateToolCatalogEntry(
+  toolsConfig: Record<string, any>,
+  toolName: string,
+  updates: Partial<ToolCatalogRow> & Record<string, any>
+): Record<string, any> {
+  const next = cloneObject(toolsConfig)
+  const targetName = stringValue(toolName)
+  next.tools = arrayValue(next.tools).map((tool) => {
+    if (stringValue(tool.name) !== targetName) return tool
+    const nextTool = { ...tool }
+    nextTool.label = stringValue(updates.label).trim() || stringValue(nextTool.label || nextTool.name)
+    nextTool.category = stringValue(updates.category).trim()
+    nextTool.description = stringValue(updates.description).trim()
+    nextTool.enabled = booleanValue(updates.enabled, true)
+    nextTool.readOnly = booleanValue(updates.readOnly, true)
+    nextTool.writeRisk = booleanValue(updates.writeRisk, false)
+
+    const governanceValues = {
+      adaptiveAllowed: booleanValue(updates.adaptiveAllowed, false),
+      customerVisible: booleanValue(updates.customerVisible, false),
+      adminVisible: booleanValue(updates.adminVisible, true),
+      allowUnboundUsage: booleanValue(updates.allowUnboundUsage, false)
+    }
+    if (nextTool.governance && typeof nextTool.governance === 'object' && !Array.isArray(nextTool.governance)) {
+      nextTool.governance = {
+        ...nextTool.governance,
+        ...governanceValues
+      }
+    } else {
+      Object.assign(nextTool, governanceValues)
+    }
+    return nextTool
   })
   return next
 }
@@ -161,6 +233,10 @@ function stringList(value: any): string[] {
 
 function stringValue(value: any): string {
   return value == null ? '' : String(value)
+}
+
+function booleanValue(value: any, fallback: boolean): boolean {
+  return value === undefined || value === null ? fallback : value === true
 }
 
 function uniqueStrings(values: string[]): string[] {
