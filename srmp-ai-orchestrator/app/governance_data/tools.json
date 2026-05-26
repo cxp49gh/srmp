@@ -175,7 +175,9 @@
       "governance": {
         "adaptiveAllowed": false,
         "customerVisible": false,
-        "adminVisible": true
+        "adminVisible": true,
+        "allowUnboundUsage": true,
+        "unboundUsageReason": "模板管理页和人工诊断可直接使用，方案生成链路由 solution.generateDraft 内部完成模板匹配。"
       }
     },
     {

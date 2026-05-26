@@ -483,7 +483,11 @@ def governance_readiness_for_registry(
             ))
 
     tool_rows = tool_impact.get("tools") or []
-    orphan_tools = [tool for tool in tool_rows if int(tool.get("affectedCapabilityCount") or 0) <= 0]
+    orphan_tools = [
+        tool
+        for tool in tool_rows
+        if int(tool.get("affectedCapabilityCount") or 0) <= 0 and not _tool_allows_unbound_usage(tool)
+    ]
     for tool in orphan_tools:
         issues.append(_readiness_issue(
             "WARN",
@@ -545,7 +549,13 @@ def normalize_tool(item: Dict[str, Any]) -> Dict[str, Any]:
     data["readOnly"] = bool(data.get("readOnly", True))
     data["writeRisk"] = bool(data.get("writeRisk", False))
     data["enabled"] = bool(data.get("enabled", True))
+    data["governance"] = dict(data.get("governance") or {})
     return data
+
+
+def _tool_allows_unbound_usage(tool: Dict[str, Any]) -> bool:
+    governance = tool.get("governance") if isinstance(tool.get("governance"), dict) else {}
+    return bool(governance.get("allowUnboundUsage") or governance.get("standaloneAllowed"))
 
 
 def normalize_tool_policy(value: Dict[str, Any]) -> Dict[str, List[str]]:

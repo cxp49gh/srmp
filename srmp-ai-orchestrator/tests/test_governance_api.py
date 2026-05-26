@@ -117,7 +117,7 @@ class GovernanceApiTest(unittest.TestCase):
         self.assertIn("srmp-ai-orchestrator/app/governance_data/tools.json", body["developerGuide"]["configFiles"])
         self.assertIn("在 Java AiToolRegistry 注册实现并暴露到 Tool Gateway", body["developerGuide"]["steps"])
 
-    def test_readiness_endpoint_aggregates_policy_contract_and_orphan_tools(self):
+    def test_readiness_endpoint_aggregates_policy_contract_and_unbound_tools(self):
         client = TestClient(app)
         contract = {
             "ok": True,
@@ -135,12 +135,11 @@ class GovernanceApiTest(unittest.TestCase):
         body = response.json()
         self.assertEqual("FAIL", body["status"])
         self.assertEqual(0, body["summary"]["policyFailedCount"])
-        self.assertGreaterEqual(body["summary"]["orphanToolCount"], 1)
+        self.assertEqual(0, body["summary"]["orphanToolCount"])
         issues = {(item["code"], item.get("toolName")): item for item in body["issues"]}
         self.assertIn(("TOOL_MISSING_IN_JAVA", "gis.queryRegionSummary"), issues)
         self.assertEqual("ERROR", issues[("TOOL_MISSING_IN_JAVA", "gis.queryRegionSummary")]["severity"])
-        self.assertIn(("TOOL_WITHOUT_CAPABILITY", "template.match"), issues)
-        self.assertEqual("WARN", issues[("TOOL_WITHOUT_CAPABILITY", "template.match")]["severity"])
+        self.assertNotIn(("TOOL_WITHOUT_CAPABILITY", "template.match"), issues)
 
     def test_config_endpoint_returns_active_governance_bundle(self):
         client = TestClient(app)
