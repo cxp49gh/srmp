@@ -37,6 +37,38 @@ class GovernanceApiTest(unittest.TestCase):
         self.assertEqual("knowledge.metric_explain", body["capabilityId"])
         self.assertEqual(["knowledge.retrieve"], [item["toolName"] for item in body["toolPlan"]])
 
+    def test_plan_simulate_uses_draft_registry_when_wrapper_payload_is_sent(self):
+        client = TestClient(app)
+        active = client.get("/api/srmp/langgraph/governance/config").json()
+        capabilities_config = copy.deepcopy(active["capabilitiesConfig"])
+        tools_config = copy.deepcopy(active["toolsConfig"])
+        route_capability = next(item for item in capabilities_config["capabilities"] if item["id"] == "map.route_analysis")
+        route_capability["toolPolicy"]["required"] = ["knowledge.retrieve"]
+        route_capability["toolPolicy"]["optional"] = []
+        route_capability["toolPolicy"]["adaptive"] = []
+        route_capability["toolPolicy"]["prohibited"] = ["gis.queryRegionSummary", "gis.queryAssessmentResults", "gis.queryDiseases"]
+
+        response = client.post(
+            "/api/srmp/langgraph/governance/plan-simulate",
+            json={
+                "request": {
+                    "action": "ANALYZE_ROUTE",
+                    "message": "分析当前路线",
+                    "mapContext": {"mode": "ROUTE", "routeCode": "Y016140727", "year": 2026},
+                    "options": {"useKnowledge": True},
+                },
+                "capabilitiesConfig": capabilities_config,
+                "toolsConfig": tools_config,
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual("DRAFT_PLAN_SIMULATE", body["mode"])
+        self.assertEqual("map.route_analysis", body["capabilityId"])
+        self.assertEqual(["knowledge.retrieve"], [item["toolName"] for item in body["toolPlan"]])
+        self.assertIn("gis.queryRegionSummary", body["capability"]["toolPolicy"]["prohibited"])
+
     def test_policy_coverage_endpoint_runs_configured_examples(self):
         client = TestClient(app)
 
@@ -55,6 +87,56 @@ class GovernanceApiTest(unittest.TestCase):
         self.assertIn("map.route_analysis.context_metric", cases)
         self.assertEqual("map.route_analysis", cases["map.route_analysis.context_metric"]["actualCapabilityId"])
         self.assertIn("gis.queryRegionSummary", cases["map.route_analysis.context_metric"]["actualToolNames"])
+
+    def test_draft_policy_coverage_uses_draft_config_without_mutating_active(self):
+        client = TestClient(app)
+        active = client.get("/api/srmp/langgraph/governance/config").json()
+        capabilities_config = copy.deepcopy(active["capabilitiesConfig"])
+        tools_config = copy.deepcopy(active["toolsConfig"])
+        capability = next(item for item in capabilities_config["capabilities"] if item["id"] == "knowledge.metric_explain")
+        capability["toolPolicy"]["required"] = ["gis.queryRegionSummary"]
+        capability["toolPolicy"]["prohibited"] = []
+        capability["examples"][0]["expect"]["exactToolNames"] = ["knowledge.retrieve"]
+
+        response = client.post(
+            "/api/srmp/langgraph/governance/policies/coverage/draft",
+            json={
+                "capabilitiesConfig": capabilities_config,
+                "toolsConfig": tools_config,
+                "caseIds": ["knowledge.metric_explain.basic"],
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual("DRAFT_POLICY_COVERAGE", body["mode"])
+        self.assertEqual(1, body["caseCount"])
+        self.assertEqual(1, body["failedCount"])
+        self.assertEqual("knowledge.metric_explain.basic", body["cases"][0]["id"])
+        self.assertIn("gis.queryRegionSummary", body["cases"][0]["actualToolNames"])
+
+        active_coverage = client.get("/api/srmp/langgraph/governance/policies/coverage").json()
+        active_case = next(item for item in active_coverage["cases"] if item["id"] == "knowledge.metric_explain.basic")
+        self.assertEqual("PASS", active_case["status"])
+        self.assertEqual(["knowledge.retrieve"], active_case["actualToolNames"])
+
+    def test_draft_policy_coverage_filters_selected_cases(self):
+        client = TestClient(app)
+        active = client.get("/api/srmp/langgraph/governance/config").json()
+
+        response = client.post(
+            "/api/srmp/langgraph/governance/policies/coverage/draft",
+            json={
+                "capabilitiesConfig": active["capabilitiesConfig"],
+                "toolsConfig": active["toolsConfig"],
+                "caseIds": ["map.route_analysis.action"],
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual(1, body["caseCount"])
+        self.assertEqual(["map.route_analysis.action"], [item["id"] for item in body["cases"]])
 
     def test_tool_impact_endpoint_returns_capability_relations(self):
         client = TestClient(app)
@@ -209,6 +291,68 @@ class GovernanceApiTest(unittest.TestCase):
         self.assertIn("name", capability_changes["knowledge.metric_explain"]["changedFields"])
         self.assertEqual("MODIFIED", tool_changes["knowledge.retrieve"]["changeType"])
         self.assertIn("description", tool_changes["knowledge.retrieve"]["changedFields"])
+
+    def test_publish_request_blocks_failed_draft_policy_coverage(self):
+        client = TestClient(app)
+        active = client.get("/api/srmp/langgraph/governance/config").json()
+        capabilities_config = copy.deepcopy(active["capabilitiesConfig"])
+        tools_config = copy.deepcopy(active["toolsConfig"])
+        capability = next(item for item in capabilities_config["capabilities"] if item["id"] == "knowledge.metric_explain")
+        capability["toolPolicy"]["required"] = ["gis.queryRegionSummary"]
+        capability["toolPolicy"]["prohibited"] = []
+        capability["examples"][0]["expect"]["exactToolNames"] = ["knowledge.retrieve"]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_path = os.path.join(temp_dir, "publish.jsonl")
+            with patch.dict(os.environ, {"SRMP_AGENT_GOVERNANCE_PUBLISH_LOG_PATH": log_path}):
+                response = client.post(
+                    "/api/srmp/langgraph/governance/config/publish/request",
+                    json={
+                        "capabilitiesConfig": capabilities_config,
+                        "toolsConfig": tools_config,
+                        "reason": "覆盖率失败阻断测试",
+                    },
+                )
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual("BLOCKED", body["status"])
+        blocker_codes = [item["code"] for item in body["record"]["blockers"]]
+        self.assertIn("DRAFT_POLICY_COVERAGE_FAILED", blocker_codes)
+        self.assertEqual(1, body["record"]["policyCoverage"]["failedCount"])
+
+    def test_rollback_request_contains_restore_draft_from_base_snapshot(self):
+        client = TestClient(app)
+        active = client.get("/api/srmp/langgraph/governance/config").json()
+        capabilities_config = copy.deepcopy(active["capabilitiesConfig"])
+        tools_config = copy.deepcopy(active["toolsConfig"])
+        capabilities_config["capabilities"][0]["name"] = "可回滚发布包"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_path = os.path.join(temp_dir, "publish.jsonl")
+            with patch.dict(os.environ, {"SRMP_AGENT_GOVERNANCE_PUBLISH_LOG_PATH": log_path}):
+                submit = client.post(
+                    "/api/srmp/langgraph/governance/config/publish/request",
+                    json={
+                        "capabilitiesConfig": capabilities_config,
+                        "toolsConfig": tools_config,
+                        "reason": "回滚草稿测试",
+                    },
+                ).json()
+                request_id = submit["record"]["requestId"]
+                client.post(f"/api/srmp/langgraph/governance/config/publish/requests/{request_id}/approve", json={})
+                client.post(f"/api/srmp/langgraph/governance/config/publish/requests/{request_id}/apply", json={})
+
+                rollback = client.post(
+                    f"/api/srmp/langgraph/governance/config/publish/requests/{request_id}/rollback",
+                    json={"reason": "恢复上一版本"},
+                ).json()
+
+        self.assertEqual("ROLLBACK_SUBMITTED", rollback["status"])
+        rollback_draft = rollback["rollbackDraft"]
+        self.assertEqual(request_id, rollback_draft["targetRequestId"])
+        self.assertEqual(active["capabilitiesConfig"], rollback_draft["capabilitiesConfig"])
+        self.assertEqual(active["toolsConfig"], rollback_draft["toolsConfig"])
 
     def test_publish_request_detail_keeps_snapshot_out_of_list_and_in_detail(self):
         client = TestClient(app)

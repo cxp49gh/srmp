@@ -669,6 +669,7 @@ class LangGraphWorkflow:
                 "runTraceId": state.get("trace_id"),
                 "actualAction": actual_action,
                 "actualIntent": state.get("intent"),
+                "toolPlan": [item.model_dump(exclude_none=True) for item in state.get("tool_plan", [])],
                 "toolResults": [item.model_dump(exclude_none=True) for item in tool_results],
                 "sources": sources,
                 "evidence": state.get("evidence", {}),

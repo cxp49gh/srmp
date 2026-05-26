@@ -33,6 +33,8 @@ def build_plan_execution(plan: Optional[Dict[str, Any]], response_state: Dict[st
     normalized_plan = plan if isinstance(plan, dict) else normalize_plan_preview(None)
     run_trace_id = _string_or_none(response_state.get("runTraceId") or response_state.get("traceId") or response_state.get("trace_id"))
     if not normalized_plan.get("available"):
+        normalized_plan = _runtime_plan_from_state(response_state)
+    if not normalized_plan.get("available"):
         return {
             "available": False,
             "status": "NO_PLAN",
@@ -124,6 +126,22 @@ def build_plan_execution(plan: Optional[Dict[str, Any]], response_state: Dict[st
     }
 
 
+def _runtime_plan_from_state(response_state: Dict[str, Any]) -> Dict[str, Any]:
+    planned_tools = _tool_names(response_state.get("toolPlan") or response_state.get("tool_plan") or [])
+    if not planned_tools:
+        return normalize_plan_preview(None)
+    return {
+        "available": True,
+        "planTraceId": None,
+        "plannedAction": _upper_or_none(response_state.get("plannedAction") or response_state.get("actualAction")),
+        "plannedIntent": _upper_or_none(response_state.get("plannedIntent") or response_state.get("actualIntent")),
+        "plannedToolNames": planned_tools,
+        "plannedSourceTypes": _source_types_from_tool_names(planned_tools),
+        "contextChips": [],
+        "warningCodes": [],
+    }
+
+
 def derive_actual_source_types(tool_results: Iterable[Any], sources: Iterable[Any], evidence: Dict[str, Any]) -> List[str]:
     result: List[str] = []
     for item in tool_results or []:
@@ -151,13 +169,29 @@ def derive_actual_source_types(tool_results: Iterable[Any], sources: Iterable[An
 
 
 def _actual_tool_names(tool_results: Iterable[Any]) -> List[str]:
+    return _tool_names(tool_results)
+
+
+def _tool_names(values: Iterable[Any]) -> List[str]:
     names: List[str] = []
-    for item in tool_results or []:
+    for item in values or []:
         raw = _dict_value(item)
-        name = _string_or_none(raw.get("toolName") or raw.get("name"))
+        name = _string_or_none(raw.get("toolName") or raw.get("tool_name") or raw.get("name") or raw.get("tool"))
         if name and name not in names:
             names.append(name)
     return names
+
+
+def _source_types_from_tool_names(tool_names: Iterable[str]) -> List[str]:
+    result: List[str] = []
+    for name in tool_names or []:
+        if str(name).startswith("gis."):
+            _add_source(result, "BUSINESS_DATA")
+        if name == "knowledge.retrieve":
+            _add_source(result, "KNOWLEDGE")
+        if name in {"template.match", "solution.generateDraft"}:
+            _add_source(result, "TEMPLATE")
+    return sorted(result, key=lambda item: SOURCE_ORDER.index(item) if item in SOURCE_ORDER else len(SOURCE_ORDER))
 
 
 def _unique_strings(values: Iterable[Any]) -> List[str]:

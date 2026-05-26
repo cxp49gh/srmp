@@ -47,6 +47,36 @@ class AdaptiveWorkflowTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("SKIPPED_SUFFICIENT", response.data["adaptivePlanning"]["status"])
         self.assertEqual([], response.data["adaptivePlanning"]["addedToolNames"])
 
+    async def test_workflow_builds_plan_execution_from_runtime_tool_plan_without_preview(self):
+        gateway = SufficientFakeGateway()
+        workflow = LangGraphWorkflow(gateway=gateway, llm_client=FakeLlmClient())
+        request = MapAiAgentRequest(
+            action="ANALYZE_ROUTE",
+            message="分析当前路线",
+            mapContext=MapAiContext(mode="ROUTE", routeCode="Y016140727", year=2026),
+            options={"traceId": "runtime-plan-run-1", "useKnowledge": True},
+        )
+
+        response = await workflow.run(request, tenant_id="default", trace_id=None)
+        plan_execution = response.planExecution
+
+        self.assertTrue(plan_execution["available"])
+        self.assertEqual("MATCHED", plan_execution["status"])
+        self.assertEqual("ANALYZE_ROUTE", plan_execution["plannedAction"])
+        self.assertEqual("ROUTE_ANALYSIS", plan_execution["plannedIntent"])
+        self.assertEqual(
+            [
+                "gis.queryRegionSummary",
+                "gis.queryAssessmentResults",
+                "gis.queryDiseases",
+                "knowledge.retrieve",
+            ],
+            plan_execution["plannedToolNames"],
+        )
+        self.assertEqual(plan_execution, response.data["planExecution"])
+        self.assertEqual(plan_execution, response.trace["planExecution"])
+        self.assertEqual("MATCHED", response.answerMeta["planExecutionStatus"])
+
     async def test_strategy_metadata_exposes_adaptive_planning(self):
         metadata = strategy_metadata()
 

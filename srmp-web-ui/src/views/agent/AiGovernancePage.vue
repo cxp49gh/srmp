@@ -158,6 +158,18 @@
             </section>
           </div>
 
+          <GovernanceDraftReviewPanel
+            :validation-payload="draftValidationPayload"
+            :coverage-payload="draftCoveragePayload"
+            :publish-payload="publishSubmitPayload"
+            :validation-loading="draftValidationLoading"
+            :coverage-loading="draftCoverageLoading"
+            :publish-loading="publishSubmitLoading"
+            @validate="validateCurrentGovernanceConfigDraft"
+            @run-coverage="runDraftPolicyCoverage"
+            @submit-publish="submitPublishRequest"
+          />
+
           <div class="coverage-head">
             <div>
               <strong>草稿校验结果</strong>
@@ -272,6 +284,24 @@
               </el-table-column>
             </el-table>
           </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="能力-工具矩阵" name="matrix">
+          <GovernanceMatrixEditor
+            :capabilities-config="draftCapabilitiesConfig"
+            :tools-config="draftToolsConfig"
+            @update:capabilities-config="applyStructuredCapabilitiesConfig"
+          />
+        </el-tab-pane>
+
+        <el-tab-pane label="评测用例集" name="eval-cases">
+          <GovernanceEvalCaseSet
+            :capabilities-config="draftCapabilitiesConfig"
+            :coverage-payload="draftCoveragePayload"
+            :loading="draftCoverageLoading"
+            @update:capabilities-config="applyStructuredCapabilitiesConfig"
+            @run-coverage="runDraftPolicyCoverage"
+          />
         </el-tab-pane>
 
         <el-tab-pane label="能力矩阵" name="capabilities">
@@ -770,6 +800,9 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, type LocationQuery } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import AgentPageShell from './components/AgentPageShell.vue'
+import GovernanceDraftReviewPanel from './components/GovernanceDraftReviewPanel.vue'
+import GovernanceEvalCaseSet from './components/GovernanceEvalCaseSet.vue'
+import GovernanceMatrixEditor from './components/GovernanceMatrixEditor.vue'
 import {
   decideAiGovernanceConfigPublishRequest,
   getAiGovernanceCapability,
@@ -777,6 +810,7 @@ import {
   getAiGovernanceConfig,
   getAiGovernanceConfigPublishRequest,
   getAiGovernanceConfigPublishRequests,
+  getAiGovernanceDraftPolicyCoverage,
   getAiGovernancePolicyCoverage,
   getAiGovernanceReadiness,
   getAiGovernanceTool,
@@ -798,6 +832,7 @@ const toolImpactLoading = ref(false)
 const readinessLoading = ref(false)
 const configLoading = ref(false)
 const draftValidationLoading = ref(false)
+const draftCoverageLoading = ref(false)
 const publishRecordsLoading = ref(false)
 const publishSubmitLoading = ref(false)
 const publishDetailLoading = ref(false)
@@ -819,6 +854,7 @@ const toolImpactPayload = ref<Record<string, any>>({})
 const readinessPayload = ref<Record<string, any>>({})
 const configPayload = ref<Record<string, any>>({})
 const draftValidationPayload = ref<Record<string, any>>({})
+const draftCoveragePayload = ref<Record<string, any>>({})
 const publishRecordsPayload = ref<Record<string, any>>({})
 const publishSubmitPayload = ref<Record<string, any>>({})
 const publishDetailPayload = ref<Record<string, any>>({})
@@ -905,6 +941,8 @@ const draftIssues = computed(() => {
   }))
 })
 const draftIssueCount = computed(() => Number(objectValue(draftReadiness.value.summary).issueCount ?? draftIssues.value.length))
+const draftCapabilitiesConfig = computed(() => parseDraftJsonSilent(draftCapabilitiesText.value))
+const draftToolsConfig = computed(() => parseDraftJsonSilent(draftToolsText.value))
 const publishRecords = computed(() => arrayValue(publishRecordsPayload.value.records))
 const publishDetail = computed(() => objectValue(publishDetailPayload.value))
 const publishPackage = computed(() => objectValue(publishDetail.value.package))
@@ -1048,7 +1086,11 @@ async function requestRollback(row: Record<string, any>) {
     })
     const body = extractBody(response)
     publishRecordsPayload.value = objectValue(body.history)
-    ElMessage.warning('回滚申请已记录，当前阶段不执行配置覆盖')
+    if (applyRollbackDraft(objectValue(body.rollbackDraft))) {
+      ElMessage.success('回滚申请已记录，已载入回滚草稿等待校验')
+    } else {
+      ElMessage.warning('回滚申请已记录，当前响应未返回可恢复草稿')
+    }
   } finally {
     rollbackLoadingId.value = ''
   }
@@ -1093,6 +1135,36 @@ function resetDraftEditor() {
   draftCapabilitiesText.value = prettyJson(configPayload.value.capabilitiesConfig || {})
   draftToolsText.value = prettyJson(configPayload.value.toolsConfig || {})
   draftValidationPayload.value = {}
+  draftCoveragePayload.value = {}
+}
+
+function applyStructuredCapabilitiesConfig(value: Record<string, any>) {
+  draftCapabilitiesText.value = prettyJson(value || {})
+  draftValidationPayload.value = {}
+  draftCoveragePayload.value = {}
+  publishSubmitPayload.value = {}
+}
+
+function applyRollbackDraft(rollbackDraft: Record<string, any>): boolean {
+  const capabilitiesConfig = objectValue(rollbackDraft.capabilitiesConfig)
+  const toolsConfig = objectValue(rollbackDraft.toolsConfig)
+  if (!Object.keys(capabilitiesConfig).length || !Object.keys(toolsConfig).length) return false
+  draftCapabilitiesText.value = prettyJson(capabilitiesConfig)
+  draftToolsText.value = prettyJson(toolsConfig)
+  draftValidationPayload.value = {}
+  draftCoveragePayload.value = {}
+  publishSubmitPayload.value = {}
+  activeTab.value = 'config'
+  return true
+}
+
+function parseDraftJsonSilent(value: string): Record<string, any> {
+  try {
+    const parsed = JSON.parse(value || '{}')
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
 }
 
 function parseDraftJson(value: string, label: string): Record<string, any> | null {
@@ -1120,6 +1192,24 @@ async function loadPolicyCoverage() {
     coveragePayload.value = extractBody(response)
   } finally {
     coverageLoading.value = false
+  }
+}
+
+async function runDraftPolicyCoverage(caseIds: string[] = []) {
+  const capabilitiesConfig = parseDraftJson(draftCapabilitiesText.value, '能力配置')
+  const toolsConfig = parseDraftJson(draftToolsText.value, '工具配置')
+  if (!capabilitiesConfig || !toolsConfig) return
+  draftCoverageLoading.value = true
+  try {
+    const response = await getAiGovernanceDraftPolicyCoverage({
+      capabilitiesConfig,
+      toolsConfig,
+      caseIds
+    })
+    draftCoveragePayload.value = extractBody(response)
+    activeTab.value = 'eval-cases'
+  } finally {
+    draftCoverageLoading.value = false
   }
 }
 

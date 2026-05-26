@@ -123,6 +123,82 @@
             </div>
           </section>
 
+          <section v-if="planExecution.available" class="detail-section plan-panel">
+            <div class="section-title">
+              <h3>计划与实际</h3>
+              <el-tag size="small" :type="planExecutionTagType(planExecution.status)">{{ planExecution.status }}</el-tag>
+            </div>
+            <div class="scope-grid">
+              <div><span>计划 action</span><strong>{{ planExecution.plannedAction || '-' }}</strong></div>
+              <div><span>实际 action</span><strong>{{ planExecution.actualAction || '-' }}</strong></div>
+              <div><span>计划 intent</span><strong>{{ planExecution.plannedIntent || '-' }}</strong></div>
+              <div><span>实际 intent</span><strong>{{ planExecution.actualIntent || '-' }}</strong></div>
+              <div><span>计划 trace</span><strong>{{ planExecution.planTraceId || '-' }}</strong></div>
+              <div><span>执行 trace</span><strong>{{ planExecution.runTraceId || '-' }}</strong></div>
+            </div>
+            <div class="plan-compare-grid">
+              <div>
+                <span>计划工具</span>
+                <div class="tag-list compact">
+                  <el-tag v-for="name in planExecution.plannedToolNames" :key="`planned-${name}`" size="small" type="info">{{ name }}</el-tag>
+                  <span v-if="!planExecution.plannedToolNames.length" class="muted">-</span>
+                </div>
+              </div>
+              <div>
+                <span>实际工具</span>
+                <div class="tag-list compact">
+                  <el-tag v-for="name in planExecution.actualToolNames" :key="`actual-${name}`" size="small" type="success">{{ name }}</el-tag>
+                  <span v-if="!planExecution.actualToolNames.length" class="muted">-</span>
+                </div>
+              </div>
+              <div>
+                <span>缺失工具</span>
+                <div class="tag-list compact">
+                  <el-tag v-for="name in planExecution.missingToolNames" :key="`missing-${name}`" size="small" type="danger">{{ name }}</el-tag>
+                  <span v-if="!planExecution.missingToolNames.length" class="muted">-</span>
+                </div>
+              </div>
+              <div>
+                <span>额外工具</span>
+                <div class="tag-list compact">
+                  <el-tag v-for="name in planExecution.extraToolNames" :key="`extra-${name}`" size="small" type="warning">{{ name }}</el-tag>
+                  <span v-if="!planExecution.extraToolNames.length" class="muted">-</span>
+                </div>
+              </div>
+              <div>
+                <span>自适应追加</span>
+                <div class="tag-list compact">
+                  <el-tag v-for="name in planExecution.adaptiveExtraToolNames" :key="`adaptive-${name}`" size="small">{{ name }}</el-tag>
+                  <span v-if="!planExecution.adaptiveExtraToolNames.length" class="muted">-</span>
+                </div>
+              </div>
+              <div>
+                <span>来源差异</span>
+                <div class="tag-list compact">
+                  <el-tag v-for="name in planExecution.missingSourceTypes" :key="`source-${name}`" size="small" type="warning">{{ name }}</el-tag>
+                  <span v-if="!planExecution.missingSourceTypes.length" class="muted">-</span>
+                </div>
+              </div>
+            </div>
+            <el-alert
+              v-if="planExecution.adaptiveReason"
+              class="mt"
+              type="info"
+              show-icon
+              :closable="false"
+              :title="planExecution.adaptiveReason"
+            />
+            <el-alert
+              v-for="warning in planExecution.warnings"
+              :key="warning.code"
+              class="mt"
+              :type="warning.level === 'ERROR' ? 'error' : warning.level === 'WARN' ? 'warning' : 'info'"
+              show-icon
+              :closable="false"
+              :title="warning.message || warning.code"
+            />
+          </section>
+
           <el-alert
             v-if="failureReason"
             class="mb"
@@ -295,6 +371,20 @@ const selectedExecutionSnapshot = computed(() => toAiExecutionSnapshot({
   sources: extractSources(detail.value),
   record: detail.value
 }))
+const planExecution = computed(() => selectedExecutionSnapshot.value?.planExecution || {
+  available: false,
+  status: 'NO_PLAN',
+  plannedToolNames: [],
+  actualToolNames: [],
+  missingToolNames: [],
+  extraToolNames: [],
+  adaptiveExtraToolNames: [],
+  plannedSourceTypes: [],
+  actualSourceTypes: [],
+  missingSourceTypes: [],
+  warnings: [],
+  raw: {}
+})
 const traceKnowledgeReadiness = computed(() => buildKnowledgeReadiness({ knowledgeStats, outlineStats, embedding }))
 const selectedRepairActions = computed(() => reconcileRepairActions(
   selectedExecutionSnapshot.value?.repairActions || [],
@@ -705,6 +795,14 @@ function timelineType(status?: string) {
   return 'info'
 }
 
+function planExecutionTagType(status?: string) {
+  const normalized = String(status || '').toUpperCase()
+  if (normalized === 'MATCHED') return 'success'
+  if (normalized === 'DIVERGED') return 'danger'
+  if (normalized === 'PARTIAL') return 'warning'
+  return 'info'
+}
+
 function formatStatus(status: any) {
   const normalized = String(status || '').toUpperCase()
   if (normalized === 'SUCCESS') return '成功'
@@ -889,6 +987,33 @@ function shouldShowAnswerSourceAlert(value: any) {
   background: #fffbeb;
 }
 
+.plan-panel {
+  padding: 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.plan-compare-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.plan-compare-grid > div {
+  min-width: 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.plan-compare-grid span:first-child {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+}
+
 .repair-actions {
   display: flex;
   flex-wrap: wrap;
@@ -997,6 +1122,10 @@ function shouldShowAnswerSourceAlert(value: any) {
   margin-top: 10px;
 }
 
+.tag-list.compact {
+  margin-top: 6px;
+}
+
 .tool-row {
   display: flex;
   align-items: center;
@@ -1008,6 +1137,10 @@ function shouldShowAnswerSourceAlert(value: any) {
 
 .mb {
   margin-bottom: 12px;
+}
+
+.mt {
+  margin-top: 10px;
 }
 
 pre {

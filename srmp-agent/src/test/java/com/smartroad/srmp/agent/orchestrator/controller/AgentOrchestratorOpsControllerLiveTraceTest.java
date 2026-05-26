@@ -25,4 +25,14 @@ public class AgentOrchestratorOpsControllerLiveTraceTest {
                 controller.replayRuntimePath("record 1", true, "compare")
         );
     }
+
+    @Test
+    public void governancePolicyCoverageDraftPathIsStable() {
+        AgentOrchestratorOpsController controller = new AgentOrchestratorOpsController();
+
+        assertEquals(
+                "/api/srmp/langgraph/governance/policies/coverage/draft",
+                controller.governancePolicyCoverageDraftPath()
+        );
+    }
 }

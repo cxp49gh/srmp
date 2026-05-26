@@ -7,7 +7,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .intent import normalize_object_type
+from .intent import normalize_object_type, recognize_intent
+from .plan_preview import enrich_tool_plan
+from .planner import plan_tools
 from .schemas import MapAiAgentRequest
 
 
@@ -101,6 +103,7 @@ def governance_config_draft_validate(payload: Dict[str, Any]) -> Dict[str, Any]:
         "toolsConfig": tools_raw,
     })[:16]
     result["readiness"] = governance_readiness_for_registry(registry)
+    result["policyCoverage"] = governance_policy_coverage_for_registry(registry)
     result["diff"] = governance_config_diff(
         base_capabilities_raw=active_capabilities_raw,
         base_tools_raw=active_tools_raw,
@@ -182,6 +185,8 @@ def governance_config_publish_submit(
         "draftHashes": (validation.get("diff") or {}).get("draftHashes") or {},
         "diffSummary": (validation.get("diff") or {}).get("summary") or {},
         "readinessStatus": (validation.get("readiness") or {}).get("status"),
+        "policyCoverage": validation.get("policyCoverage") or {},
+        "policyFailedCount": int(((validation.get("policyCoverage") or {}).get("failedCount")) or 0),
         "validationErrorCount": int((validation.get("validation") or {}).get("errorCount") or 0),
         "validationWarningCount": int((validation.get("validation") or {}).get("warningCount") or 0),
         "readinessIssueCount": int(((validation.get("readiness") or {}).get("summary") or {}).get("issueCount") or 0),
@@ -189,6 +194,10 @@ def governance_config_publish_submit(
         "configSnapshot": {
             "capabilitiesConfig": dict((payload or {}).get("capabilitiesConfig") or {}),
             "toolsConfig": dict((payload or {}).get("toolsConfig") or {}),
+        },
+        "baseConfigSnapshot": {
+            "capabilitiesConfig": _load_json(_capabilities_path()),
+            "toolsConfig": _load_json(_tools_path()),
         },
         "operation": {
             "appliesRuntimeConfig": False,
@@ -213,7 +222,9 @@ def governance_config_publish_rollback(
     actor: str = "",
     tenant_id: str = "",
 ) -> Dict[str, Any]:
-    existing = _find_publish_record(request_id)
+    records = _read_publish_records(limit=100, include_config_snapshot=True)
+    existing = _publish_record_by_id(request_id, records)
+    origin = _origin_publish_record(request_id, records) or existing or {}
     now_ms = _now_ms()
     blockers = []
     if not existing:
@@ -242,12 +253,14 @@ def governance_config_publish_rollback(
             "requiresRestart": True,
         },
     }
+    rollback_draft = _rollback_draft_from_publish_record(origin, request_id) if not blockers else {}
     _append_publish_record(record)
     return {
         "mode": "ROLLBACK_REQUEST",
         "status": record["status"],
         "record": record,
         "target": existing or {},
+        "rollbackDraft": rollback_draft,
         "history": governance_config_publish_requests(limit=20),
     }
 
@@ -303,7 +316,20 @@ def resolve_capability(
     fallback_intent: str,
     intent_detail: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    registry = governance_registry()
+    return resolve_capability_for_registry(
+        registry=governance_registry(),
+        request=request,
+        fallback_intent=fallback_intent,
+        intent_detail=intent_detail or {},
+    )
+
+
+def resolve_capability_for_registry(
+    registry: GovernanceRegistry,
+    request: MapAiAgentRequest,
+    fallback_intent: str,
+    intent_detail: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     candidates: List[Tuple[float, Dict[str, Any], List[str], str]] = []
     for capability in registry.capabilities:
         if not capability.get("enabled", True):
@@ -347,7 +373,10 @@ def validate_governance() -> Dict[str, Any]:
 
 
 def governance_policy_examples() -> List[Dict[str, Any]]:
-    registry = governance_registry()
+    return governance_policy_examples_for_registry(governance_registry())
+
+
+def governance_policy_examples_for_registry(registry: GovernanceRegistry) -> List[Dict[str, Any]]:
     examples: List[Dict[str, Any]] = []
     for capability in registry.capabilities:
         for example in capability.get("examples") or []:
@@ -357,6 +386,145 @@ def governance_policy_examples() -> List[Dict[str, Any]]:
             item["capabilityCategory"] = capability.get("category")
             examples.append(item)
     return examples
+
+
+def governance_policy_coverage_for_registry(
+    registry: GovernanceRegistry,
+    case_ids: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    selected_ids = {str(item).strip() for item in case_ids or [] if str(item or "").strip()}
+    examples = governance_policy_examples_for_registry(registry)
+    if selected_ids:
+        examples = [example for example in examples if str(example.get("id") or "") in selected_ids]
+    cases = [_run_governance_policy_case(example, registry=registry) for example in examples]
+    failed = [item for item in cases if item.get("status") != "PASS"]
+    return {
+        "version": registry.version,
+        "toolVersion": registry.tool_version,
+        "caseCount": len(cases),
+        "passedCount": len(cases) - len(failed),
+        "failedCount": len(failed),
+        "cases": cases,
+    }
+
+
+def governance_draft_policy_coverage(payload: Dict[str, Any]) -> Dict[str, Any]:
+    capabilities_raw = dict((payload or {}).get("capabilitiesConfig") or {})
+    tools_raw = dict((payload or {}).get("toolsConfig") or {})
+    registry = build_governance_registry(capabilities_raw, tools_raw)
+    coverage = governance_policy_coverage_for_registry(
+        registry=registry,
+        case_ids=_string_list((payload or {}).get("caseIds")),
+    )
+    coverage.update({
+        "mode": "DRAFT_POLICY_COVERAGE",
+        "draftId": _stable_hash({
+            "capabilitiesConfig": capabilities_raw,
+            "toolsConfig": tools_raw,
+        })[:16],
+    })
+    return coverage
+
+
+def governance_plan_simulate_for_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    request_payload = payload.get("request") if isinstance(payload.get("request"), dict) else payload
+    capabilities_raw = payload.get("capabilitiesConfig") if isinstance(payload.get("capabilitiesConfig"), dict) else None
+    tools_raw = payload.get("toolsConfig") if isinstance(payload.get("toolsConfig"), dict) else None
+    is_draft = capabilities_raw is not None and tools_raw is not None
+    registry = build_governance_registry(
+        capabilities_raw or _load_json(_capabilities_path()),
+        tools_raw or _load_json(_tools_path()),
+    )
+    request = MapAiAgentRequest(**(request_payload or {}))
+    fallback_intent, detail = recognize_intent(request)
+    capability = resolve_capability_for_registry(
+        registry,
+        request,
+        fallback_intent=fallback_intent,
+        intent_detail=detail,
+    )
+    intent = capability.get("intent") or fallback_intent
+    tool_plan = enrich_tool_plan(plan_tools(request, intent, detail, capability=capability))
+    ctx = request.mapContext
+    return {
+        "mode": "DRAFT_PLAN_SIMULATE" if is_draft else "ACTIVE_PLAN_SIMULATE",
+        "action": request.action,
+        "intent": intent,
+        "capabilityId": capability.get("capabilityId"),
+        "capability": capability,
+        "contextSummary": {
+            "mode": ctx.mode if ctx else None,
+            "routeCode": ctx.routeCode if ctx else None,
+            "year": ctx.year if ctx else None,
+        },
+        "toolPlan": tool_plan,
+        "warnings": registry.validation.get("errors") or [],
+        "draftId": _stable_hash({
+            "capabilitiesConfig": capabilities_raw or {},
+            "toolsConfig": tools_raw or {},
+        })[:16] if is_draft else "",
+    }
+
+
+def _run_governance_policy_case(
+    example: Dict[str, Any],
+    registry: Optional[GovernanceRegistry] = None,
+) -> Dict[str, Any]:
+    request_payload = example.get("request") if isinstance(example.get("request"), dict) else {}
+    expect = example.get("expect") if isinstance(example.get("expect"), dict) else {}
+    request = MapAiAgentRequest(**request_payload)
+    fallback_intent, detail = recognize_intent(request)
+    active_registry = registry or governance_registry()
+    capability = resolve_capability_for_registry(
+        active_registry,
+        request,
+        fallback_intent=fallback_intent,
+        intent_detail=detail,
+    )
+    intent = capability.get("intent") or fallback_intent
+    tool_plan = enrich_tool_plan(plan_tools(request, intent, detail, capability=capability))
+    actual_tool_names = [str(item.get("toolName") or "") for item in tool_plan if item.get("toolName")]
+    expected_capability = str(expect.get("capabilityId") or example.get("capabilityId") or "")
+    required_tools = _string_list(expect.get("requiredTools"))
+    prohibited_tools = _string_list(expect.get("prohibitedTools"))
+    exact_tools = _string_list(expect.get("exactToolNames"))
+    missing_tools = [name for name in required_tools if name not in actual_tool_names]
+    prohibited_hits = [name for name in prohibited_tools if name in actual_tool_names]
+    capability_mismatch = bool(expected_capability and expected_capability != capability.get("capabilityId"))
+    exact_mismatch = bool(exact_tools and exact_tools != actual_tool_names)
+    warnings: List[Dict[str, str]] = []
+    if capability_mismatch:
+        warnings.append({
+            "code": "CAPABILITY_MISMATCH",
+            "message": "期望能力 " + expected_capability + "，实际命中 " + str(capability.get("capabilityId") or ""),
+        })
+    if missing_tools:
+        warnings.append({"code": "REQUIRED_TOOL_MISSING", "message": "缺少必选工具：" + ", ".join(missing_tools)})
+    if prohibited_hits:
+        warnings.append({"code": "PROHIBITED_TOOL_PLANNED", "message": "计划误用了禁用工具：" + ", ".join(prohibited_hits)})
+    if exact_mismatch:
+        warnings.append({"code": "EXACT_TOOLS_MISMATCH", "message": "计划工具与精确期望不一致。"})
+    status = "PASS" if not warnings else "FAIL"
+    return {
+        "id": str(example.get("id") or ""),
+        "name": str(example.get("name") or example.get("id") or ""),
+        "status": status,
+        "expectedCapabilityId": expected_capability,
+        "actualCapabilityId": capability.get("capabilityId"),
+        "actualCapabilityName": capability.get("name"),
+        "actualIntent": intent,
+        "fallbackIntent": fallback_intent,
+        "expectedRequiredTools": required_tools,
+        "expectedProhibitedTools": prohibited_tools,
+        "expectedExactToolNames": exact_tools,
+        "actualToolNames": actual_tool_names,
+        "missingRequiredTools": missing_tools,
+        "prohibitedToolNames": prohibited_hits,
+        "warnings": warnings,
+        "request": request.model_dump(exclude_none=True),
+        "capability": capability,
+        "toolPlan": tool_plan,
+    }
 
 
 def governance_tool_impact() -> Dict[str, Any]:
@@ -821,7 +989,27 @@ def _publish_blockers(validation: Dict[str, Any]) -> List[Dict[str, Any]]:
     readiness = validation.get("readiness") or {}
     if readiness.get("status") == "FAIL":
         blockers.append({"code": "READINESS_FAILED", "message": "治理体检存在错误级问题，不能提交发布。"})
+    coverage = validation.get("policyCoverage") if isinstance(validation.get("policyCoverage"), dict) else {}
+    failed_count = int(coverage.get("failedCount") or 0)
+    if failed_count > 0:
+        blockers.append({
+            "code": "DRAFT_POLICY_COVERAGE_FAILED",
+            "message": "草稿策略样例失败 " + str(failed_count) + " 个，请先修正能力触发或工具策略。",
+        })
     return blockers
+
+
+def _rollback_draft_from_publish_record(existing: Dict[str, Any], request_id: str) -> Dict[str, Any]:
+    snapshot = existing.get("configSnapshot") if isinstance(existing.get("configSnapshot"), dict) else {}
+    base_snapshot = existing.get("baseConfigSnapshot") if isinstance(existing.get("baseConfigSnapshot"), dict) else {}
+    capabilities_config = dict(base_snapshot.get("capabilitiesConfig") or snapshot.get("capabilitiesConfig") or {})
+    tools_config = dict(base_snapshot.get("toolsConfig") or snapshot.get("toolsConfig") or {})
+    return {
+        "capabilitiesConfig": capabilities_config,
+        "toolsConfig": tools_config,
+        "baseRequestId": str(existing.get("requestId") or request_id or ""),
+        "targetRequestId": str(request_id or ""),
+    }
 
 
 def _publish_request_id(validation: Dict[str, Any], created_at_ms: int) -> str:
@@ -869,6 +1057,9 @@ def _publish_record_summary(record: Dict[str, Any]) -> Dict[str, Any]:
     if "configSnapshot" in summary:
         snapshot = summary.pop("configSnapshot")
         summary["configSnapshotAvailable"] = isinstance(snapshot, dict) and bool(snapshot)
+    if "baseConfigSnapshot" in summary:
+        snapshot = summary.pop("baseConfigSnapshot")
+        summary["baseConfigSnapshotAvailable"] = isinstance(snapshot, dict) and bool(snapshot)
     return summary
 
 

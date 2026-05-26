@@ -285,6 +285,12 @@ public class AgentOrchestratorOpsController {
         return R.ok(remoteGet("/api/srmp/langgraph/governance/policies/coverage"));
     }
 
+    @PostMapping("/governance/policies/coverage/draft")
+    public R<Object> governanceDraftCoverage(@RequestBody(required = false) Map<String, Object> body) {
+        Map<String, Object> payload = body == null ? new LinkedHashMap<String, Object>() : body;
+        return R.ok(remotePost(governancePolicyCoverageDraftPath(), payload));
+    }
+
     @PostMapping("/governance/plan-simulate")
     public R<Object> governancePlanSimulate(@RequestBody(required = false) Map<String, Object> body) {
         Map<String, Object> payload = body == null ? new LinkedHashMap<String, Object>() : body;
@@ -323,6 +329,10 @@ public class AgentOrchestratorOpsController {
         return "/api/srmp/langgraph/governance/config/publish/requests/"
                 + UriUtils.encodePathSegment(safeRequestId, StandardCharsets.UTF_8)
                 + "/" + UriUtils.encodePathSegment(safeAction, StandardCharsets.UTF_8);
+    }
+
+    String governancePolicyCoverageDraftPath() {
+        return "/api/srmp/langgraph/governance/policies/coverage/draft";
     }
 
     @GetMapping("/persistence")

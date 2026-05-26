@@ -356,6 +356,7 @@ class MapAgentRunWorkflow:
                 "runTraceId": self._trace_id(request, None),
                 "actualAction": action,
                 "actualIntent": response.intent,
+                "toolPlan": (response.data or {}).get("toolPlan") or [],
                 "toolResults": response.toolResults or [],
                 "sources": response.sources or response.knowledgeSources or [],
                 "evidence": (response.data or {}).get("evidence") or {},

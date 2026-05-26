@@ -152,6 +152,10 @@ export function getAiGovernancePolicyCoverage(): Promise<Record<string, any>> {
   return aiRequest.get('/api/agent/orchestrator/ops/governance/policies/coverage')
 }
 
+export function getAiGovernanceDraftPolicyCoverage(data: Record<string, any>): Promise<Record<string, any>> {
+  return aiRequest.post('/api/agent/orchestrator/ops/governance/policies/coverage/draft', data || {})
+}
+
 export function getAiGovernanceToolImpact(): Promise<Record<string, any>> {
   return aiRequest.get('/api/agent/orchestrator/ops/governance/tools/impact')
 }
