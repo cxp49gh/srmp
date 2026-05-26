@@ -103,6 +103,7 @@ def governance_config_draft_validate(payload: Dict[str, Any]) -> Dict[str, Any]:
         "toolsConfig": tools_raw,
     })[:16]
     result["readiness"] = governance_readiness_for_registry(registry)
+    result["policyCoverage"] = governance_policy_coverage_for_registry(registry)
     result["diff"] = governance_config_diff(
         base_capabilities_raw=active_capabilities_raw,
         base_tools_raw=active_tools_raw,
@@ -184,6 +185,8 @@ def governance_config_publish_submit(
         "draftHashes": (validation.get("diff") or {}).get("draftHashes") or {},
         "diffSummary": (validation.get("diff") or {}).get("summary") or {},
         "readinessStatus": (validation.get("readiness") or {}).get("status"),
+        "policyCoverage": validation.get("policyCoverage") or {},
+        "policyFailedCount": int(((validation.get("policyCoverage") or {}).get("failedCount")) or 0),
         "validationErrorCount": int((validation.get("validation") or {}).get("errorCount") or 0),
         "validationWarningCount": int((validation.get("validation") or {}).get("warningCount") or 0),
         "readinessIssueCount": int(((validation.get("readiness") or {}).get("summary") or {}).get("issueCount") or 0),
@@ -191,6 +194,10 @@ def governance_config_publish_submit(
         "configSnapshot": {
             "capabilitiesConfig": dict((payload or {}).get("capabilitiesConfig") or {}),
             "toolsConfig": dict((payload or {}).get("toolsConfig") or {}),
+        },
+        "baseConfigSnapshot": {
+            "capabilitiesConfig": _load_json(_capabilities_path()),
+            "toolsConfig": _load_json(_tools_path()),
         },
         "operation": {
             "appliesRuntimeConfig": False,
@@ -215,7 +222,9 @@ def governance_config_publish_rollback(
     actor: str = "",
     tenant_id: str = "",
 ) -> Dict[str, Any]:
-    existing = _find_publish_record(request_id)
+    records = _read_publish_records(limit=100, include_config_snapshot=True)
+    existing = _publish_record_by_id(request_id, records)
+    origin = _origin_publish_record(request_id, records) or existing or {}
     now_ms = _now_ms()
     blockers = []
     if not existing:
@@ -244,12 +253,14 @@ def governance_config_publish_rollback(
             "requiresRestart": True,
         },
     }
+    rollback_draft = _rollback_draft_from_publish_record(origin, request_id) if not blockers else {}
     _append_publish_record(record)
     return {
         "mode": "ROLLBACK_REQUEST",
         "status": record["status"],
         "record": record,
         "target": existing or {},
+        "rollbackDraft": rollback_draft,
         "history": governance_config_publish_requests(limit=20),
     }
 
@@ -938,7 +949,27 @@ def _publish_blockers(validation: Dict[str, Any]) -> List[Dict[str, Any]]:
     readiness = validation.get("readiness") or {}
     if readiness.get("status") == "FAIL":
         blockers.append({"code": "READINESS_FAILED", "message": "治理体检存在错误级问题，不能提交发布。"})
+    coverage = validation.get("policyCoverage") if isinstance(validation.get("policyCoverage"), dict) else {}
+    failed_count = int(coverage.get("failedCount") or 0)
+    if failed_count > 0:
+        blockers.append({
+            "code": "DRAFT_POLICY_COVERAGE_FAILED",
+            "message": "草稿策略样例失败 " + str(failed_count) + " 个，请先修正能力触发或工具策略。",
+        })
     return blockers
+
+
+def _rollback_draft_from_publish_record(existing: Dict[str, Any], request_id: str) -> Dict[str, Any]:
+    snapshot = existing.get("configSnapshot") if isinstance(existing.get("configSnapshot"), dict) else {}
+    base_snapshot = existing.get("baseConfigSnapshot") if isinstance(existing.get("baseConfigSnapshot"), dict) else {}
+    capabilities_config = dict(base_snapshot.get("capabilitiesConfig") or snapshot.get("capabilitiesConfig") or {})
+    tools_config = dict(base_snapshot.get("toolsConfig") or snapshot.get("toolsConfig") or {})
+    return {
+        "capabilitiesConfig": capabilities_config,
+        "toolsConfig": tools_config,
+        "baseRequestId": str(existing.get("requestId") or request_id or ""),
+        "targetRequestId": str(request_id or ""),
+    }
 
 
 def _publish_request_id(validation: Dict[str, Any], created_at_ms: int) -> str:
@@ -986,6 +1017,9 @@ def _publish_record_summary(record: Dict[str, Any]) -> Dict[str, Any]:
     if "configSnapshot" in summary:
         snapshot = summary.pop("configSnapshot")
         summary["configSnapshotAvailable"] = isinstance(snapshot, dict) and bool(snapshot)
+    if "baseConfigSnapshot" in summary:
+        snapshot = summary.pop("baseConfigSnapshot")
+        summary["baseConfigSnapshotAvailable"] = isinstance(snapshot, dict) and bool(snapshot)
     return summary
 
 

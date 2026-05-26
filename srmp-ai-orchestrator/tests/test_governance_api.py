@@ -260,6 +260,68 @@ class GovernanceApiTest(unittest.TestCase):
         self.assertEqual("MODIFIED", tool_changes["knowledge.retrieve"]["changeType"])
         self.assertIn("description", tool_changes["knowledge.retrieve"]["changedFields"])
 
+    def test_publish_request_blocks_failed_draft_policy_coverage(self):
+        client = TestClient(app)
+        active = client.get("/api/srmp/langgraph/governance/config").json()
+        capabilities_config = copy.deepcopy(active["capabilitiesConfig"])
+        tools_config = copy.deepcopy(active["toolsConfig"])
+        capability = next(item for item in capabilities_config["capabilities"] if item["id"] == "knowledge.metric_explain")
+        capability["toolPolicy"]["required"] = ["gis.queryRegionSummary"]
+        capability["toolPolicy"]["prohibited"] = []
+        capability["examples"][0]["expect"]["exactToolNames"] = ["knowledge.retrieve"]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_path = os.path.join(temp_dir, "publish.jsonl")
+            with patch.dict(os.environ, {"SRMP_AGENT_GOVERNANCE_PUBLISH_LOG_PATH": log_path}):
+                response = client.post(
+                    "/api/srmp/langgraph/governance/config/publish/request",
+                    json={
+                        "capabilitiesConfig": capabilities_config,
+                        "toolsConfig": tools_config,
+                        "reason": "覆盖率失败阻断测试",
+                    },
+                )
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual("BLOCKED", body["status"])
+        blocker_codes = [item["code"] for item in body["record"]["blockers"]]
+        self.assertIn("DRAFT_POLICY_COVERAGE_FAILED", blocker_codes)
+        self.assertEqual(1, body["record"]["policyCoverage"]["failedCount"])
+
+    def test_rollback_request_contains_restore_draft_from_base_snapshot(self):
+        client = TestClient(app)
+        active = client.get("/api/srmp/langgraph/governance/config").json()
+        capabilities_config = copy.deepcopy(active["capabilitiesConfig"])
+        tools_config = copy.deepcopy(active["toolsConfig"])
+        capabilities_config["capabilities"][0]["name"] = "可回滚发布包"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_path = os.path.join(temp_dir, "publish.jsonl")
+            with patch.dict(os.environ, {"SRMP_AGENT_GOVERNANCE_PUBLISH_LOG_PATH": log_path}):
+                submit = client.post(
+                    "/api/srmp/langgraph/governance/config/publish/request",
+                    json={
+                        "capabilitiesConfig": capabilities_config,
+                        "toolsConfig": tools_config,
+                        "reason": "回滚草稿测试",
+                    },
+                ).json()
+                request_id = submit["record"]["requestId"]
+                client.post(f"/api/srmp/langgraph/governance/config/publish/requests/{request_id}/approve", json={})
+                client.post(f"/api/srmp/langgraph/governance/config/publish/requests/{request_id}/apply", json={})
+
+                rollback = client.post(
+                    f"/api/srmp/langgraph/governance/config/publish/requests/{request_id}/rollback",
+                    json={"reason": "恢复上一版本"},
+                ).json()
+
+        self.assertEqual("ROLLBACK_SUBMITTED", rollback["status"])
+        rollback_draft = rollback["rollbackDraft"]
+        self.assertEqual(request_id, rollback_draft["targetRequestId"])
+        self.assertEqual(active["capabilitiesConfig"], rollback_draft["capabilitiesConfig"])
+        self.assertEqual(active["toolsConfig"], rollback_draft["toolsConfig"])
+
     def test_publish_request_detail_keeps_snapshot_out_of_list_and_in_detail(self):
         client = TestClient(app)
         active = client.get("/api/srmp/langgraph/governance/config").json()
