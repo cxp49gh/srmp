@@ -144,3 +144,29 @@ test('AI traces page shows detail error state instead of select prompt on failed
   assert.match(content, /catch \(error\)[\s\S]*if \(requestSeq !== detailRequestSeq\) return[\s\S]*detailError\.value = detailErrorMessage\(error\)/)
   assert.match(content, /function detailErrorMessage\(error: unknown\)/)
 })
+
+test('AI traces page surfaces plan execution comparison in troubleshooting overview', () => {
+  const content = read('src/views/agent/AiTracesPage.vue')
+
+  assert.match(content, /const planExecution = computed/)
+  assert.match(content, /计划与实际/)
+  assert.match(content, /planExecution\.plannedToolNames/)
+  assert.match(content, /planExecution\.actualToolNames/)
+  assert.match(content, /planExecution\.missingToolNames/)
+  assert.match(content, /planExecution\.extraToolNames/)
+  assert.match(content, /planExecution\.adaptiveExtraToolNames/)
+  assert.match(content, /planExecution\.adaptiveReason/)
+})
+
+test('AI trace drawer renders plan execution comparison for admin troubleshooting', () => {
+  const content = read('src/views/agent/components/AiTraceDrawer.vue')
+
+  assert.match(content, /v-if="snapshot\.planExecution\.available"/)
+  assert.match(content, /计划与实际/)
+  assert.match(content, /snapshot\.planExecution\.plannedToolNames/)
+  assert.match(content, /snapshot\.planExecution\.actualToolNames/)
+  assert.match(content, /snapshot\.planExecution\.missingToolNames/)
+  assert.match(content, /snapshot\.planExecution\.extraToolNames/)
+  assert.match(content, /snapshot\.planExecution\.adaptiveExtraToolNames/)
+  assert.match(content, /snapshot\.planExecution\.adaptiveReason/)
+})

@@ -22,6 +22,82 @@
 
       <AnswerSourceAlert v-if="shouldShowAnswerSourceAlert(snapshot)" :meta="snapshot.answerMeta" allow-empty />
 
+      <section v-if="snapshot.planExecution.available" class="trace-section plan-panel">
+        <div class="step-title">
+          <h3>计划与实际</h3>
+          <el-tag size="small" :type="planExecutionTagType(snapshot.planExecution.status)">{{ snapshot.planExecution.status }}</el-tag>
+        </div>
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="计划 action">{{ snapshot.planExecution.plannedAction || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="实际 action">{{ snapshot.planExecution.actualAction || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="计划 intent">{{ snapshot.planExecution.plannedIntent || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="实际 intent">{{ snapshot.planExecution.actualIntent || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="计划 trace">{{ snapshot.planExecution.planTraceId || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="执行 trace">{{ snapshot.planExecution.runTraceId || '-' }}</el-descriptions-item>
+        </el-descriptions>
+        <div class="plan-compare-grid">
+          <div>
+            <span>计划工具</span>
+            <div class="tag-list">
+              <el-tag v-for="name in snapshot.planExecution.plannedToolNames" :key="`planned-${name}`" size="small" type="info">{{ name }}</el-tag>
+              <span v-if="!snapshot.planExecution.plannedToolNames.length" class="muted">-</span>
+            </div>
+          </div>
+          <div>
+            <span>实际工具</span>
+            <div class="tag-list">
+              <el-tag v-for="name in snapshot.planExecution.actualToolNames" :key="`actual-${name}`" size="small" type="success">{{ name }}</el-tag>
+              <span v-if="!snapshot.planExecution.actualToolNames.length" class="muted">-</span>
+            </div>
+          </div>
+          <div>
+            <span>缺失工具</span>
+            <div class="tag-list">
+              <el-tag v-for="name in snapshot.planExecution.missingToolNames" :key="`missing-${name}`" size="small" type="danger">{{ name }}</el-tag>
+              <span v-if="!snapshot.planExecution.missingToolNames.length" class="muted">-</span>
+            </div>
+          </div>
+          <div>
+            <span>额外工具</span>
+            <div class="tag-list">
+              <el-tag v-for="name in snapshot.planExecution.extraToolNames" :key="`extra-${name}`" size="small" type="warning">{{ name }}</el-tag>
+              <span v-if="!snapshot.planExecution.extraToolNames.length" class="muted">-</span>
+            </div>
+          </div>
+          <div>
+            <span>自适应追加</span>
+            <div class="tag-list">
+              <el-tag v-for="name in snapshot.planExecution.adaptiveExtraToolNames" :key="`adaptive-${name}`" size="small">{{ name }}</el-tag>
+              <span v-if="!snapshot.planExecution.adaptiveExtraToolNames.length" class="muted">-</span>
+            </div>
+          </div>
+          <div>
+            <span>来源差异</span>
+            <div class="tag-list">
+              <el-tag v-for="name in snapshot.planExecution.missingSourceTypes" :key="`source-${name}`" size="small" type="warning">{{ name }}</el-tag>
+              <span v-if="!snapshot.planExecution.missingSourceTypes.length" class="muted">-</span>
+            </div>
+          </div>
+        </div>
+        <el-alert
+          v-if="snapshot.planExecution.adaptiveReason"
+          class="trace-info"
+          type="info"
+          show-icon
+          :closable="false"
+          :title="snapshot.planExecution.adaptiveReason"
+        />
+        <el-alert
+          v-for="warning in snapshot.planExecution.warnings"
+          :key="warning.code"
+          class="trace-info"
+          :type="warning.level === 'ERROR' ? 'error' : warning.level === 'WARN' ? 'warning' : 'info'"
+          show-icon
+          :closable="false"
+          :title="warning.message || warning.code"
+        />
+      </section>
+
       <section v-if="Object.keys(snapshot.businessScope || {}).length" class="trace-section">
         <h3>业务范围</h3>
         <el-descriptions :column="2" border size="small">
@@ -199,6 +275,14 @@ function timelineType(status: string) {
   return 'info'
 }
 
+function planExecutionTagType(status?: string) {
+  const normalized = String(status || '').toUpperCase()
+  if (normalized === 'MATCHED') return 'success'
+  if (normalized === 'DIVERGED') return 'danger'
+  if (normalized === 'PARTIAL') return 'warning'
+  return 'info'
+}
+
 function formatJson(value: any) {
   return JSON.stringify(value || {}, null, 2)
 }
@@ -285,6 +369,10 @@ function stringValue(...values: any[]) {
   margin-bottom: 10px;
 }
 
+.trace-info {
+  margin-top: 10px;
+}
+
 .trace-section {
   margin-top: 18px;
 }
@@ -299,6 +387,33 @@ function stringValue(...values: any[]) {
   border: 1px solid #bfdbfe;
   border-radius: 8px;
   background: #eff6ff;
+}
+
+.plan-panel {
+  padding: 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.plan-compare-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.plan-compare-grid > div {
+  min-width: 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.plan-compare-grid span:first-child {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
 }
 
 .step-title {
@@ -336,6 +451,13 @@ function stringValue(...values: any[]) {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
 }
 
 .repair-list {

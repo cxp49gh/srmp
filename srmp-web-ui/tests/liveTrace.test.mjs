@@ -372,3 +372,41 @@ test('AiTrace snapshot reads knowledge fallback from persisted rawResult data', 
   assert.match(snapshot.tools[0].diagnostic, /暂无可用向量切片/)
   assert.equal(snapshot.repairActions[0].key, 'VECTORIZE_OUTLINE')
 })
+
+test('AiTrace snapshot normalizes plan execution for planned vs actual troubleshooting', () => {
+  const snapshot = toAiExecutionSnapshot({
+    trace: {
+      traceId: 'trace-plan-diff',
+      status: 'SUCCESS',
+      planExecution: {
+        available: true,
+        status: 'PARTIAL',
+        planTraceId: 'plan-1',
+        runTraceId: 'trace-plan-diff',
+        plannedAction: 'ANALYZE_ROUTE',
+        actualAction: 'ANALYZE_ROUTE',
+        plannedIntent: 'ROUTE_ANALYSIS',
+        actualIntent: 'ROUTE_ANALYSIS',
+        plannedToolNames: ['gis.queryAssessmentResults', 'gis.queryDiseases'],
+        actualToolNames: ['gis.queryAssessmentResults', 'knowledge.retrieve'],
+        missingToolNames: ['gis.queryDiseases'],
+        extraToolNames: ['knowledge.retrieve'],
+        adaptiveExtraToolNames: ['knowledge.retrieve'],
+        adaptiveReason: '业务证据不足，追加知识检索补充解释依据。',
+        plannedSourceTypes: ['BUSINESS_DATA'],
+        actualSourceTypes: ['BUSINESS_DATA', 'KNOWLEDGE'],
+        missingSourceTypes: [],
+        warnings: [{ level: 'INFO', code: 'ADAPTIVE_EXTRA_TOOL_EXECUTED', message: '实际执行追加了自适应规划工具。' }]
+      }
+    },
+    answerMeta: { llmStatus: 'SUCCESS', llmSuccess: true }
+  })
+
+  assert.equal(snapshot.planExecution.status, 'PARTIAL')
+  assert.deepEqual(snapshot.planExecution.plannedToolNames, ['gis.queryAssessmentResults', 'gis.queryDiseases'])
+  assert.deepEqual(snapshot.planExecution.actualToolNames, ['gis.queryAssessmentResults', 'knowledge.retrieve'])
+  assert.deepEqual(snapshot.planExecution.missingToolNames, ['gis.queryDiseases'])
+  assert.deepEqual(snapshot.planExecution.extraToolNames, ['knowledge.retrieve'])
+  assert.deepEqual(snapshot.planExecution.adaptiveExtraToolNames, ['knowledge.retrieve'])
+  assert.match(snapshot.planExecution.adaptiveReason, /业务证据不足/)
+})

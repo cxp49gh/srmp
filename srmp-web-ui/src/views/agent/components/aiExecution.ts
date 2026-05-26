@@ -28,6 +28,34 @@ export interface AiExecutionRepairAction {
   type?: 'primary' | 'success' | 'warning' | 'info' | 'danger'
 }
 
+export interface AiExecutionPlanWarning {
+  level: string
+  code: string
+  message: string
+}
+
+export interface AiExecutionPlanExecution {
+  available: boolean
+  status: string
+  planTraceId?: string
+  runTraceId?: string
+  plannedAction?: string
+  actualAction?: string
+  plannedIntent?: string
+  actualIntent?: string
+  plannedToolNames: string[]
+  actualToolNames: string[]
+  missingToolNames: string[]
+  extraToolNames: string[]
+  adaptiveExtraToolNames: string[]
+  adaptiveReason?: string
+  plannedSourceTypes: string[]
+  actualSourceTypes: string[]
+  missingSourceTypes: string[]
+  warnings: AiExecutionPlanWarning[]
+  raw: Record<string, any>
+}
+
 export interface AiExecutionSnapshot {
   summary: {
     traceId?: string
@@ -62,6 +90,7 @@ export interface AiExecutionSnapshot {
   quality?: Record<string, any>
   businessScope: Record<string, any>
   capability: Record<string, any>
+  planExecution: AiExecutionPlanExecution
   raw: Record<string, any>
   warnings: string[]
   repairActions: AiExecutionRepairAction[]
@@ -184,6 +213,32 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     replayResponse?.trace?.capability,
     record?.capability
   )) as Record<string, any>
+  const planExecution = normalizePlanExecution(firstRecord(
+    trace?.planExecution,
+    trace?.plan_execution,
+    record?.planExecution,
+    record?.plan_execution,
+    rawResponse.planExecution,
+    rawResponse.plan_execution,
+    rawResponse.data?.planExecution,
+    rawResponse.data?.plan_execution,
+    responseData.planExecution,
+    responseData.plan_execution,
+    responsePreview.planExecution,
+    responsePreview.plan_execution,
+    responsePreview.data?.planExecution,
+    responsePreview.data?.plan_execution,
+    replayResult?.planExecution,
+    replayResult?.plan_execution,
+    replayResult?.data?.planExecution,
+    replayResult?.data?.plan_execution,
+    replayResponse?.planExecution,
+    replayResponse?.plan_execution,
+    replayResponse?.data?.planExecution,
+    replayResponse?.data?.plan_execution,
+    solution.planExecution,
+    solution.plan_execution
+  ))
 
   if (!trace && !record && !replayResult && !Object.keys(solution).length) return null
 
@@ -223,6 +278,7 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     quality,
     businessScope,
     capability,
+    planExecution,
     raw: sanitizeInternalDiagnostics(compactRaw(input)) as Record<string, any>,
     warnings: buildWarnings(answerMeta, steps, summary.sourceCount, sources.length, tools, summary.status, currentStep),
     repairActions: buildRepairActions(tools, answerMeta)
@@ -471,6 +527,53 @@ function buildRepairActions(tools: AiExecutionTool[], answerMeta: Record<string,
   }
 
   return []
+}
+
+function normalizePlanExecution(input: any): AiExecutionPlanExecution {
+  const raw = firstRecord(input?.planExecution, input?.data?.planExecution, input)
+  return {
+    available: raw.available === true,
+    status: stringValue(raw.status) || (raw.available === false ? 'NO_PLAN' : 'NO_PLAN') || 'NO_PLAN',
+    planTraceId: stringValue(raw.planTraceId || raw.plan_trace_id),
+    runTraceId: stringValue(raw.runTraceId || raw.run_trace_id),
+    plannedAction: stringValue(raw.plannedAction || raw.planned_action),
+    actualAction: stringValue(raw.actualAction || raw.actual_action),
+    plannedIntent: stringValue(raw.plannedIntent || raw.planned_intent),
+    actualIntent: stringValue(raw.actualIntent || raw.actual_intent),
+    plannedToolNames: stringList(raw.plannedToolNames || raw.planned_tool_names),
+    actualToolNames: stringList(raw.actualToolNames || raw.actual_tool_names),
+    missingToolNames: stringList(raw.missingToolNames || raw.missing_tool_names),
+    extraToolNames: stringList(raw.extraToolNames || raw.extra_tool_names),
+    adaptiveExtraToolNames: stringList(raw.adaptiveExtraToolNames || raw.adaptive_extra_tool_names),
+    adaptiveReason: stringValue(raw.adaptiveReason || raw.adaptive_reason),
+    plannedSourceTypes: stringList(raw.plannedSourceTypes || raw.planned_source_types),
+    actualSourceTypes: stringList(raw.actualSourceTypes || raw.actual_source_types),
+    missingSourceTypes: stringList(raw.missingSourceTypes || raw.missing_source_types),
+    warnings: planWarnings(raw.warnings),
+    raw
+  }
+}
+
+function planWarnings(values: any): AiExecutionPlanWarning[] {
+  if (!Array.isArray(values)) return []
+  return values.map((value) => {
+    const item = asRecord(value)
+    return {
+      level: stringValue(item.level) || 'INFO',
+      code: stringValue(item.code) || '',
+      message: stringValue(item.message) || stringValue(item.code) || ''
+    }
+  }).filter((item) => item.code || item.message)
+}
+
+function stringList(values: any): string[] {
+  if (!Array.isArray(values)) return []
+  const result: string[] = []
+  values.forEach((value) => {
+    const item = stringValue(value)
+    if (item && !result.includes(item)) result.push(item)
+  })
+  return result
 }
 
 function isExecutionInProgress(status?: string, currentStep?: AiExecutionStep | null): boolean {
