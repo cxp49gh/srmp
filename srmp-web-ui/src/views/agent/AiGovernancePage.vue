@@ -274,6 +274,14 @@
           </div>
         </el-tab-pane>
 
+        <el-tab-pane label="能力-工具矩阵" name="matrix">
+          <GovernanceMatrixEditor
+            :capabilities-config="draftCapabilitiesConfig"
+            :tools-config="draftToolsConfig"
+            @update:capabilities-config="applyStructuredCapabilitiesConfig"
+          />
+        </el-tab-pane>
+
         <el-tab-pane label="能力矩阵" name="capabilities">
           <el-table :data="capabilities" border stripe>
             <el-table-column prop="id" label="能力 ID" min-width="190" />
@@ -770,6 +778,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, type LocationQuery } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import AgentPageShell from './components/AgentPageShell.vue'
+import GovernanceMatrixEditor from './components/GovernanceMatrixEditor.vue'
 import {
   decideAiGovernanceConfigPublishRequest,
   getAiGovernanceCapability,
@@ -905,6 +914,8 @@ const draftIssues = computed(() => {
   }))
 })
 const draftIssueCount = computed(() => Number(objectValue(draftReadiness.value.summary).issueCount ?? draftIssues.value.length))
+const draftCapabilitiesConfig = computed(() => parseDraftJsonSilent(draftCapabilitiesText.value))
+const draftToolsConfig = computed(() => parseDraftJsonSilent(draftToolsText.value))
 const publishRecords = computed(() => arrayValue(publishRecordsPayload.value.records))
 const publishDetail = computed(() => objectValue(publishDetailPayload.value))
 const publishPackage = computed(() => objectValue(publishDetail.value.package))
@@ -1093,6 +1104,21 @@ function resetDraftEditor() {
   draftCapabilitiesText.value = prettyJson(configPayload.value.capabilitiesConfig || {})
   draftToolsText.value = prettyJson(configPayload.value.toolsConfig || {})
   draftValidationPayload.value = {}
+}
+
+function applyStructuredCapabilitiesConfig(value: Record<string, any>) {
+  draftCapabilitiesText.value = prettyJson(value || {})
+  draftValidationPayload.value = {}
+  publishSubmitPayload.value = {}
+}
+
+function parseDraftJsonSilent(value: string): Record<string, any> {
+  try {
+    const parsed = JSON.parse(value || '{}')
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
 }
 
 function parseDraftJson(value: string, label: string): Record<string, any> | null {

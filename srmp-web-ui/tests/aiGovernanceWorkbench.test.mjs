@@ -7,3 +7,10 @@ test('orchestrator api exposes draft governance coverage', () => {
   assert.match(source, /export function getAiGovernanceDraftPolicyCoverage/)
   assert.match(source, /governance\/policies\/coverage\/draft/)
 })
+
+test('governance page wires the matrix editor', () => {
+  const page = readFileSync('srmp-web-ui/src/views/agent/AiGovernancePage.vue', 'utf8')
+  assert.match(page, /GovernanceMatrixEditor/)
+  assert.match(page, /name="matrix"/)
+  assert.match(page, /能力-工具矩阵/)
+})
