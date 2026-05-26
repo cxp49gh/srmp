@@ -7,7 +7,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .intent import normalize_object_type
+from .intent import normalize_object_type, recognize_intent
+from .plan_preview import enrich_tool_plan
+from .planner import plan_tools
 from .schemas import MapAiAgentRequest
 
 
@@ -303,7 +305,20 @@ def resolve_capability(
     fallback_intent: str,
     intent_detail: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    registry = governance_registry()
+    return resolve_capability_for_registry(
+        registry=governance_registry(),
+        request=request,
+        fallback_intent=fallback_intent,
+        intent_detail=intent_detail or {},
+    )
+
+
+def resolve_capability_for_registry(
+    registry: GovernanceRegistry,
+    request: MapAiAgentRequest,
+    fallback_intent: str,
+    intent_detail: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     candidates: List[Tuple[float, Dict[str, Any], List[str], str]] = []
     for capability in registry.capabilities:
         if not capability.get("enabled", True):
@@ -347,7 +362,10 @@ def validate_governance() -> Dict[str, Any]:
 
 
 def governance_policy_examples() -> List[Dict[str, Any]]:
-    registry = governance_registry()
+    return governance_policy_examples_for_registry(governance_registry())
+
+
+def governance_policy_examples_for_registry(registry: GovernanceRegistry) -> List[Dict[str, Any]]:
     examples: List[Dict[str, Any]] = []
     for capability in registry.capabilities:
         for example in capability.get("examples") or []:
@@ -357,6 +375,105 @@ def governance_policy_examples() -> List[Dict[str, Any]]:
             item["capabilityCategory"] = capability.get("category")
             examples.append(item)
     return examples
+
+
+def governance_policy_coverage_for_registry(
+    registry: GovernanceRegistry,
+    case_ids: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    selected_ids = {str(item).strip() for item in case_ids or [] if str(item or "").strip()}
+    examples = governance_policy_examples_for_registry(registry)
+    if selected_ids:
+        examples = [example for example in examples if str(example.get("id") or "") in selected_ids]
+    cases = [_run_governance_policy_case(example, registry=registry) for example in examples]
+    failed = [item for item in cases if item.get("status") != "PASS"]
+    return {
+        "version": registry.version,
+        "toolVersion": registry.tool_version,
+        "caseCount": len(cases),
+        "passedCount": len(cases) - len(failed),
+        "failedCount": len(failed),
+        "cases": cases,
+    }
+
+
+def governance_draft_policy_coverage(payload: Dict[str, Any]) -> Dict[str, Any]:
+    capabilities_raw = dict((payload or {}).get("capabilitiesConfig") or {})
+    tools_raw = dict((payload or {}).get("toolsConfig") or {})
+    registry = build_governance_registry(capabilities_raw, tools_raw)
+    coverage = governance_policy_coverage_for_registry(
+        registry=registry,
+        case_ids=_string_list((payload or {}).get("caseIds")),
+    )
+    coverage.update({
+        "mode": "DRAFT_POLICY_COVERAGE",
+        "draftId": _stable_hash({
+            "capabilitiesConfig": capabilities_raw,
+            "toolsConfig": tools_raw,
+        })[:16],
+    })
+    return coverage
+
+
+def _run_governance_policy_case(
+    example: Dict[str, Any],
+    registry: Optional[GovernanceRegistry] = None,
+) -> Dict[str, Any]:
+    request_payload = example.get("request") if isinstance(example.get("request"), dict) else {}
+    expect = example.get("expect") if isinstance(example.get("expect"), dict) else {}
+    request = MapAiAgentRequest(**request_payload)
+    fallback_intent, detail = recognize_intent(request)
+    active_registry = registry or governance_registry()
+    capability = resolve_capability_for_registry(
+        active_registry,
+        request,
+        fallback_intent=fallback_intent,
+        intent_detail=detail,
+    )
+    intent = capability.get("intent") or fallback_intent
+    tool_plan = enrich_tool_plan(plan_tools(request, intent, detail, capability=capability))
+    actual_tool_names = [str(item.get("toolName") or "") for item in tool_plan if item.get("toolName")]
+    expected_capability = str(expect.get("capabilityId") or example.get("capabilityId") or "")
+    required_tools = _string_list(expect.get("requiredTools"))
+    prohibited_tools = _string_list(expect.get("prohibitedTools"))
+    exact_tools = _string_list(expect.get("exactToolNames"))
+    missing_tools = [name for name in required_tools if name not in actual_tool_names]
+    prohibited_hits = [name for name in prohibited_tools if name in actual_tool_names]
+    capability_mismatch = bool(expected_capability and expected_capability != capability.get("capabilityId"))
+    exact_mismatch = bool(exact_tools and exact_tools != actual_tool_names)
+    warnings: List[Dict[str, str]] = []
+    if capability_mismatch:
+        warnings.append({
+            "code": "CAPABILITY_MISMATCH",
+            "message": "期望能力 " + expected_capability + "，实际命中 " + str(capability.get("capabilityId") or ""),
+        })
+    if missing_tools:
+        warnings.append({"code": "REQUIRED_TOOL_MISSING", "message": "缺少必选工具：" + ", ".join(missing_tools)})
+    if prohibited_hits:
+        warnings.append({"code": "PROHIBITED_TOOL_PLANNED", "message": "计划误用了禁用工具：" + ", ".join(prohibited_hits)})
+    if exact_mismatch:
+        warnings.append({"code": "EXACT_TOOLS_MISMATCH", "message": "计划工具与精确期望不一致。"})
+    status = "PASS" if not warnings else "FAIL"
+    return {
+        "id": str(example.get("id") or ""),
+        "name": str(example.get("name") or example.get("id") or ""),
+        "status": status,
+        "expectedCapabilityId": expected_capability,
+        "actualCapabilityId": capability.get("capabilityId"),
+        "actualCapabilityName": capability.get("name"),
+        "actualIntent": intent,
+        "fallbackIntent": fallback_intent,
+        "expectedRequiredTools": required_tools,
+        "expectedProhibitedTools": prohibited_tools,
+        "expectedExactToolNames": exact_tools,
+        "actualToolNames": actual_tool_names,
+        "missingRequiredTools": missing_tools,
+        "prohibitedToolNames": prohibited_hits,
+        "warnings": warnings,
+        "request": request.model_dump(exclude_none=True),
+        "capability": capability,
+        "toolPlan": tool_plan,
+    }
 
 
 def governance_tool_impact() -> Dict[str, Any]:

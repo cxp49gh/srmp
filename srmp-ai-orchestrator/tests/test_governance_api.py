@@ -56,6 +56,56 @@ class GovernanceApiTest(unittest.TestCase):
         self.assertEqual("map.route_analysis", cases["map.route_analysis.context_metric"]["actualCapabilityId"])
         self.assertIn("gis.queryRegionSummary", cases["map.route_analysis.context_metric"]["actualToolNames"])
 
+    def test_draft_policy_coverage_uses_draft_config_without_mutating_active(self):
+        client = TestClient(app)
+        active = client.get("/api/srmp/langgraph/governance/config").json()
+        capabilities_config = copy.deepcopy(active["capabilitiesConfig"])
+        tools_config = copy.deepcopy(active["toolsConfig"])
+        capability = next(item for item in capabilities_config["capabilities"] if item["id"] == "knowledge.metric_explain")
+        capability["toolPolicy"]["required"] = ["gis.queryRegionSummary"]
+        capability["toolPolicy"]["prohibited"] = []
+        capability["examples"][0]["expect"]["exactToolNames"] = ["knowledge.retrieve"]
+
+        response = client.post(
+            "/api/srmp/langgraph/governance/policies/coverage/draft",
+            json={
+                "capabilitiesConfig": capabilities_config,
+                "toolsConfig": tools_config,
+                "caseIds": ["knowledge.metric_explain.basic"],
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual("DRAFT_POLICY_COVERAGE", body["mode"])
+        self.assertEqual(1, body["caseCount"])
+        self.assertEqual(1, body["failedCount"])
+        self.assertEqual("knowledge.metric_explain.basic", body["cases"][0]["id"])
+        self.assertIn("gis.queryRegionSummary", body["cases"][0]["actualToolNames"])
+
+        active_coverage = client.get("/api/srmp/langgraph/governance/policies/coverage").json()
+        active_case = next(item for item in active_coverage["cases"] if item["id"] == "knowledge.metric_explain.basic")
+        self.assertEqual("PASS", active_case["status"])
+        self.assertEqual(["knowledge.retrieve"], active_case["actualToolNames"])
+
+    def test_draft_policy_coverage_filters_selected_cases(self):
+        client = TestClient(app)
+        active = client.get("/api/srmp/langgraph/governance/config").json()
+
+        response = client.post(
+            "/api/srmp/langgraph/governance/policies/coverage/draft",
+            json={
+                "capabilitiesConfig": active["capabilitiesConfig"],
+                "toolsConfig": active["toolsConfig"],
+                "caseIds": ["map.route_analysis.action"],
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual(1, body["caseCount"])
+        self.assertEqual(["map.route_analysis.action"], [item["id"] for item in body["cases"]])
+
     def test_tool_impact_endpoint_returns_capability_relations(self):
         client = TestClient(app)
 
