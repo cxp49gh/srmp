@@ -443,6 +443,14 @@
           <div class="simulator-grid">
             <el-card shadow="never">
               <template #header>请求上下文</template>
+              <el-alert
+                v-if="planForm.sourceTraceId"
+                class="mb"
+                type="info"
+                show-icon
+                :closable="false"
+                :title="`已载入 trace ${planForm.sourceTraceId} 的请求上下文，仅模拟能力和工具计划，不执行工具。`"
+              />
               <el-form label-width="90px">
                 <el-form-item label="问题">
                   <el-input v-model="planForm.message" type="textarea" :rows="3" />
@@ -474,11 +482,37 @@
                     <el-option label="ASSESSMENT_RESULT" value="ASSESSMENT_RESULT" />
                   </el-select>
                 </el-form-item>
+                <el-form-item label="项目">
+                  <el-input v-model="planForm.projectId" clearable />
+                </el-form-item>
                 <el-form-item label="路线">
-                  <el-input v-model="planForm.routeCode" />
+                  <el-input v-model="planForm.routeCode" clearable />
                 </el-form-item>
                 <el-form-item label="年份">
                   <el-input-number v-model="planForm.year" :min="2000" :max="2100" />
+                </el-form-item>
+                <el-form-item label="层级">
+                  <el-input v-model="planForm.sectionTier" clearable />
+                </el-form-item>
+                <el-form-item label="对象 ID">
+                  <el-input v-model="planForm.objectId" clearable />
+                </el-form-item>
+                <el-form-item label="方向">
+                  <el-input v-model="planForm.direction" clearable />
+                </el-form-item>
+                <el-form-item label="桩号">
+                  <div class="stake-inputs">
+                    <el-input v-model="planForm.startStake" clearable placeholder="起点" />
+                    <el-input v-model="planForm.endStake" clearable placeholder="终点" />
+                  </div>
+                </el-form-item>
+                <el-form-item label="图层">
+                  <el-select v-model="planForm.selectedLayers" multiple collapse-tags collapse-tags-tooltip clearable placeholder="可选">
+                    <el-option label="路线" value="ROAD_ROUTE" />
+                    <el-option label="路段" value="ROAD_SECTION" />
+                    <el-option label="病害" value="DISEASE" />
+                    <el-option label="评定" value="ASSESSMENT_RESULT" />
+                  </el-select>
                 </el-form-item>
                 <el-form-item>
                   <el-button type="primary" :loading="planning" @click="simulatePlan">运行模拟</el-button>
@@ -507,6 +541,16 @@
                     <strong>{{ tool.label || tool.toolName }}</strong>
                     <span>{{ tool.reason || '-' }}</span>
                   </div>
+                </div>
+                <div v-if="arrayValue(planResult.warnings).length" class="detail-block">
+                  <h3>计划告警</h3>
+                  <div class="tag-list">
+                    <el-tag v-for="item in arrayValue(planResult.warnings)" :key="item.code || item.message" size="small" type="warning">{{ item.message || item.code }}</el-tag>
+                  </div>
+                </div>
+                <div class="detail-block">
+                  <h3>上下文摘要</h3>
+                  <pre class="context-preview">{{ prettyJson(planResult.contextSummary || {}) }}</pre>
                 </div>
                 <div class="detail-block">
                   <h3>禁用工具</h3>
@@ -722,7 +766,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, type LocationQuery } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import AgentPageShell from './components/AgentPageShell.vue'
 import {
@@ -744,6 +789,7 @@ import {
   validateAiGovernancePolicies
 } from '../../api/orchestrator'
 
+const route = useRoute()
 const activeTab = ref('capabilities')
 const loading = ref(false)
 const planning = ref(false)
@@ -788,8 +834,16 @@ const planForm = reactive({
   action: '',
   mode: 'ROUTE',
   objectType: '',
+  objectId: '',
+  projectId: '',
   routeCode: 'Y016140727',
-  year: 2026
+  year: 2026,
+  sectionTier: 'LINE',
+  direction: '',
+  startStake: '',
+  endStake: '',
+  selectedLayers: ['ROAD_ROUTE', 'DISEASE', 'ASSESSMENT_RESULT'],
+  sourceTraceId: ''
 })
 
 const capabilities = computed(() => arrayValue(capabilitiesPayload.value.capabilities))
@@ -889,8 +943,13 @@ const toolRelationBlocks = [
   { key: 'adaptiveBy', label: 'Adaptive By', type: 'warning' },
   { key: 'prohibitedBy', label: 'Prohibited By', type: 'danger' }
 ]
+let lastAppliedPlanQueryKey = ''
 
 onMounted(loadGovernance)
+
+watch(() => route.query, (query) => {
+  void applyPlanQuery(query)
+}, { immediate: true })
 
 async function loadGovernance() {
   loading.value = true
@@ -1110,21 +1169,83 @@ async function openToolDetail(toolName: string) {
   }
 }
 
+async function applyPlanQuery(query: LocationQuery) {
+  const queryKey = JSON.stringify(query || {})
+  if (!queryKey || queryKey === '{}' || queryKey === lastAppliedPlanQueryKey) return
+  const hasPlanQuery = ['message', 'action', 'mode', 'objectType', 'routeCode', 'projectId', 'traceId', 'sourceTraceId'].some((key) => queryText(query, key))
+  if (!hasPlanQuery) return
+  lastAppliedPlanQueryKey = queryKey
+  planForm.message = queryText(query, 'message') || planForm.message
+  planForm.action = queryText(query, 'action')
+  planForm.mode = queryText(query, 'mode') || planForm.mode
+  planForm.objectType = queryText(query, 'objectType')
+  planForm.objectId = queryText(query, 'objectId')
+  planForm.projectId = queryText(query, 'projectId')
+  planForm.routeCode = queryText(query, 'routeCode')
+  planForm.year = Number(queryText(query, 'year') || planForm.year) || planForm.year
+  planForm.sectionTier = queryText(query, 'sectionTier') || planForm.sectionTier
+  planForm.direction = queryText(query, 'direction')
+  planForm.startStake = queryText(query, 'startStake')
+  planForm.endStake = queryText(query, 'endStake')
+  const selectedLayersText = queryText(query, 'selectedLayers')
+  if (selectedLayersText) {
+    planForm.selectedLayers = selectedLayersText
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+  planForm.sourceTraceId = queryText(query, 'sourceTraceId') || queryText(query, 'traceId')
+  planResult.value = null
+  activeTab.value = 'simulator'
+  if (queryText(query, 'autoRun') === '1') {
+    await simulatePlan()
+  }
+}
+
 async function simulatePlan() {
   planning.value = true
   try {
-    const mapObject = planForm.objectType ? { objectType: planForm.objectType, routeCode: planForm.routeCode, year: planForm.year } : undefined
+    const stakeStart = nullableNumber(planForm.startStake)
+    const stakeEnd = nullableNumber(planForm.endStake)
+    const mapObject = (planForm.objectType || planForm.objectId)
+      ? {
+          objectType: planForm.objectType || undefined,
+          objectId: planForm.objectId || undefined,
+          id: planForm.objectId || undefined,
+          routeCode: planForm.routeCode || undefined,
+          year: planForm.year,
+          direction: planForm.direction || undefined,
+          startStake: stakeStart,
+          endStake: stakeEnd
+        }
+      : undefined
+    const selectedLayers = planForm.selectedLayers.filter(Boolean)
     const response = await simulateAiGovernancePlan({
       action: planForm.action || undefined,
       message: planForm.message,
       mapContext: {
         mode: planForm.mode,
-        routeCode: planForm.routeCode,
+        routeCode: planForm.routeCode || undefined,
         year: planForm.year,
-        mapObject
+        selectedLayers: selectedLayers.length ? selectedLayers : undefined,
+        mapObject,
+        extra: {
+          projectId: planForm.projectId || undefined,
+          sectionTier: planForm.sectionTier || undefined,
+          sourceTraceId: planForm.sourceTraceId || undefined,
+          rawContext: {
+            query: {
+              projectId: planForm.projectId || undefined,
+              routeCode: planForm.routeCode || undefined,
+              sectionTier: planForm.sectionTier || undefined,
+              year: planForm.year
+            }
+          }
+        }
       },
       options: {
         topK: 3,
+        sourceTraceId: planForm.sourceTraceId || undefined,
         traceId: `governance-plan-${Date.now()}`
       }
     })
@@ -1228,6 +1349,18 @@ function formatTime(value: any) {
   const time = Number(value || 0)
   if (!time) return '-'
   return new Date(time).toLocaleString()
+}
+
+function queryText(query: LocationQuery, key: string): string {
+  const value = query[key]
+  if (Array.isArray(value)) return value.find((item) => item != null && item !== '') || ''
+  return value == null ? '' : String(value)
+}
+
+function nullableNumber(value: any): number | undefined {
+  if (value === null || value === undefined || value === '') return undefined
+  const numberValue = Number(value)
+  return Number.isFinite(numberValue) ? numberValue : undefined
 }
 
 function toolNamesForPolicy(key: string) {
@@ -1555,6 +1688,26 @@ function uniqueStrings(values: any[]): string[] {
 
 .tool-row span {
   color: #64748b;
+}
+
+.stake-inputs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+.context-preview {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  padding: 10px;
+  border-radius: 6px;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
 }
 
 @media (max-width: 1100px) {

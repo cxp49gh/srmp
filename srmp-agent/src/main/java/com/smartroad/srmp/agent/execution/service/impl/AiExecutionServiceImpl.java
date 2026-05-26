@@ -90,6 +90,7 @@ public class AiExecutionServiceImpl implements AiExecutionService {
 
     private String listSql() {
         return "select r.id, r.tenant_id, r.trace_id, r.request_type, r.action, r.intent, r.mode, r.provider, r.model, r.graph_name, " +
+                "coalesce(nullif(left(r.raw_request->>'message',180),''), nullif(left(r.raw_request#>>'{mapContext,userQuestion}',180),'')) as message_preview, " +
                 "r.status, r.fallback, r.fallback_reason, r.error_message, r.total_cost_ms, r.started_at, r.finished_at, r.created_at, " +
                 "s.project_id, s.route_code, s.year, s.section_tier, s.context_scope, s.object_type, s.object_id, " +
                 "(select count(1) from ai_execution_tool_call t where t.tenant_id=r.tenant_id and t.trace_id=r.trace_id and t.deleted=false) as tool_total_count, " +
@@ -139,7 +140,7 @@ public class AiExecutionServiceImpl implements AiExecutionService {
         item.put("tenantId", first(row, "tenant_id", "tenantId"));
         item.put("traceId", first(row, "trace_id", "traceId"));
         item.put("requestType", first(row, "request_type", "requestType"));
-        item.put("messagePreview", first(row, "user_message", "userMessage", "messagePreview"));
+        item.put("messagePreview", first(row, "user_message", "userMessage", "message_preview", "messagePreview"));
         item.put("action", row.get("action"));
         item.put("intent", row.get("intent"));
         item.put("mode", row.get("mode"));

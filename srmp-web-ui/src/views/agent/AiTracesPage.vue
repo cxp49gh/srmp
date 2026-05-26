@@ -45,7 +45,7 @@
             <strong>{{ traceIdOf(item) || '-' }}</strong>
             <el-tag size="small" :type="tagType(item.status)">{{ item.status || '-' }}</el-tag>
           </div>
-          <p>{{ item.user_message || item.userMessage || '-' }}</p>
+          <p>{{ traceQuestion(item) || '-' }}</p>
           <div class="meta-line">
             <span>{{ item.request_type || item.requestType || item.mode || '-' }}</span>
             <span v-if="capabilityLabelOf(item)">能力 {{ capabilityLabelOf(item) }}</span>
@@ -64,6 +64,7 @@
           <div class="card-header">
             <span>排障概览</span>
             <div class="header-actions">
+              <el-button v-if="detail" size="small" @click="openPlanSimulatorFromTrace">模拟此请求</el-button>
               <el-button v-if="detailTraceId" size="small" @click="copyTraceId">复制 traceId</el-button>
               <el-button v-if="detailTraceId" size="small" type="primary" @click="openTraceDrawer">打开排障抽屉</el-button>
             </div>
@@ -198,7 +199,7 @@
 
           <section class="detail-section">
             <h3>用户问题</h3>
-            <pre>{{ detail.user_message || detail.userMessage || '-' }}</pre>
+            <pre>{{ traceQuestion(detail) || '-' }}</pre>
           </section>
 
           <section class="detail-section">
@@ -434,6 +435,15 @@ function openTraceDrawer() {
   traceDrawerVisible.value = true
 }
 
+function openPlanSimulatorFromTrace() {
+  const simulatorQuery = buildPlanSimulatorQuery(detail.value || selected.value)
+  if (!Object.keys(simulatorQuery).length) {
+    ElMessage.warning('当前 trace 缺少可复盘的请求上下文')
+    return
+  }
+  router.push({ path: '/agent/ai-governance', query: simulatorQuery })
+}
+
 function go(path: string) {
   if (path) router.push(path)
 }
@@ -590,6 +600,80 @@ function extractSources(value: Record<string, any> | null): any[] {
 
 function traceIdOf(value?: Record<string, any> | null) {
   return String(value?.trace_id || value?.traceId || '')
+}
+
+function traceQuestion(value?: Record<string, any> | null) {
+  const rawRequest = firstRecord(value?.rawRequest, value?.raw_request)
+  const mapContext = firstRecord(rawRequest.mapContext, rawRequest.map_context, rawRequest.context?.mapContext, rawRequest.context?.map_context)
+  return stringValue(
+    value?.user_message,
+    value?.userMessage,
+    value?.messagePreview,
+    value?.message_preview,
+    rawRequest.message,
+    rawRequest.userQuestion,
+    rawRequest.user_question,
+    mapContext.userQuestion,
+    mapContext.user_question
+  )
+}
+
+function buildPlanSimulatorQuery(value?: Record<string, any> | null): Record<string, string> {
+  if (!value) return {}
+  const rawRequest = firstRecord(value.rawRequest, value.raw_request)
+  const actionInput = firstRecord(rawRequest.actionInput, rawRequest.action_input)
+  const mapContext = firstRecord(
+    rawRequest.mapContext,
+    rawRequest.map_context,
+    rawRequest.context?.mapContext,
+    rawRequest.context?.map_context,
+    value.mapContext,
+    value.map_context
+  )
+  const extra = firstRecord(mapContext.extra, mapContext.extra_context)
+  const rawContext = firstRecord(extra.rawContext, extra.raw_context)
+  const rawQuery = firstRecord(rawContext.query)
+  const businessScope = firstRecord(value.businessScope, value.business_scope)
+  const mapObject = firstRecord(
+    mapContext.mapObject,
+    mapContext.map_object,
+    rawRequest.mapObject,
+    rawRequest.map_object,
+    actionInput.mapObject,
+    actionInput.map_object
+  )
+  const selectedLayers = firstArray(
+    mapContext.selectedLayers,
+    mapContext.selected_layers,
+    businessScope.selectedLayers,
+    businessScope.selected_layers
+  ).map((item) => String(item)).filter(Boolean)
+  return compactQuery({
+    sourceTraceId: traceIdOf(value),
+    traceId: traceIdOf(value),
+    autoRun: '1',
+    message: traceQuestion(value),
+    action: stringValue(rawRequest.action, value.action),
+    mode: stringValue(mapContext.mode, businessScope.contextScope, businessScope.context_scope),
+    projectId: stringValue(extra.projectId, extra.project_id, rawQuery.projectId, rawQuery.project_id, rawContext.projectId, rawContext.project_id, businessScope.projectId, businessScope.project_id),
+    routeCode: stringValue(mapObject.routeCode, mapObject.route_code, mapContext.routeCode, mapContext.route_code, rawQuery.routeCode, rawQuery.route_code, businessScope.routeCode, businessScope.route_code),
+    year: stringValue(mapContext.year, rawQuery.year, businessScope.year),
+    sectionTier: stringValue(rawQuery.sectionTier, rawQuery.section_tier, extra.sectionTier, extra.section_tier, businessScope.sectionTier, businessScope.section_tier),
+    objectType: stringValue(mapObject.objectType, mapObject.object_type, mapObject.type, businessScope.objectType, businessScope.object_type),
+    objectId: stringValue(mapObject.objectId, mapObject.object_id, mapObject.id, businessScope.objectId, businessScope.object_id),
+    direction: stringValue(mapObject.direction, mapObject.raw?.direction, businessScope.direction),
+    startStake: stringValue(mapObject.startStake, mapObject.start_stake, mapObject.raw?.startStake, mapObject.raw?.start_stake, businessScope.startStake, businessScope.start_stake),
+    endStake: stringValue(mapObject.endStake, mapObject.end_stake, mapObject.raw?.endStake, mapObject.raw?.end_stake, businessScope.endStake, businessScope.end_stake),
+    selectedLayers: selectedLayers.join(',')
+  })
+}
+
+function compactQuery(value: Record<string, any>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, item]) => [key, stringValue(item)])
+      .filter(([, item]) => item)
+  ) as Record<string, string>
 }
 
 function isFallback(value?: Record<string, any> | null) {
