@@ -158,6 +158,18 @@
             </section>
           </div>
 
+          <GovernanceDraftReviewPanel
+            :validation-payload="draftValidationPayload"
+            :coverage-payload="draftCoveragePayload"
+            :publish-payload="publishSubmitPayload"
+            :validation-loading="draftValidationLoading"
+            :coverage-loading="draftCoverageLoading"
+            :publish-loading="publishSubmitLoading"
+            @validate="validateCurrentGovernanceConfigDraft"
+            @run-coverage="runDraftPolicyCoverage"
+            @submit-publish="submitPublishRequest"
+          />
+
           <div class="coverage-head">
             <div>
               <strong>草稿校验结果</strong>
@@ -788,6 +800,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, type LocationQuery } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import AgentPageShell from './components/AgentPageShell.vue'
+import GovernanceDraftReviewPanel from './components/GovernanceDraftReviewPanel.vue'
 import GovernanceEvalCaseSet from './components/GovernanceEvalCaseSet.vue'
 import GovernanceMatrixEditor from './components/GovernanceMatrixEditor.vue'
 import {
@@ -1073,7 +1086,11 @@ async function requestRollback(row: Record<string, any>) {
     })
     const body = extractBody(response)
     publishRecordsPayload.value = objectValue(body.history)
-    ElMessage.warning('回滚申请已记录，当前阶段不执行配置覆盖')
+    if (applyRollbackDraft(objectValue(body.rollbackDraft))) {
+      ElMessage.success('回滚申请已记录，已载入回滚草稿等待校验')
+    } else {
+      ElMessage.warning('回滚申请已记录，当前响应未返回可恢复草稿')
+    }
   } finally {
     rollbackLoadingId.value = ''
   }
@@ -1126,6 +1143,19 @@ function applyStructuredCapabilitiesConfig(value: Record<string, any>) {
   draftValidationPayload.value = {}
   draftCoveragePayload.value = {}
   publishSubmitPayload.value = {}
+}
+
+function applyRollbackDraft(rollbackDraft: Record<string, any>): boolean {
+  const capabilitiesConfig = objectValue(rollbackDraft.capabilitiesConfig)
+  const toolsConfig = objectValue(rollbackDraft.toolsConfig)
+  if (!Object.keys(capabilitiesConfig).length || !Object.keys(toolsConfig).length) return false
+  draftCapabilitiesText.value = prettyJson(capabilitiesConfig)
+  draftToolsText.value = prettyJson(toolsConfig)
+  draftValidationPayload.value = {}
+  draftCoveragePayload.value = {}
+  publishSubmitPayload.value = {}
+  activeTab.value = 'config'
+  return true
 }
 
 function parseDraftJsonSilent(value: string): Record<string, any> {

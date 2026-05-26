@@ -23,3 +23,10 @@ test('governance page wires evaluation cases and draft coverage', () => {
   const api = readFileSync('srmp-web-ui/src/api/orchestrator.ts', 'utf8')
   assert.match(api, /getAiGovernanceDraftPolicyCoverage/)
 })
+
+test('governance page wires draft review and rollback restore', () => {
+  const page = readFileSync('srmp-web-ui/src/views/agent/AiGovernancePage.vue', 'utf8')
+  assert.match(page, /GovernanceDraftReviewPanel/)
+  assert.match(page, /applyRollbackDraft/)
+  assert.match(page, /draftCoveragePayload/)
+})
