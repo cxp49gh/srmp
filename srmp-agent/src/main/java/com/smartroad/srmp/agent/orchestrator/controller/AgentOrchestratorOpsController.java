@@ -180,6 +180,117 @@ public class AgentOrchestratorOpsController {
         return R.ok(remoteGet("/api/srmp/langgraph/runtime/config"));
     }
 
+    @GetMapping("/governance/config")
+    public R<Object> governanceConfig() {
+        return R.ok(remoteGet("/api/srmp/langgraph/governance/config"));
+    }
+
+    @PostMapping("/governance/config/draft/validate")
+    public R<Object> governanceConfigDraftValidate(@RequestBody(required = false) Map<String, Object> body) {
+        Map<String, Object> payload = body == null ? new LinkedHashMap<String, Object>() : body;
+        return R.ok(remotePost("/api/srmp/langgraph/governance/config/draft/validate", payload));
+    }
+
+    @GetMapping("/governance/config/publish/requests")
+    public R<Object> governanceConfigPublishRequests(@RequestParam(value = "limit", required = false, defaultValue = "20") Integer limit) {
+        return R.ok(remoteGet("/api/srmp/langgraph/governance/config/publish/requests?limit=" + safeLimit(limit)));
+    }
+
+    @PostMapping("/governance/config/publish/request")
+    public R<Object> governanceConfigPublishRequest(@RequestBody(required = false) Map<String, Object> body) {
+        Map<String, Object> payload = body == null ? new LinkedHashMap<String, Object>() : body;
+        return R.ok(remotePost("/api/srmp/langgraph/governance/config/publish/request", payload));
+    }
+
+    @GetMapping("/governance/config/publish/requests/{requestId:.+}")
+    public R<Object> governanceConfigPublishRequestDetail(@PathVariable("requestId") String requestId) {
+        String path = "/api/srmp/langgraph/governance/config/publish/requests/"
+                + UriUtils.encodePathSegment(requestId == null ? "" : requestId, StandardCharsets.UTF_8);
+        return R.ok(remoteGet(path));
+    }
+
+    @PostMapping("/governance/config/publish/requests/{requestId:.+}/rollback")
+    public R<Object> governanceConfigPublishRollback(@PathVariable("requestId") String requestId,
+                                                     @RequestBody(required = false) Map<String, Object> body) {
+        Map<String, Object> payload = body == null ? new LinkedHashMap<String, Object>() : body;
+        String path = "/api/srmp/langgraph/governance/config/publish/requests/"
+                + UriUtils.encodePathSegment(requestId == null ? "" : requestId, StandardCharsets.UTF_8)
+                + "/rollback";
+        return R.ok(remotePost(path, payload));
+    }
+
+    @PostMapping("/governance/config/publish/requests/{requestId:.+}/approve")
+    public R<Object> governanceConfigPublishApprove(@PathVariable("requestId") String requestId,
+                                                    @RequestBody(required = false) Map<String, Object> body) {
+        return R.ok(remotePost(governanceDecisionPath(requestId, "approve"), body == null ? new LinkedHashMap<String, Object>() : body));
+    }
+
+    @PostMapping("/governance/config/publish/requests/{requestId:.+}/reject")
+    public R<Object> governanceConfigPublishReject(@PathVariable("requestId") String requestId,
+                                                   @RequestBody(required = false) Map<String, Object> body) {
+        return R.ok(remotePost(governanceDecisionPath(requestId, "reject"), body == null ? new LinkedHashMap<String, Object>() : body));
+    }
+
+    @PostMapping("/governance/config/publish/requests/{requestId:.+}/apply")
+    public R<Object> governanceConfigPublishApply(@PathVariable("requestId") String requestId,
+                                                  @RequestBody(required = false) Map<String, Object> body) {
+        return R.ok(remotePost(governanceDecisionPath(requestId, "apply"), body == null ? new LinkedHashMap<String, Object>() : body));
+    }
+
+    @GetMapping("/governance/capabilities")
+    public R<Object> governanceCapabilities() {
+        return R.ok(remoteGet("/api/srmp/langgraph/governance/capabilities"));
+    }
+
+    @GetMapping("/governance/capabilities/{capabilityId:.+}")
+    public R<Object> governanceCapability(@PathVariable("capabilityId") String capabilityId) {
+        return R.ok(remoteGet("/api/srmp/langgraph/governance/capabilities/"
+                + UriUtils.encodePathSegment(capabilityId == null ? "" : capabilityId, StandardCharsets.UTF_8)));
+    }
+
+    @GetMapping("/governance/tools")
+    public R<Object> governanceTools() {
+        return R.ok(remoteGet("/api/srmp/langgraph/governance/tools"));
+    }
+
+    @GetMapping("/governance/tools/impact")
+    public R<Object> governanceToolsImpact() {
+        return R.ok(remoteGet("/api/srmp/langgraph/governance/tools/impact"));
+    }
+
+    @GetMapping("/governance/tools/{toolName:.+}")
+    public R<Object> governanceTool(@PathVariable("toolName") String toolName,
+                                    @RequestParam(value = "includeContract", required = false, defaultValue = "false") Boolean includeContract) {
+        String path = "/api/srmp/langgraph/governance/tools/"
+                + UriUtils.encodePathSegment(toolName == null ? "" : toolName, StandardCharsets.UTF_8)
+                + "?includeContract=" + Boolean.TRUE.equals(includeContract);
+        return R.ok(remoteGet(path));
+    }
+
+    @GetMapping("/governance/readiness")
+    public R<Object> governanceReadiness(@RequestParam(value = "includeContract", required = false, defaultValue = "true") Boolean includeContract,
+                                         @RequestParam(value = "runCoverage", required = false, defaultValue = "true") Boolean runCoverage) {
+        String path = "/api/srmp/langgraph/governance/readiness?includeContract=" + Boolean.TRUE.equals(includeContract)
+                + "&runCoverage=" + Boolean.TRUE.equals(runCoverage);
+        return R.ok(remoteGet(path));
+    }
+
+    @GetMapping("/governance/policies/validate")
+    public R<Object> governanceValidate() {
+        return R.ok(remoteGet("/api/srmp/langgraph/governance/policies/validate"));
+    }
+
+    @GetMapping("/governance/policies/coverage")
+    public R<Object> governanceCoverage() {
+        return R.ok(remoteGet("/api/srmp/langgraph/governance/policies/coverage"));
+    }
+
+    @PostMapping("/governance/plan-simulate")
+    public R<Object> governancePlanSimulate(@RequestBody(required = false) Map<String, Object> body) {
+        Map<String, Object> payload = body == null ? new LinkedHashMap<String, Object>() : body;
+        return R.ok(remotePost("/api/srmp/langgraph/governance/plan-simulate", payload));
+    }
+
     @GetMapping("/health-detail")
     public R<Object> healthDetail(@RequestParam(value = "includeGateway", required = false, defaultValue = "true") Boolean includeGateway,
                                   @RequestParam(value = "includeContract", required = false, defaultValue = "true") Boolean includeContract) {
@@ -204,6 +315,14 @@ public class AgentOrchestratorOpsController {
         return "/api/srmp/langgraph/debug/replay/" + UriUtils.encodePathSegment(safeRecordId, StandardCharsets.UTF_8)
                 + "?execute=" + execute
                 + "&adaptiveMode=" + UriUtils.encodeQueryParam(mode, StandardCharsets.UTF_8);
+    }
+
+    String governanceDecisionPath(String requestId, String action) {
+        String safeRequestId = requestId == null ? "" : requestId;
+        String safeAction = isBlank(action) ? "" : action.trim();
+        return "/api/srmp/langgraph/governance/config/publish/requests/"
+                + UriUtils.encodePathSegment(safeRequestId, StandardCharsets.UTF_8)
+                + "/" + UriUtils.encodePathSegment(safeAction, StandardCharsets.UTF_8);
     }
 
     @GetMapping("/persistence")

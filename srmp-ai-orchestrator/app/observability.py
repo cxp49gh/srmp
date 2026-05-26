@@ -43,6 +43,35 @@ def _mode_from_request(request: Optional[MapAiAgentRequest]) -> Optional[str]:
     return None
 
 
+def _business_scope_from_request(request: Optional[MapAiAgentRequest]) -> Dict[str, Any]:
+    if not request or not request.mapContext:
+        return {}
+    ctx = request.mapContext
+    obj = ctx.mapObject if isinstance(ctx.mapObject, dict) else {}
+    raw = obj.get("raw") if isinstance(obj.get("raw"), dict) else {}
+    extra = ctx.extra if isinstance(ctx.extra, dict) else {}
+    raw_context = _first_dict(extra, "rawContext", "raw_context")
+    query = _first_dict(raw_context, "query")
+    scope = {
+        "tenantId": ctx.tenantId,
+        "projectId": _first_present(_first_value(extra, "projectId", "project_id"), _first_value(query, "projectId", "project_id"), _first_value(raw_context, "projectId", "project_id")),
+        "routeCode": ctx.routeCode or _first_value(obj, "routeCode", "route_code"),
+        "year": ctx.year or _first_value(query, "year"),
+        "sectionTier": _first_present(_first_value(query, "sectionTier", "section_tier"), _first_value(extra, "sectionTier", "section_tier")),
+        "contextScope": ctx.mode,
+        "objectType": _first_value(obj, "objectType", "object_type", "type", "layerType"),
+        "objectId": _first_value(obj, "objectId", "object_id", "id"),
+        "assessmentObjectType": _first_value(raw, "objectType", "object_type"),
+        "direction": _first_present(_first_value(obj, "direction"), _first_value(raw, "direction")),
+        "startStake": _first_present(_first_value(obj, "stakeStart", "startStake", "start_stake"), _first_value(raw, "stakeStart", "startStake", "start_stake")),
+        "endStake": _first_present(_first_value(obj, "stakeEnd", "endStake", "end_stake"), _first_value(raw, "stakeEnd", "endStake", "end_stake")),
+        "bbox": (ctx.viewport or {}).get("bbox") if isinstance(ctx.viewport, dict) else None,
+        "geometryType": (ctx.geometry or {}).get("type") if isinstance(ctx.geometry, dict) else None,
+        "selectedLayers": ctx.selectedLayers,
+    }
+    return {key: value for key, value in scope.items() if value not in (None, "", [])}
+
+
 class RuntimeAuditStore:
     """轻量级运行时审计缓冲区。
 
@@ -84,19 +113,36 @@ class RuntimeAuditStore:
         action = getattr(response, "action", None)
         if not action and isinstance(data, dict):
             action = data.get("action")
+        action_result_status = str(action_result.get("status") or "SUCCESS").upper()
+        status = _audit_status_from_action(action_result_status)
         graph_name = data.get("graphName") if isinstance(data, dict) else None
         if not graph_name and isinstance(trace, dict):
             graph_name = trace.get("graphName")
         steps = trace.get("steps") if isinstance(trace, dict) else None
         tool_results = response.toolResults or []
-        tool_total = data.get("toolTotalCount") if isinstance(data, dict) else len(tool_results)
-        tool_success = data.get("toolSuccessCount") if isinstance(data, dict) else sum(1 for item in tool_results if item.get("success"))
+        tool_total = _first_int(data.get("toolTotalCount") if isinstance(data, dict) else None, len(tool_results))
+        tool_success = _first_int(
+            data.get("toolSuccessCount") if isinstance(data, dict) else None,
+            sum(1 for item in tool_results if item.get("success")),
+        )
+        tool_failed = _first_int(
+            data.get("toolFailedCount") if isinstance(data, dict) else None,
+            max(0, tool_total - tool_success),
+        )
         adaptive_planning = _adaptive_planning_from_response(response)
         adaptive_added_tools = _adaptive_added_tools(adaptive_planning)
+        answer_meta = response.answerMeta or (data.get("answerMeta") if isinstance(data, dict) else {}) or {}
+        fallback_like = (
+            status != "SUCCESS"
+            or bool(answer_meta.get("fallback") if isinstance(answer_meta, dict) else False)
+            or (tool_total > 0 and tool_success == 0)
+        )
+        business_scope = _business_scope_from_request(request)
+        capability = _capability_from_response(response)
         record = {
             "id": str(uuid.uuid4()),
             "ts": _now_ms(),
-            "status": "SUCCESS",
+            "status": status,
             "tenantId": tenant_id or _tenant_from_request(request) or "default",
             "traceId": trace_id or trace.get("traceId"),
             "messagePreview": (request.message or "")[:120],
@@ -104,20 +150,28 @@ class RuntimeAuditStore:
             "mode": response.mode,
             "intent": response.intent,
             "action": action,
+            "capabilityId": capability.get("capabilityId"),
+            "capabilityName": capability.get("name") or capability.get("capabilityName"),
+            "capability": _compact_value(capability),
             "graphName": graph_name,
             "actionResultType": action_result.get("type"),
-            "actionResultStatus": action_result.get("status"),
+            "actionResultStatus": action_result_status,
             "writeBlocked": bool(data.get("writeBlocked") or data.get("writeConfirmation") is False) if isinstance(data, dict) else False,
             "needsConfirmation": action_result.get("status") == "NEEDS_CONFIRMATION",
             "mapMode": _mode_from_request(request),
             "routeCode": _route_from_request(request),
+            "projectId": business_scope.get("projectId"),
+            "sectionTier": business_scope.get("sectionTier"),
+            "objectType": business_scope.get("objectType"),
+            "objectId": business_scope.get("objectId"),
+            "businessScope": business_scope,
             "answerLength": _safe_len(response.answer),
             "costMs": cost_ms,
             "engine": trace.get("engine") if isinstance(trace, dict) else None,
             "langgraphAvailable": data.get("langgraphAvailable") if isinstance(data, dict) else None,
             "toolTotalCount": tool_total,
             "toolSuccessCount": tool_success,
-            "toolFailedCount": data.get("toolFailedCount") if isinstance(data, dict) else sum(1 for item in tool_results if not item.get("success")),
+            "toolFailedCount": tool_failed,
             "sourceCount": data.get("sourceCount") if isinstance(data, dict) else len(response.sources or []),
             "adaptivePlanningStatus": adaptive_planning.get("status"),
             "adaptivePlanningEnabled": adaptive_planning.get("enabled"),
@@ -129,13 +183,14 @@ class RuntimeAuditStore:
             "toolResults": _compact_tool_results(tool_results),
             "requestPayload": _request_payload(request),
             "responsePreview": _compact_response(response),
-            "fallbackLike": (tool_total or 0) > 0 and (tool_success or 0) == 0,
+            "fallbackLike": fallback_like,
             "replayable": True,
         }
         self._append(record)
         return deepcopy(record)
 
     def record_failure(self, request: Optional[MapAiAgentRequest], tenant_id: Optional[str], trace_id: Optional[str], cost_ms: int, error: Exception) -> Dict[str, Any]:
+        business_scope = _business_scope_from_request(request)
         record = {
             "id": str(uuid.uuid4()),
             "ts": _now_ms(),
@@ -146,6 +201,11 @@ class RuntimeAuditStore:
             "messageLength": _safe_len(request.message if request else None),
             "mapMode": _mode_from_request(request),
             "routeCode": _route_from_request(request),
+            "projectId": business_scope.get("projectId"),
+            "sectionTier": business_scope.get("sectionTier"),
+            "objectType": business_scope.get("objectType"),
+            "objectId": business_scope.get("objectId"),
+            "businessScope": business_scope,
             "costMs": cost_ms,
             "errorType": error.__class__.__name__,
             "errorMessage": str(error)[:500],
@@ -180,6 +240,7 @@ class RuntimeAuditStore:
                 "recentFailedTools": _recent_failed_tools(recent),
                 "intentBuckets": _bucket(records, "intent"),
                 "actionBuckets": _bucket(records, "action", max_items=12),
+                "capabilityBuckets": _bucket(records, "capabilityId", max_items=12),
                 "graphBuckets": _bucket(records, "graphName", max_items=12),
                 "writeBlockedCount": sum(1 for item in records if item.get("writeBlocked")),
                 "needsConfirmationCount": sum(1 for item in records if item.get("needsConfirmation")),
@@ -424,6 +485,49 @@ def _request_payload(request: Optional[MapAiAgentRequest]) -> Optional[Dict[str,
         return None
 
 
+def _first_int(*values: Any) -> int:
+    for value in values:
+        if value is None or value == "":
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
+def _first_value(data: Dict[str, Any], *keys: str) -> Optional[Any]:
+    if not isinstance(data, dict):
+        return None
+    for key in keys:
+        value = data.get(key)
+        if value not in (None, ""):
+            return value
+    raw = data.get("raw")
+    if isinstance(raw, dict):
+        return _first_value(raw, *keys)
+    return None
+
+
+def _first_dict(data: Dict[str, Any], *keys: str) -> Dict[str, Any]:
+    value = _first_value(data, *keys)
+    return value if isinstance(value, dict) else {}
+
+
+def _first_present(*values: Any) -> Optional[Any]:
+    for value in values:
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _audit_status_from_action(action_result_status: str) -> str:
+    normalized = str(action_result_status or "").upper()
+    if normalized in {"FAILED", "ERROR", "TIMEOUT"}:
+        return "FAILED"
+    return "SUCCESS"
+
+
 def _compact_response(response: MapAiAgentResponse) -> Dict[str, Any]:
     action_result = _model_or_dict(getattr(response, "actionResult", None))
     return {
@@ -432,10 +536,41 @@ def _compact_response(response: MapAiAgentResponse) -> Dict[str, Any]:
         "intent": response.intent,
         "action": getattr(response, "action", None),
         "actionResult": _compact_value(action_result),
+        "answerMeta": _compact_value(response.answerMeta or {}),
         "sourceCount": len(response.sources or []),
         "toolResultCount": len(response.toolResults or []),
         "data": _compact_value(response.data or {}, depth=0),
     }
+
+
+def _capability_from_response(response: MapAiAgentResponse) -> Dict[str, Any]:
+    answer_meta = response.answerMeta or {}
+    data = response.data or {}
+    trace = response.trace or {}
+    capability = data.get("capability") if isinstance(data, dict) else None
+    if not isinstance(capability, dict) and isinstance(trace, dict):
+        capability = trace.get("capability")
+    if not isinstance(capability, dict):
+        capability = {}
+
+    capability_id = (
+        capability.get("capabilityId")
+        or (answer_meta.get("capabilityId") if isinstance(answer_meta, dict) else None)
+        or (data.get("capabilityId") if isinstance(data, dict) else None)
+    )
+    capability_name = (
+        capability.get("name")
+        or capability.get("capabilityName")
+        or (answer_meta.get("capabilityName") if isinstance(answer_meta, dict) else None)
+    )
+    if not capability_id and not capability_name:
+        return {}
+    result = dict(capability)
+    if capability_id:
+        result["capabilityId"] = capability_id
+    if capability_name:
+        result["name"] = capability_name
+    return result
 
 
 def _adaptive_planning_from_response(response: MapAiAgentResponse) -> Dict[str, Any]:

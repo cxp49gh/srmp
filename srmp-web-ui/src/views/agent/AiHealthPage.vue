@@ -4,6 +4,15 @@
     description="统一查看 LLM 超时配置、Embedding、知识库和向量能力状态，辅助定位 AI 超时、RAG 降级和 reindex 失败。"
   >
     <template #actions>
+      <el-button
+        v-if="knowledgeReadiness.actions.includes('VECTORIZE_OUTLINE')"
+        :loading="vectorizing"
+        type="success"
+        plain
+        @click="vectorizeOutlineNow"
+      >
+        补 Outline 向量
+      </el-button>
       <el-button :loading="probingLlm" type="warning" plain @click="probeLlm">LLM 探测</el-button>
       <el-button :loading="loading" type="primary" @click="loadAll">刷新</el-button>
     </template>
@@ -115,7 +124,12 @@
     </el-card>
 
     <el-card class="block-card">
-      <template #header>知识库状态</template>
+      <template #header>
+        <div class="card-header">
+          <span>知识库状态</span>
+          <el-tag :type="knowledgeReadiness.tagType">{{ knowledgeReadiness.statusLabel }}</el-tag>
+        </div>
+      </template>
       <el-descriptions :column="3" border>
         <el-descriptions-item label="文档数">{{ knowledge.documentCount ?? 0 }}</el-descriptions-item>
         <el-descriptions-item label="切片数">{{ knowledge.chunkCount ?? 0 }}</el-descriptions-item>
@@ -126,6 +140,30 @@
         <el-descriptions-item label="状态">{{ knowledge.status || '-' }}</el-descriptions-item>
         <el-descriptions-item label="说明" :span="2">{{ knowledge.message || '-' }}</el-descriptions-item>
       </el-descriptions>
+
+      <el-alert
+        v-if="knowledgeReadiness.requiresAction"
+        class="tip"
+        :type="knowledgeReadiness.tagType === 'danger' ? 'error' : 'warning'"
+        show-icon
+        :title="knowledgeReadiness.title"
+        :description="knowledgeReadiness.detail"
+      >
+        <div class="alert-actions">
+          <el-button
+            v-if="knowledgeReadiness.actions.includes('VECTORIZE_OUTLINE')"
+            size="small"
+            type="warning"
+            plain
+            :loading="vectorizing"
+            @click="vectorizeOutlineNow"
+          >
+            补 Outline 向量
+          </el-button>
+          <el-button v-if="knowledgeReadiness.actions.includes('SYNC_OUTLINE')" size="small" @click="go('/agent/outline/sync')">去同步入库</el-button>
+          <el-button v-if="knowledgeReadiness.actions.includes('VERIFY_KNOWLEDGE')" size="small" @click="go('/agent/knowledge-vector')">验证知识库检索</el-button>
+        </div>
+      </el-alert>
 
       <div v-if="knowledge.chunkEmbeddingProviders" class="tag-section">
         <div class="tag-title">Chunk Embedding 来源分布</div>
@@ -152,12 +190,17 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import AgentPageShell from './components/AgentPageShell.vue'
 import { getAiKnowledgeStats, getEmbeddingHealth, getLlmHealth } from '../../api/agent'
+import { vectorizeOutline } from '../../api/outline'
+import { buildKnowledgeReadiness } from '../../utils/aiKnowledgeReadiness'
 
+const router = useRouter()
 const loading = ref(false)
 const probingLlm = ref(false)
+const vectorizing = ref(false)
 const llm = reactive<Record<string, any>>({})
 const embedding = reactive<Record<string, any>>({})
 const knowledge = reactive<Record<string, any>>({})
@@ -176,6 +219,8 @@ const frontendTimeoutRisk = computed(() => {
   if (!readTimeout) return false
   return runtimeConfig.value.aiTimeout < readTimeout || runtimeConfig.value.longTimeout < readTimeout
 })
+
+const knowledgeReadiness = computed(() => buildKnowledgeReadiness({ knowledgeStats: knowledge, embedding }))
 
 const llmTagType = computed(() => {
   const status = String(llm.status || '')
@@ -212,6 +257,21 @@ async function probeLlm() {
   }
 }
 
+async function vectorizeOutlineNow() {
+  vectorizing.value = true
+  try {
+    const resp = await vectorizeOutline({ force: false, limit: 200 })
+    ElMessage.success(`补向量完成：${resp?.status || resp?.message || 'DONE'}`)
+    await loadAll()
+  } finally {
+    vectorizing.value = false
+  }
+}
+
+function go(path: string) {
+  router.push(path)
+}
+
 onMounted(loadAll)
 </script>
 
@@ -225,4 +285,5 @@ onMounted(loadAll)
 .tag-title { color: #64748b; font-weight: 700; font-size: 13px; margin-bottom: 8px; }
 .tag-item { margin-right: 8px; margin-bottom: 8px; }
 .tip { margin-top: 12px; }
+.alert-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 </style>

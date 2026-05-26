@@ -37,7 +37,7 @@ public enum MapObjectSolutionType {
             return DISEASE_TREATMENT;
         }
         if ("ASSESSMENT".equals(type) || "ASSESSMENT_RESULT".equals(type)) {
-            return LOW_SCORE_TREATMENT;
+            return EVALUATION_UNIT_ADVICE;
         }
         if ("EVALUATION_UNIT".equals(type) || "ROAD_SECTION_LEDGER".equals(type)) {
             return EVALUATION_UNIT_ADVICE;

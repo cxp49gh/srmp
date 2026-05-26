@@ -82,8 +82,10 @@ def fallback_answer(
     route = context_summary.get("routeCode") or "当前路线"
     year = context_summary.get("year") or "当前年度"
 
+    scope_label = "当前框选区域" if prefix == "【基于当前框选区域】" else "当前地图对象"
+
     parts = [
-        f"{prefix}已按 {settings.strategy_version} 只读编排完成分析。",
+        f"{prefix}已完成{scope_label}分析。",
         f"分析范围：{route}，{year}。",
         f"识别意图：{intent}。",
     ]

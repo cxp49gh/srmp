@@ -10,6 +10,7 @@ export interface OrchestratorSmokeRequest {
 }
 
 export interface OrchestratorPlanRequest {
+  action?: string
   message?: string
   mapContext?: Record<string, any>
   context?: Record<string, any>
@@ -87,6 +88,76 @@ export function getOrchestratorLiveTrace(traceId: string): Promise<Record<string
 
 export function getOrchestratorPersistence(): Promise<Record<string, any>> {
   return aiRequest.get('/api/agent/orchestrator/ops/persistence')
+}
+
+export function getAiGovernanceCapabilities(): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/governance/capabilities')
+}
+
+export function getAiGovernanceCapability(capabilityId: string): Promise<Record<string, any>> {
+  return aiRequest.get(`/api/agent/orchestrator/ops/governance/capabilities/${encodeURIComponent(capabilityId)}`)
+}
+
+export function getAiGovernanceTools(): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/governance/tools')
+}
+
+export function getAiGovernanceTool(toolName: string, includeContract = true): Promise<Record<string, any>> {
+  return aiRequest.get(`/api/agent/orchestrator/ops/governance/tools/${encodeURIComponent(toolName)}`, {
+    params: { includeContract }
+  })
+}
+
+export function getAiGovernanceReadiness(includeContract = true, runCoverage = true): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/governance/readiness', {
+    params: { includeContract, runCoverage }
+  })
+}
+
+export function getAiGovernanceConfig(): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/governance/config')
+}
+
+export function validateAiGovernanceConfigDraft(data: Record<string, any>): Promise<Record<string, any>> {
+  return aiRequest.post('/api/agent/orchestrator/ops/governance/config/draft/validate', data || {})
+}
+
+export function getAiGovernanceConfigPublishRequests(limit = 20): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/governance/config/publish/requests', {
+    params: { limit }
+  })
+}
+
+export function getAiGovernanceConfigPublishRequest(requestId: string): Promise<Record<string, any>> {
+  return aiRequest.get(`/api/agent/orchestrator/ops/governance/config/publish/requests/${encodeURIComponent(requestId)}`)
+}
+
+export function submitAiGovernanceConfigPublishRequest(data: Record<string, any>): Promise<Record<string, any>> {
+  return aiRequest.post('/api/agent/orchestrator/ops/governance/config/publish/request', data || {})
+}
+
+export function requestAiGovernanceConfigRollback(requestId: string, data: Record<string, any>): Promise<Record<string, any>> {
+  return aiRequest.post(`/api/agent/orchestrator/ops/governance/config/publish/requests/${encodeURIComponent(requestId)}/rollback`, data || {})
+}
+
+export function decideAiGovernanceConfigPublishRequest(requestId: string, action: string, data: Record<string, any>): Promise<Record<string, any>> {
+  return aiRequest.post(`/api/agent/orchestrator/ops/governance/config/publish/requests/${encodeURIComponent(requestId)}/${encodeURIComponent(action)}`, data || {})
+}
+
+export function validateAiGovernancePolicies(): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/governance/policies/validate')
+}
+
+export function getAiGovernancePolicyCoverage(): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/governance/policies/coverage')
+}
+
+export function getAiGovernanceToolImpact(): Promise<Record<string, any>> {
+  return aiRequest.get('/api/agent/orchestrator/ops/governance/tools/impact')
+}
+
+export function simulateAiGovernancePlan(data: OrchestratorPlanRequest): Promise<Record<string, any>> {
+  return aiRequest.post('/api/agent/orchestrator/ops/governance/plan-simulate', data || {})
 }
 
 export function getOrchestratorSnapshot(limit = 30, status?: string): Promise<Record<string, any>> {

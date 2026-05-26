@@ -2,6 +2,7 @@ package com.smartroad.srmp.agent.map.solution.service.impl;
 
 import com.smartroad.srmp.agent.map.MapObjectContext;
 import com.smartroad.srmp.agent.map.MapObjectContextService;
+import com.smartroad.srmp.agent.llm.LlmClient;
 import com.smartroad.srmp.agent.map.solution.dto.MapObjectSolutionRequest;
 import com.smartroad.srmp.agent.map.solution.dto.MapObjectSolutionResponse;
 import com.smartroad.srmp.agent.map.solution.dto.MapObjectSolutionType;
@@ -16,7 +17,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -34,6 +37,9 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
 
     @Resource
     private AiSolutionTemplatePipelineService templatePipelineService;
+
+    @Resource
+    private LlmClient llmClient;
 
     @Override
     public MapObjectSolutionResponse generate(MapObjectSolutionRequest request) {
@@ -57,8 +63,12 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
             AiTraceContext.StepTimer qualityTimer = trace.step("map_object_quality_check", "质量检查");
             qualityTimer.success(response.getQualityCheck() == null || response.getQualityCheck().getItems() == null ? 0 : response.getQualityCheck().getItems().size());
 
-            boolean fallback = templateFallback(response);
-            trace.setMode(fallback ? "MAP_OBJECT_FALLBACK" : "MAP_OBJECT_TEMPLATE");
+            boolean llmSuccess = response.getAnswerMeta() != null && Boolean.TRUE.equals(response.getAnswerMeta().get("llmSuccess"));
+            boolean fallback = !llmSuccess && (
+                    (response.getAnswerMeta() != null && Boolean.TRUE.equals(response.getAnswerMeta().get("fallback")))
+                            || templateFallback(response)
+            );
+            trace.setMode(llmSuccess ? "MAP_OBJECT_LLM" : fallback ? "MAP_OBJECT_FALLBACK" : "MAP_OBJECT_TEMPLATE");
             trace.setStatus("SUCCESS");
             trace.setFallback(fallback);
             trace.finish();
@@ -82,12 +92,18 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
         if (objectType == null || objectType.length() == 0) {
             objectType = normalizeType(request.getObjectType());
         }
-        MapObjectSolutionType solutionType = MapObjectSolutionType.of(request.getSolutionType(), objectType);
         Map<String, Object> summary = buildObjectSummary(ctx, detail, objectType);
+        MapObjectSolutionType solutionType = resolveSolutionType(request, objectType, summary);
+        Map<String, Object> businessEvidence = request.getBusinessEvidence() == null ? new LinkedHashMap<String, Object>() : request.getBusinessEvidence();
+        String businessEvidenceSummary = businessEvidenceText(businessEvidence);
+        if (businessEvidenceSummary.length() > 0) {
+            summary.put("businessEvidenceSummary", businessEvidenceSummary);
+        }
         String title = buildTitle(solutionType, summary);
-        String fallbackMarkdown = buildMarkdown(solutionType, objectType, summary);
+        String fallbackMarkdown = appendBusinessEvidenceSection(buildMarkdown(solutionType, objectType, summary), businessEvidence);
         TemplatePipelineResult pipelineResult = templatePipelineService.generate(buildTemplateContext(request, ctx, detail, objectType, solutionType, summary, title, fallbackMarkdown, trace));
-        String markdown = pipelineResult.getMarkdown();
+        LlmDraftResult draftResult = generateWithLlmIfRequested(request, solutionType, objectType, summary, pipelineResult, businessEvidence, trace);
+        String markdown = draftResult.markdown;
 
         MapObjectSolutionResponse response = new MapObjectSolutionResponse();
         response.setSolutionType(solutionType.name());
@@ -96,8 +112,303 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
         response.setObjectSummary(summary);
         response.setQualityCheck(qualityChecker.check(solutionType, objectType, summary, markdown));
         response.setTemplateMeta(pipelineResult.getTemplateMeta());
-        response.setSourceSummaries(pipelineResult.getSourceSummaries());
+        response.setAnswerMeta(draftResult.answerMeta);
+        response.setSourceSummaries(buildSourceSummaries(pipelineResult, businessEvidence));
         return response;
+    }
+
+    private MapObjectSolutionType resolveSolutionType(MapObjectSolutionRequest request,
+                                                      String objectType,
+                                                      Map<String, Object> summary) {
+        MapObjectSolutionType requested = MapObjectSolutionType.of(request == null ? null : request.getSolutionType(), objectType);
+        if (hasExplicitSolutionType(request) || !isAssessmentType(objectType)) {
+            return requested;
+        }
+        return isLowAssessment(summary) ? MapObjectSolutionType.LOW_SCORE_TREATMENT : MapObjectSolutionType.EVALUATION_UNIT_ADVICE;
+    }
+
+    private boolean hasExplicitSolutionType(MapObjectSolutionRequest request) {
+        return request != null
+                && request.getSolutionType() != null
+                && request.getSolutionType().trim().length() > 0;
+    }
+
+    private boolean isAssessmentType(String objectType) {
+        String type = objectType == null ? "" : objectType.trim().toUpperCase();
+        return "ASSESSMENT".equals(type) || "ASSESSMENT_RESULT".equals(type);
+    }
+
+    private LlmDraftResult generateWithLlmIfRequested(MapObjectSolutionRequest request,
+                                                      MapObjectSolutionType solutionType,
+                                                      String objectType,
+                                                      Map<String, Object> summary,
+                                                      TemplatePipelineResult pipelineResult,
+                                                      Map<String, Object> businessEvidence,
+                                                      AiTraceContext trace) {
+        String draft = appendBusinessEvidenceSection(stringValue(pipelineResult == null ? null : pipelineResult.getMarkdown(), ""), businessEvidence);
+        Map<String, Object> templateMeta = pipelineResult == null ? new LinkedHashMap<String, Object>() : pipelineResult.getTemplateMeta();
+        if (!readBoolean(request == null ? null : request.getOptions(), "requireAi", false)) {
+            return LlmDraftResult.of(draft, templateAnswerMeta(templateMeta));
+        }
+
+        AiTraceContext.StepTimer timer = trace.step("map_object_llm_generate", "大模型生成对象方案");
+        if (llmClient == null || !llmClient.enabled()) {
+            Map<String, Object> data = llmStepData("SKIPPED", "大模型未启用");
+            timer.skipped(data);
+            return LlmDraftResult.of(draft, fallbackAnswerMeta("大模型未启用", "SKIPPED", templateMeta));
+        }
+
+        try {
+            String answer = llmClient.chat(
+                    "你是智路养护平台 AI 方案生成助手。请基于业务事实生成结构化养护建议，不能编造未给出的检测或工程量数据。",
+                    buildLlmPrompt(solutionType, objectType, summary, draft, pipelineResult, businessEvidence)
+            );
+            if (answer != null && answer.trim().length() > 0) {
+                Map<String, Object> data = llmStepData("SUCCESS", "");
+                data.put("answerChars", answer.trim().length());
+                timer.success(1, data);
+                return LlmDraftResult.of(answer.trim(), llmAnswerMeta());
+            }
+            Map<String, Object> data = llmStepData("EMPTY", "大模型返回为空");
+            timer.skipped(data);
+            return LlmDraftResult.of(draft, fallbackAnswerMeta("大模型返回为空", "EMPTY", templateMeta));
+        } catch (Exception e) {
+            Map<String, Object> data = llmStepData("FAILED", e.getMessage());
+            timer.failed(e, data);
+            return LlmDraftResult.of(draft, fallbackAnswerMeta(e.getMessage() == null ? "大模型调用异常" : e.getMessage(), "FAILED", templateMeta));
+        }
+    }
+
+    private String buildLlmPrompt(MapObjectSolutionType solutionType,
+                                  String objectType,
+                                  Map<String, Object> summary,
+                                  String draft,
+                                  TemplatePipelineResult pipelineResult,
+                                  Map<String, Object> businessEvidence) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("请生成一份面向公路养护业务人员的结构化方案草稿。\n\n");
+        sb.append("【对象类型】\n").append(objectType).append("\n\n");
+        sb.append("【成果类型】\n").append(solutionType == null ? "" : solutionType.name()).append(" / ")
+                .append(solutionType == null ? "" : solutionType.getLabel()).append("\n\n");
+        sb.append("【业务对象摘要】\n");
+        appendPromptLine(sb, "对象编号", summary.get("objectId"));
+        appendPromptLine(sb, "路线", summary.get("routeCode"));
+        appendPromptLine(sb, "年度", summary.get("year"));
+        appendPromptLine(sb, "桩号", summary.get("stakeRange"));
+        appendPromptLine(sb, "病害", summary.get("diseaseName"));
+        appendPromptLine(sb, "严重程度", summary.get("severity"));
+        appendPromptLine(sb, "数量", quantityText(summary));
+        appendPromptLine(sb, "MQI", summary.get("mqi"));
+        appendPromptLine(sb, "PQI", summary.get("pqi"));
+        appendPromptLine(sb, "PCI", summary.get("pci"));
+        appendPromptLine(sb, "等级", summary.get("grade"));
+        sb.append("\n【参考草稿】\n").append(draft).append("\n\n");
+        sb.append("【模板/依据摘要】\n").append(sourceSummaryText(pipelineResult)).append("\n\n");
+        String businessEvidenceSummary = businessEvidenceText(businessEvidence);
+        if (businessEvidenceSummary.length() > 0) {
+            sb.append("【业务查询证据】\n").append(businessEvidenceSummary).append("\n\n");
+        }
+        sb.append("【输出要求】\n");
+        sb.append("1. 保留 Markdown 章节，标题清晰；\n");
+        sb.append("2. 必须围绕当前对象，不要扩写成全县或全路线泛泛报告；\n");
+        sb.append("3. 涉及病害、指标和桩号时只能使用上面给出的事实；\n");
+        sb.append("4. 给出处置优先级、复核重点、建议措施和风险提示；\n");
+        sb.append("5. 不要输出寒暄、过程说明或 JSON。\n");
+        return sb.toString();
+    }
+
+    private void appendPromptLine(StringBuilder sb, String label, Object value) {
+        String text = stringValue(value, "");
+        if (text.length() > 0) {
+            sb.append("- ").append(label).append("：").append(text).append("\n");
+        }
+    }
+
+    private String sourceSummaryText(TemplatePipelineResult pipelineResult) {
+        if (pipelineResult == null || pipelineResult.getSourceSummaries() == null || pipelineResult.getSourceSummaries().isEmpty()) {
+            return "无额外模板依据。";
+        }
+        StringBuilder sb = new StringBuilder();
+        int index = 1;
+        for (Map<String, Object> source : pipelineResult.getSourceSummaries()) {
+            if (index > 5) {
+                break;
+            }
+            sb.append(index++).append(". ")
+                    .append(stringValue(source.get("sourceTitle"), stringValue(source.get("title"), "依据")))
+                    .append("：")
+                    .append(shortText(stringValue(source.get("contentExcerpt"), stringValue(source.get("content"), "")), 220))
+                    .append("\n");
+        }
+        return sb.toString();
+    }
+
+    private List<Map<String, Object>> buildSourceSummaries(TemplatePipelineResult pipelineResult, Map<String, Object> businessEvidence) {
+        List<Map<String, Object>> sources = new ArrayList<>();
+        if (pipelineResult != null && pipelineResult.getSourceSummaries() != null) {
+            sources.addAll(pipelineResult.getSourceSummaries());
+        }
+        String summary = businessEvidenceText(businessEvidence);
+        if (summary.length() > 0) {
+            Map<String, Object> source = new LinkedHashMap<>();
+            source.put("sourceType", "BUSINESS_DATA");
+            source.put("sourceTitle", "业务查询证据");
+            source.put("contentExcerpt", shortText(summary, 600));
+            source.put("toolSuccessCount", firstObject(businessEvidence, "toolSuccessCount"));
+            source.put("businessHitCount", firstObject(businessEvidence, "businessHitCount"));
+            source.put("knowledgeHitCount", firstObject(businessEvidence, "knowledgeHitCount"));
+            sources.add(source);
+        }
+        return sources;
+    }
+
+    private String appendBusinessEvidenceSection(String markdown, Map<String, Object> businessEvidence) {
+        String base = stringValue(markdown, "");
+        String summary = businessEvidenceText(businessEvidence);
+        if (summary.length() == 0 || base.contains("业务查询证据")) {
+            return base;
+        }
+        return base + "\n\n## 业务查询证据\n\n" + summary + "\n";
+    }
+
+    private String businessEvidenceText(Map<String, Object> businessEvidence) {
+        if (businessEvidence == null || businessEvidence.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        Object successCount = businessEvidence.get("toolSuccessCount");
+        Object businessHitCount = businessEvidence.get("businessHitCount");
+        Object knowledgeHitCount = businessEvidence.get("knowledgeHitCount");
+        if (successCount != null || businessHitCount != null || knowledgeHitCount != null) {
+            sb.append("- 取证概况：")
+                    .append(successCount == null ? "已执行业务查询" : "成功工具 " + successCount + " 个");
+            if (businessHitCount != null) {
+                sb.append("，业务命中 ").append(businessHitCount);
+            }
+            if (knowledgeHitCount != null) {
+                sb.append("，知识命中 ").append(knowledgeHitCount);
+            }
+            sb.append("\n");
+        }
+        Object rawSummary = businessEvidence.get("toolSummary");
+        if (rawSummary instanceof List) {
+            int count = 0;
+            for (Object item : (List) rawSummary) {
+                if (!(item instanceof Map)) {
+                    continue;
+                }
+                Map tool = (Map) item;
+                String toolName = stringValue(tool.get("toolName"), "");
+                if (toolName.length() == 0) {
+                    continue;
+                }
+                String summary = stringValue(tool.get("summary"), "");
+                String error = stringValue(firstObject(tool, "error", "errorMessage"), "");
+                Object hitCount = firstObject(tool, "hitCount", "count", "totalCount");
+                boolean success = !"false".equalsIgnoreCase(stringValue(tool.get("success"), "true"));
+                sb.append("- ").append(toolName).append("：");
+                if (summary.length() > 0) {
+                    sb.append(summary);
+                } else {
+                    sb.append(success ? "查询成功" : "查询失败");
+                }
+                if (hitCount != null && summary.indexOf(String.valueOf(hitCount)) < 0) {
+                    sb.append("（命中 ").append(hitCount).append("）");
+                }
+                if (!success && error.length() > 0) {
+                    sb.append("，错误：").append(error);
+                }
+                sb.append("\n");
+                count++;
+                if (count >= 8) {
+                    break;
+                }
+            }
+        }
+        return sb.toString().trim();
+    }
+
+    private Map<String, Object> llmAnswerMeta() {
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("answerSource", "LLM");
+        meta.put("answerSourceLabel", "大模型返回");
+        meta.put("llmSuccess", true);
+        meta.put("llmStatus", "SUCCESS");
+        meta.put("fallback", false);
+        return meta;
+    }
+
+    private Map<String, Object> templateAnswerMeta(Map<String, Object> templateMeta) {
+        boolean fallback = templateMetaFallback(templateMeta);
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("answerSource", fallback ? "TEMPLATE_FALLBACK" : "TEMPLATE");
+        meta.put("answerSourceLabel", fallback ? "业务统计模板兜底" : "业务模板");
+        meta.put("llmSuccess", false);
+        meta.put("llmStatus", "SKIPPED");
+        meta.put("fallback", fallback);
+        if (fallback) {
+            meta.put("fallbackReason", stringValue(templateMeta == null ? null : templateMeta.get("fallbackReason"), "未调用大模型，当前为业务统计模板兜底结果"));
+        }
+        return meta;
+    }
+
+    private Map<String, Object> fallbackAnswerMeta(String reason, String llmStatus, Map<String, Object> templateMeta) {
+        Map<String, Object> meta = templateAnswerMeta(templateMeta);
+        meta.put("answerSource", "TEMPLATE_FALLBACK");
+        meta.put("answerSourceLabel", "业务统计模板兜底");
+        meta.put("llmStatus", stringValue(llmStatus, "FAILED"));
+        meta.put("fallback", true);
+        meta.put("fallbackReason", stringValue(reason, "大模型未返回有效内容，当前为业务统计模板兜底结果。"));
+        return meta;
+    }
+
+    private Map<String, Object> llmStepData(String status, String reason) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("llmStatus", status);
+        if (reason != null && reason.trim().length() > 0) {
+            data.put("reason", reason);
+        }
+        return data;
+    }
+
+    private boolean templateMetaFallback(Map<String, Object> templateMeta) {
+        Object fallback = templateMeta == null ? null : templateMeta.get("fallback");
+        if (fallback instanceof Boolean) {
+            return (Boolean) fallback;
+        }
+        return fallback != null && Boolean.parseBoolean(String.valueOf(fallback));
+    }
+
+    private boolean readBoolean(Map<String, Object> options, String key, boolean defaultValue) {
+        if (options == null || !options.containsKey(key)) {
+            return defaultValue;
+        }
+        Object value = options.get(key);
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        return value == null ? defaultValue : Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    private String shortText(String text, int max) {
+        if (text == null) {
+            return "";
+        }
+        return text.length() <= max ? text : text.substring(0, max) + "...";
+    }
+
+    private static class LlmDraftResult {
+        private final String markdown;
+        private final Map<String, Object> answerMeta;
+
+        private LlmDraftResult(String markdown, Map<String, Object> answerMeta) {
+            this.markdown = markdown;
+            this.answerMeta = answerMeta;
+        }
+
+        private static LlmDraftResult of(String markdown, Map<String, Object> answerMeta) {
+            return new LlmDraftResult(markdown, answerMeta);
+        }
     }
 
     private boolean templateFallback(MapObjectSolutionResponse response) {
@@ -137,6 +448,8 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
         businessData.put("fallbackMarkdown", fallbackMarkdown);
         businessData.put("contextPresent", ctx != null && ctx.isPresent());
         businessData.put("objectSummary", summary);
+        businessData.put("businessEvidence", request.getBusinessEvidence() == null ? new LinkedHashMap<String, Object>() : request.getBusinessEvidence());
+        businessData.put("businessEvidenceSummary", businessEvidenceText(request.getBusinessEvidence()));
         context.setBusinessData(businessData);
         return context;
     }
@@ -151,7 +464,7 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
         }
         putIfPresent(mapObject, "objectType", request.getObjectType());
         putIfPresent(mapObject, "objectId", request.getObjectId());
-        putIfPresent(mapObject, "routeCode", request.getRouteCode());
+        putIfMissing(mapObject, "routeCode", request.getRouteCode(), "route_code", "route");
         if (request.getYear() != null) {
             mapObject.put("year", request.getYear());
         }
@@ -174,14 +487,24 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
         putIfPresent(mapObject, "objectType", request.getObjectType());
         putIfPresent(mapObject, "objectId", request.getObjectId());
         putIfPresent(mapObject, "id", request.getObjectId());
-        putIfPresent(mapObject, "routeCode", request.getRouteCode());
+        putIfMissing(mapObject, "routeCode", request.getRouteCode(), "route_code", "route");
         if (request.getYear() != null) {
             mapObject.put("year", request.getYear());
         }
 
         Map<String, Object> context = new LinkedHashMap<>();
         context.put("mapObject", mapObject);
-        MapObjectContext resolved = mapObjectContextService.resolve(context);
+        MapObjectContext resolved;
+        try {
+            resolved = mapObjectContextService.resolve(context);
+        } catch (RuntimeException e) {
+            if (!mapObject.isEmpty()) {
+                log.warn("[MAP-OBJECT] context lookup failed, fallback to request mapObject objectType={} objectId={} routeCode={} error={}",
+                        request.getObjectType(), request.getObjectId(), request.getRouteCode(), e.getMessage());
+                return MapObjectContext.of(mapObject);
+            }
+            throw e;
+        }
         if ((resolved == null || !resolved.isPresent()) && !mapObject.isEmpty()) {
             return MapObjectContext.of(mapObject);
         }
@@ -207,12 +530,56 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
         summary.put("pqi", firstObject(detail, "pqi"));
         summary.put("pci", firstObject(detail, "pci"));
         summary.put("grade", firstObject(detail, "grade"));
+        summary.put("activeMetricCode", firstObject(detail, "activeMetricCode", "active_metric_code", "activeIndexCode", "active_index_code", "indexCode", "index_code"));
+        summary.put("activeMetricValue", firstObject(detail, "activeMetricValue", "active_metric_value", "activeIndexValue", "active_index_value", "metricValue", "metric_value"));
+        summary.put("activeMetricGrade", firstObject(detail, "activeMetricGrade", "active_metric_grade", "activeIndexGrade", "active_index_grade", "metricGrade", "metric_grade"));
         summary.put("contextSummary", firstString(detail, "contextSummary", "context_summary"));
         summary.put("raw", detail);
         if (summary.get("year") == null && ctx != null) {
             summary.put("year", ctx.getYear());
         }
         return summary;
+    }
+
+    private boolean isLowAssessment(Map<String, Object> summary) {
+        String grade = normalizeGrade(stringValue(firstPresent(
+                summary == null ? null : summary.get("activeMetricGrade"),
+                summary == null ? null : summary.get("grade")
+        ), ""));
+        if ("POOR".equals(grade) || "BAD".equals(grade)) {
+            return true;
+        }
+        if ("EXCELLENT".equals(grade) || "GOOD".equals(grade) || "MEDIUM".equals(grade)) {
+            return false;
+        }
+        Double score = firstNumber(
+                summary == null ? null : summary.get("activeMetricValue"),
+                summary == null ? null : summary.get("mqi"),
+                summary == null ? null : summary.get("pqi"),
+                summary == null ? null : summary.get("pci")
+        );
+        return score != null && score < 70;
+    }
+
+    private String normalizeGrade(String value) {
+        String raw = value == null ? "" : value.trim();
+        String text = raw.toUpperCase();
+        if ("EXCELLENT".equals(text) || "优".equals(raw) || "优秀".equals(raw)) {
+            return "EXCELLENT";
+        }
+        if ("GOOD".equals(text) || "良".equals(raw) || "良好".equals(raw)) {
+            return "GOOD";
+        }
+        if ("MEDIUM".equals(text) || "中".equals(raw) || "中等".equals(raw)) {
+            return "MEDIUM";
+        }
+        if ("POOR".equals(text) || "次".equals(raw) || "较差".equals(raw)) {
+            return "POOR";
+        }
+        if ("BAD".equals(text) || "差".equals(raw) || "很差".equals(raw)) {
+            return "BAD";
+        }
+        return text;
     }
 
     private String buildTitle(MapObjectSolutionType solutionType, Map<String, Object> summary) {
@@ -462,6 +829,16 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
         }
     }
 
+    private void putIfMissing(Map<String, Object> map, String key, Object value, String... existingKeys) {
+        if (map == null || value == null || String.valueOf(value).trim().length() == 0) {
+            return;
+        }
+        if (firstObject(map, key) != null || firstObject(map, existingKeys) != null) {
+            return;
+        }
+        map.put(key, value);
+    }
+
     private String normalizeType(String value) {
         if (value == null) {
             return "";
@@ -517,5 +894,21 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private Double firstNumber(Object... values) {
+        for (Object value : values) {
+            if (value == null || String.valueOf(value).trim().length() == 0) {
+                continue;
+            }
+            if (value instanceof Number) {
+                return ((Number) value).doubleValue();
+            }
+            try {
+                return Double.valueOf(String.valueOf(value).trim());
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
     }
 }

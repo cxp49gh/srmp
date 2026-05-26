@@ -8,15 +8,11 @@
       :context-scope="contextScope"
       :map-context="context"
       :map-object="mapObject"
-      :latest-suggested-actions="latestSuggestedActions"
       @update:input="$emit('update:input', $event)"
       @send="$emit('send', $event)"
       @open-trace="$emit('open-trace', $event)"
       @locate-source="$emit('locate-source', $event)"
       @ask-with-source="$emit('ask-with-source', $event)"
-      @generate-default-solution="$emit('generate-default-solution')"
-      @run-action="$emit('run-action', $event)"
-      @preview-plan="$emit('preview-plan', $event)"
     >
       <template #message-tail>
         <MapAiActionResultPanel :result="latestActionResult" />
@@ -27,7 +23,7 @@
 </template>
 
 <script setup lang="ts">
-import type { MapAgentActionResult, MapAgentSuggestedAction } from '../../../../api/agent'
+import type { MapAgentActionResult } from '../../../../api/agent'
 import MapAiActionResultPanel from './MapAiActionResultPanel.vue'
 import MapAiConversation from './MapAiConversation.vue'
 
@@ -40,7 +36,6 @@ defineProps<{
   loading?: boolean
   solutionLoading?: boolean
   latestActionResult?: MapAgentActionResult | null
-  latestSuggestedActions?: MapAgentSuggestedAction[]
 }>()
 defineEmits<{
   (e: 'update:input', value: string): void
@@ -48,9 +43,6 @@ defineEmits<{
   (e: 'open-trace', message: Record<string, any>): void
   (e: 'locate-source', source: any): void
   (e: 'ask-with-source', source: any): void
-  (e: 'generate-default-solution'): void
-  (e: 'run-action', action: MapAgentSuggestedAction): void
-  (e: 'preview-plan', action: MapAgentSuggestedAction): void
 }>()
 </script>
 

@@ -6,6 +6,7 @@ from .schemas import MapAiAgentRequest
 NATIVE_INTENTS = {
     "OBJECT_ANALYSIS",
     "REGION_ANALYSIS",
+    "ROUTE_ANALYSIS",
     "NEARBY_ANALYSIS",
     "KNOWLEDGE_QA",
     "SOLUTION_GENERATE",
@@ -20,9 +21,11 @@ def recognize_intent(request: MapAiAgentRequest) -> Tuple[str, Dict[str, Any]]:
     ctx = request.mapContext
     obj = ctx.mapObject if ctx and ctx.mapObject else request.mapObject or {}
     mode = str(ctx.mode or "").upper() if ctx and ctx.mode else ""
+    action = str(request.action or (request.options or {}).get("action") or "").strip().upper()
     object_type = normalize_object_type(first_string(obj, "objectType", "object_type", "type", "layerType"))
     detail = {
         "mode": mode,
+        "action": action,
         "objectType": object_type,
         "hasMapObject": bool(obj),
         "hasRegionSummary": bool(ctx and ctx.regionSummary),
@@ -33,19 +36,49 @@ def recognize_intent(request: MapAiAgentRequest) -> Tuple[str, Dict[str, Any]]:
 
     if detail["saveRequested"]:
         return "TASK_SAVE", detail
+    if action in {"GENERATE_OBJECT_SOLUTION", "GENERATE_REGION_SOLUTION", "GENERATE_ROUTE_REPORT"}:
+        return "SOLUTION_GENERATE", detail
+    if action == "ANALYZE_OBJECT":
+        return "OBJECT_ANALYSIS", detail
+    if action == "ANALYZE_REGION":
+        return "REGION_ANALYSIS", detail
+    if action == "ANALYZE_ROUTE":
+        return "ROUTE_ANALYSIS", detail
     if contains_any(message, "模板", "是否生效", "变量"):
         return "TEMPLATE_VERIFY", detail
     if detail["solutionDraftRequested"]:
         return "SOLUTION_GENERATE", detail
+    if is_metric_explanation_request(message):
+        return "KNOWLEDGE_QA", detail
     if contains_any(message, "周边", "附近", "相邻", "集中区"):
         return "NEARBY_ANALYSIS", detail
     if contains_any(message, "区域", "框选", "范围") or mode in {"REGION", "BOX", "POLYGON", "SELECTION"} or detail["hasRegionSummary"] or detail["hasGeometry"]:
         return "REGION_ANALYSIS", detail
+    if contains_any(message, "路线", "线路") or mode == "ROUTE":
+        return "ROUTE_ANALYSIS", detail
     if contains_any(message, "规范", "标准", "怎么处理", "工艺", "依据"):
         return "KNOWLEDGE_QA", detail
     if obj or mode == "OBJECT":
         return "OBJECT_ANALYSIS", detail
     return "GENERAL_CHAT", detail
+
+
+def is_metric_explanation_request(message: str) -> bool:
+    if not message:
+        return False
+    return contains_any(message, "指标", "MQI", "PQI", "PCI", "RQI", "RDI", "SCI", "BCI", "TCI") and contains_any(
+        message,
+        "解释",
+        "说明",
+        "介绍",
+        "含义",
+        "定义",
+        "是什么",
+        "什么意思",
+        "如何理解",
+        "怎么计算",
+        "计算公式",
+    )
 
 
 def normalize_object_type(value: Optional[str]) -> str:

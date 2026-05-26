@@ -6,11 +6,15 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, Header, HTTPException, Query
 
 from .config import settings
+from .governance import governance_capability_detail, governance_config_bundle, governance_config_draft_validate, governance_config_publish_decision, governance_config_publish_request_detail, governance_config_publish_requests, governance_config_publish_rollback, governance_config_publish_submit, governance_policy_examples, governance_readiness, governance_summary, governance_tool_detail, governance_tool_impact, resolve_capability, validate_governance
+from .intent import recognize_intent
 from .java_tools import JavaToolGateway
 from .live_trace import LiveTraceStore
 from .llm_client import LlmClient
 from .map_agent_run import MapAgentRunWorkflow
 from .observability import runtime_audit_store
+from .plan_preview import enrich_tool_plan
+from .planner import plan_tools
 from .schemas import MapAgentRunRequest, MapAgentRunResponse, MapAiAgentRequest, MapAiAgentResponse, ToolCall
 from .workflow import LANGGRAPH_AVAILABLE, LangGraphWorkflow, strategy_metadata
 
@@ -115,6 +119,64 @@ def _runtime_config_payload() -> Dict[str, Any]:
     }
 
 
+def _run_governance_policy_case(example: Dict[str, Any]) -> Dict[str, Any]:
+    request_payload = example.get("request") if isinstance(example.get("request"), dict) else {}
+    expect = example.get("expect") if isinstance(example.get("expect"), dict) else {}
+    request = MapAiAgentRequest(**request_payload)
+    fallback_intent, detail = recognize_intent(request)
+    capability = resolve_capability(request, fallback_intent=fallback_intent, intent_detail=detail)
+    intent = capability.get("intent") or fallback_intent
+    tool_plan = enrich_tool_plan(plan_tools(request, intent, detail, capability=capability))
+    actual_tool_names = [str(item.get("toolName") or "") for item in tool_plan if item.get("toolName")]
+    expected_capability = str(expect.get("capabilityId") or example.get("capabilityId") or "")
+    required_tools = _string_list(expect.get("requiredTools"))
+    prohibited_tools = _string_list(expect.get("prohibitedTools"))
+    exact_tools = _string_list(expect.get("exactToolNames"))
+    missing_tools = [name for name in required_tools if name not in actual_tool_names]
+    prohibited_hits = [name for name in prohibited_tools if name in actual_tool_names]
+    capability_mismatch = bool(expected_capability and expected_capability != capability.get("capabilityId"))
+    exact_mismatch = bool(exact_tools and exact_tools != actual_tool_names)
+    warnings: List[Dict[str, str]] = []
+    if capability_mismatch:
+        warnings.append({
+            "code": "CAPABILITY_MISMATCH",
+            "message": "期望能力 " + expected_capability + "，实际命中 " + str(capability.get("capabilityId") or ""),
+        })
+    if missing_tools:
+        warnings.append({"code": "REQUIRED_TOOL_MISSING", "message": "缺少必选工具：" + ", ".join(missing_tools)})
+    if prohibited_hits:
+        warnings.append({"code": "PROHIBITED_TOOL_PLANNED", "message": "计划误用了禁用工具：" + ", ".join(prohibited_hits)})
+    if exact_mismatch:
+        warnings.append({"code": "EXACT_TOOLS_MISMATCH", "message": "计划工具与精确期望不一致。"})
+    status = "PASS" if not warnings else "FAIL"
+    return {
+        "id": str(example.get("id") or ""),
+        "name": str(example.get("name") or example.get("id") or ""),
+        "status": status,
+        "expectedCapabilityId": expected_capability,
+        "actualCapabilityId": capability.get("capabilityId"),
+        "actualCapabilityName": capability.get("name"),
+        "actualIntent": intent,
+        "fallbackIntent": fallback_intent,
+        "expectedRequiredTools": required_tools,
+        "expectedProhibitedTools": prohibited_tools,
+        "expectedExactToolNames": exact_tools,
+        "actualToolNames": actual_tool_names,
+        "missingRequiredTools": missing_tools,
+        "prohibitedToolNames": prohibited_hits,
+        "warnings": warnings,
+        "request": request.model_dump(exclude_none=True),
+        "capability": capability,
+        "toolPlan": tool_plan,
+    }
+
+
+def _string_list(value: Any) -> List[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item or "").strip()]
+
+
 def _check_item(name: str, ok: bool, detail: Any = None, level: str = "CRITICAL") -> Dict[str, Any]:
     return {"name": name, "ok": bool(ok), "level": level, "detail": detail}
 
@@ -196,6 +258,167 @@ async def strategy() -> dict:
 @app.get("/api/srmp/langgraph/runtime/config")
 async def runtime_config() -> dict:
     return _runtime_config_payload()
+
+
+@app.get("/api/srmp/langgraph/governance/capabilities")
+async def governance_capabilities() -> dict:
+    summary = governance_summary()
+    return {
+        "version": summary.get("version"),
+        "configValid": summary.get("configValid"),
+        "validation": summary.get("validation"),
+        "capabilityCount": summary.get("capabilityCount"),
+        "enabledCapabilityCount": summary.get("enabledCapabilityCount"),
+        "capabilities": summary.get("capabilities") or [],
+    }
+
+
+@app.get("/api/srmp/langgraph/governance/config")
+async def governance_config() -> dict:
+    return governance_config_bundle()
+
+
+@app.post("/api/srmp/langgraph/governance/config/draft/validate")
+async def governance_config_draft_validate_endpoint(body: Dict[str, Any]) -> dict:
+    return governance_config_draft_validate(body or {})
+
+
+@app.get("/api/srmp/langgraph/governance/config/publish/requests")
+async def governance_config_publish_requests_endpoint(
+    limit: int = Query(default=20),
+) -> dict:
+    return governance_config_publish_requests(limit=limit)
+
+
+@app.post("/api/srmp/langgraph/governance/config/publish/request")
+async def governance_config_publish_request_endpoint(
+    body: Optional[Dict[str, Any]] = None,
+    x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id"),
+    x_operator_id: Optional[str] = Header(default=None, alias="X-Operator-Id"),
+    x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
+) -> dict:
+    return governance_config_publish_submit(body or {}, actor=x_operator_id or x_user_id or "", tenant_id=x_tenant_id or "")
+
+
+@app.get("/api/srmp/langgraph/governance/config/publish/requests/{request_id}")
+async def governance_config_publish_request_detail_endpoint(request_id: str) -> dict:
+    return governance_config_publish_request_detail(request_id)
+
+
+@app.post("/api/srmp/langgraph/governance/config/publish/requests/{request_id}/rollback")
+async def governance_config_publish_rollback_endpoint(
+    request_id: str,
+    body: Optional[Dict[str, Any]] = None,
+    x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id"),
+    x_operator_id: Optional[str] = Header(default=None, alias="X-Operator-Id"),
+    x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
+) -> dict:
+    return governance_config_publish_rollback(request_id, body or {}, actor=x_operator_id or x_user_id or "", tenant_id=x_tenant_id or "")
+
+
+@app.post("/api/srmp/langgraph/governance/config/publish/requests/{request_id}/{action}")
+async def governance_config_publish_decision_endpoint(
+    request_id: str,
+    action: str,
+    body: Optional[Dict[str, Any]] = None,
+    x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id"),
+    x_operator_id: Optional[str] = Header(default=None, alias="X-Operator-Id"),
+    x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
+) -> dict:
+    return governance_config_publish_decision(request_id, action, body or {}, actor=x_operator_id or x_user_id or "", tenant_id=x_tenant_id or "")
+
+
+@app.get("/api/srmp/langgraph/governance/capabilities/{capability_id}")
+async def governance_capability(capability_id: str) -> dict:
+    detail = governance_capability_detail(capability_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Capability not found")
+    return detail
+
+
+@app.get("/api/srmp/langgraph/governance/tools")
+async def governance_tools() -> dict:
+    summary = governance_summary()
+    return {
+        "version": summary.get("toolVersion"),
+        "configValid": summary.get("configValid"),
+        "validation": summary.get("validation"),
+        "toolCount": summary.get("toolCount"),
+        "tools": summary.get("tools") or [],
+    }
+
+
+@app.get("/api/srmp/langgraph/governance/tools/impact")
+async def governance_tools_impact() -> dict:
+    return governance_tool_impact()
+
+
+@app.get("/api/srmp/langgraph/governance/tools/{tool_name}")
+async def governance_tool(
+    tool_name: str,
+    include_contract: bool = Query(default=False, alias="includeContract"),
+    x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id"),
+) -> dict:
+    contract = await gateway.inspect_contract(tenant_id=x_tenant_id) if include_contract else None
+    detail = governance_tool_detail(tool_name, contract=contract)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    return detail
+
+
+@app.get("/api/srmp/langgraph/governance/readiness")
+async def governance_readiness_endpoint(
+    include_contract: bool = Query(default=True, alias="includeContract"),
+    run_coverage: bool = Query(default=True, alias="runCoverage"),
+    x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id"),
+) -> dict:
+    contract = await gateway.inspect_contract(tenant_id=x_tenant_id) if include_contract else None
+    policy_coverage = _policy_coverage_payload() if run_coverage else None
+    return governance_readiness(contract=contract, policy_coverage=policy_coverage)
+
+
+@app.get("/api/srmp/langgraph/governance/policies/validate")
+async def governance_policy_validate() -> dict:
+    return validate_governance()
+
+
+@app.post("/api/srmp/langgraph/governance/plan-simulate")
+async def governance_plan_simulate(
+    request: MapAiAgentRequest,
+    x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id"),
+    x_ai_trace_id: Optional[str] = Header(default=None, alias="X-AI-Trace-Id"),
+) -> dict:
+    plan = await workflow.plan(request=request, tenant_id=x_tenant_id, trace_id=x_ai_trace_id)
+    return {
+        "traceId": plan.get("traceId"),
+        "strategy": plan.get("strategy"),
+        "action": plan.get("action"),
+        "intent": plan.get("intent"),
+        "capabilityId": plan.get("capabilityId"),
+        "capability": plan.get("capability") or {},
+        "contextSummary": plan.get("contextSummary") or {},
+        "toolPlan": plan.get("toolPlan") or [],
+        "sourceHints": plan.get("sourceHints") or [],
+        "warnings": plan.get("warnings") or [],
+        "steps": plan.get("steps") or [],
+    }
+
+
+@app.get("/api/srmp/langgraph/governance/policies/coverage")
+async def governance_policy_coverage() -> dict:
+    return _policy_coverage_payload()
+
+
+def _policy_coverage_payload() -> Dict[str, Any]:
+    cases = [_run_governance_policy_case(example) for example in governance_policy_examples()]
+    failed = [item for item in cases if item.get("status") != "PASS"]
+    return {
+        "version": governance_summary().get("version"),
+        "caseCount": len(cases),
+        "passedCount": len(cases) - len(failed),
+        "failedCount": len(failed),
+        "cases": cases,
+    }
 
 
 @app.get("/api/srmp/langgraph/diagnostics/health")

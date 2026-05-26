@@ -5,16 +5,38 @@ from .intent import is_explicit_solution_draft_request, normalize_object_type
 from .schemas import MapAiAgentRequest, MapAiContext, ToolCall
 
 
-def plan_tools(request: MapAiAgentRequest, intent: str, intent_detail: Optional[Dict[str, Any]] = None) -> List[ToolCall]:
+def plan_tools(
+    request: MapAiAgentRequest,
+    intent: str,
+    intent_detail: Optional[Dict[str, Any]] = None,
+    capability: Optional[Dict[str, Any]] = None,
+) -> List[ToolCall]:
     ctx = request.mapContext
     obj = ctx.mapObject if ctx and ctx.mapObject else request.mapObject or {}
+    mode = str(ctx.mode or "").upper() if ctx and ctx.mode else ""
+    action = str(request.action or (request.options or {}).get("action") or "").upper()
     calls: List[ToolCall] = []
+
+    if should_use_capability_policy(capability, intent):
+        plan_capability_tools(calls, request, intent, capability or {})
+        if calls:
+            return dedupe_and_limit(calls)
 
     if intent == "NEARBY_ANALYSIS":
         add(calls, "gis.queryNearbyObjects", context_args(ctx, {"limit": 20}), "查询当前对象周边病害和评定结果")
     if intent == "REGION_ANALYSIS":
         add(calls, "gis.queryRegionSummary", region_args(ctx, {"limit": 50}), "查询框选区域或路线统计摘要")
-    if intent in {"OBJECT_ANALYSIS", "SOLUTION_GENERATE"}:
+    if intent == "ROUTE_ANALYSIS":
+        add(calls, "gis.queryRegionSummary", region_args(ctx, {"limit": 50}), "查询路线统计摘要")
+        add(calls, "gis.queryAssessmentResults", context_args(ctx, {"limit": 50}), "路线评定结果查询")
+        add(calls, "gis.queryDiseases", context_args(ctx, {"limit": 50}), "路线病害查询")
+    if intent == "SOLUTION_GENERATE" and (action == "GENERATE_REGION_SOLUTION" or mode == "REGION"):
+        add(calls, "gis.queryRegionSummary", region_args(ctx, {"limit": 50}), "生成区域方案前查询区域统计摘要")
+    if intent == "SOLUTION_GENERATE" and (action == "GENERATE_ROUTE_REPORT" or mode == "ROUTE"):
+        add(calls, "gis.queryRegionSummary", region_args(ctx, {"limit": 50}), "生成路线报告前查询路线统计摘要")
+        add(calls, "gis.queryAssessmentResults", context_args(ctx, {"limit": 50}), "生成路线报告前查询评定结果")
+        add(calls, "gis.queryDiseases", context_args(ctx, {"limit": 50}), "生成路线报告前查询病害")
+    if intent == "OBJECT_ANALYSIS" or (intent == "SOLUTION_GENERATE" and action not in {"GENERATE_REGION_SOLUTION", "GENERATE_ROUTE_REPORT"}):
         plan_object_tools(calls, ctx, obj)
     if intent == "TEMPLATE_VERIFY":
         add(calls, "template.match", {"intent": intent, "routeCode": ctx.routeCode if ctx else None, "year": ctx.year if ctx else None}, "检查方案模板匹配情况")
@@ -27,6 +49,72 @@ def plan_tools(request: MapAiAgentRequest, intent: str, intent_detail: Optional[
     return dedupe_and_limit(calls)
 
 
+def should_use_capability_policy(capability: Optional[Dict[str, Any]], intent: str) -> bool:
+    if not isinstance(capability, dict):
+        return False
+    capability_id = str(capability.get("capabilityId") or "")
+    category = str(capability.get("category") or "").upper()
+    if not capability_id or capability_id.startswith("legacy."):
+        return False
+    # Solution generation still has action-specific evidence collection in the legacy planner.
+    return category != "SOLUTION" and intent != "SOLUTION_GENERATE"
+
+
+def plan_capability_tools(calls: List[ToolCall], request: MapAiAgentRequest, intent: str, capability: Dict[str, Any]) -> None:
+    policy = capability.get("toolPolicy") if isinstance(capability.get("toolPolicy"), dict) else {}
+    prohibited = set(_policy_list(policy, "prohibited"))
+    required = _policy_list(policy, "required")
+    optional = _policy_list(policy, "optional")
+    for tool_name in required:
+        if tool_name in prohibited:
+            continue
+        add_capability_tool(calls, request, intent, tool_name, "required", capability)
+    for tool_name in optional:
+        if tool_name in prohibited:
+            continue
+        if tool_name == "knowledge.retrieve" and not should_use_knowledge(request.options, intent):
+            continue
+        add_capability_tool(calls, request, intent, tool_name, "optional", capability)
+
+
+def add_capability_tool(calls: List[ToolCall], request: MapAiAgentRequest, intent: str, tool_name: str, relation: str, capability: Dict[str, Any]) -> None:
+    ctx = request.mapContext
+    obj = ctx.mapObject if ctx and ctx.mapObject else request.mapObject or {}
+    capability_name = capability.get("name") or capability.get("capabilityId") or intent
+    reason = f"{capability_name} {relation} 工具"
+    if tool_name == "gis.queryNearbyObjects":
+        add(calls, tool_name, context_args(ctx, {"limit": 20}), reason)
+        return
+    if tool_name == "gis.queryRegionSummary":
+        add(calls, tool_name, region_args(ctx, {"limit": 50}), reason)
+        return
+    if tool_name == "gis.queryAssessmentResults":
+        limit = 50 if intent in {"ROUTE_ANALYSIS", "REGION_ANALYSIS"} else 20
+        add(calls, tool_name, context_args(ctx, {"limit": limit}), reason)
+        return
+    if tool_name == "gis.queryDiseases":
+        add(calls, tool_name, context_args(ctx, {"limit": 50}), reason)
+        return
+    if tool_name == "gis.queryDiseasesByStakeRange":
+        add(calls, tool_name, stake_args(ctx, obj, {"limit": 50}), reason)
+        return
+    if tool_name == "knowledge.retrieve":
+        add(calls, tool_name, {"query": build_query(request, intent), "topK": option_int(request, "topK", 5)}, reason)
+        return
+    if tool_name == "template.match":
+        add(calls, tool_name, {"intent": intent, "routeCode": ctx.routeCode if ctx else None, "year": ctx.year if ctx else None}, reason)
+        return
+    if tool_name == "solution.generateDraft":
+        add(calls, tool_name, {"intent": intent, "routeCode": ctx.routeCode if ctx else None, "year": ctx.year if ctx else None}, reason)
+
+
+def _policy_list(policy: Dict[str, Any], key: str) -> List[str]:
+    value = policy.get(key)
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item or "").strip()]
+
+
 def plan_object_tools(calls: List[ToolCall], ctx: Optional[MapAiContext], obj: Dict[str, Any]) -> None:
     object_type = normalize_object_type(first(obj, "objectType", "object_type", "type", "layerType"))
     if object_type == "ROAD_ROUTE":
@@ -36,20 +124,20 @@ def plan_object_tools(calls: List[ToolCall], ctx: Optional[MapAiContext], obj: D
     if object_type == "ROAD_SECTION":
         add(calls, "gis.queryAssessmentResults", context_args(ctx, {"limit": 20}), "路段评定结果查询")
         add(calls, "gis.queryDiseases", context_args(ctx, {"limit": 50}), "路段病害查询")
-        add(calls, "gis.queryDiseasesByStakeRange", stake_args(obj, {"limit": 50}), "路段桩号范围内病害查询")
+        add(calls, "gis.queryDiseasesByStakeRange", stake_args(ctx, obj, {"limit": 50}), "路段桩号范围内病害查询")
         return
     if object_type == "DISEASE":
         add(calls, "gis.queryNearbyObjects", context_args(ctx, {"limit": 20}), "当前病害周边对象查询")
         return
     if object_type == "ASSESSMENT_RESULT":
         add(calls, "gis.queryAssessmentResults", context_args(ctx, {"limit": 20}), "当前评定结果查询")
-        add(calls, "gis.queryDiseasesByStakeRange", stake_args(obj, {"limit": 50}), "评定单元内病害查询")
+        add(calls, "gis.queryDiseasesByStakeRange", stake_args(ctx, obj, {"limit": 50}), "评定单元内病害查询")
 
 
 def should_use_knowledge(options: Dict[str, Any], intent: str) -> bool:
     if options and "useKnowledge" in options:
         return str(options.get("useKnowledge")).lower() not in {"false", "0", "no", "off"}
-    return intent in {"KNOWLEDGE_QA", "SOLUTION_GENERATE", "OBJECT_ANALYSIS", "REGION_ANALYSIS", "TEMPLATE_VERIFY", "GENERAL_CHAT", "NEARBY_ANALYSIS"}
+    return intent in {"KNOWLEDGE_QA", "SOLUTION_GENERATE", "OBJECT_ANALYSIS", "REGION_ANALYSIS", "ROUTE_ANALYSIS", "TEMPLATE_VERIFY", "GENERAL_CHAT", "NEARBY_ANALYSIS"}
 
 
 def add(calls: List[ToolCall], tool_name: str, args: Dict[str, Any], reason: str) -> None:
@@ -73,7 +161,29 @@ def dedupe_and_limit(calls: List[ToolCall]) -> List[ToolCall]:
 
 
 def context_args(ctx: Optional[MapAiContext], extra: Dict[str, Any]) -> Dict[str, Any]:
-    base = {"tenantId": ctx.tenantId if ctx else None, "routeCode": ctx.routeCode if ctx else None, "year": ctx.year if ctx else None}
+    obj = ctx.mapObject if ctx and ctx.mapObject else {}
+    raw = obj.get("raw") if isinstance(obj.get("raw"), dict) else {}
+    extra_context = ctx.extra if ctx and isinstance(ctx.extra, dict) else {}
+    raw_context = first_dict(extra_context, "rawContext", "raw_context")
+    query = first_dict(raw_context, "query")
+    mode = str(ctx.mode if ctx else "").upper()
+    object_route_code = first_value(obj, "routeCode", "route_code", "route", "routeNo", "route_no")
+    context_route_code = ctx.routeCode if ctx else None
+    base = {
+        "tenantId": ctx.tenantId if ctx else None,
+        "projectId": first_value(extra_context, "projectId", "project_id") or first_value(query, "projectId", "project_id") or first_value(raw_context, "projectId", "project_id"),
+        "routeCode": object_route_code if mode == "OBJECT" and object_route_code else context_route_code,
+        "year": ctx.year if ctx else None,
+        "sectionTier": first_value(query, "sectionTier", "section_tier") or first_value(extra_context, "sectionTier", "section_tier"),
+        "contextScope": ctx.mode if ctx else None,
+        "objectType": first_value(obj, "objectType", "object_type", "type", "layerType"),
+        "objectId": first_value(obj, "objectId", "object_id", "id"),
+        "assessmentObjectType": first_value(raw, "objectType", "object_type"),
+        "direction": first_value(obj, "direction") or first_value(raw, "direction"),
+        "stakeStart": first_present(first_value(obj, "stakeStart", "startStake", "start_stake"), first_value(raw, "stakeStart", "startStake", "start_stake")),
+        "stakeEnd": first_present(first_value(obj, "stakeEnd", "endStake", "end_stake"), first_value(raw, "stakeEnd", "endStake", "end_stake")),
+        "selectedLayers": ctx.selectedLayers if ctx else None,
+    }
     base.update(extra)
     return base
 
@@ -85,12 +195,13 @@ def region_args(ctx: Optional[MapAiContext], extra: Dict[str, Any]) -> Dict[str,
     return base
 
 
-def stake_args(obj: Dict[str, Any], extra: Dict[str, Any]) -> Dict[str, Any]:
-    base = {
-        "routeCode": first(obj, "routeCode", "route_code", "route", "routeNo", "route_no"),
-        "stakeStart": first(obj, "stakeStart", "startStake", "startStakeNo", "start_stake", "startMileage"),
-        "stakeEnd": first(obj, "stakeEnd", "endStake", "endStakeNo", "end_stake", "endMileage"),
-    }
+def stake_args(ctx: Optional[MapAiContext], obj: Dict[str, Any], extra: Dict[str, Any]) -> Dict[str, Any]:
+    base = context_args(ctx, {})
+    base.update({
+        "routeCode": first(obj, "routeCode", "route_code", "route", "routeNo", "route_no") or base.get("routeCode"),
+        "stakeStart": first_present(first_value(obj, "stakeStart", "startStake", "startStakeNo", "start_stake", "startMileage"), base.get("stakeStart")),
+        "stakeEnd": first_present(first_value(obj, "stakeEnd", "endStake", "endStakeNo", "end_stake", "endMileage"), base.get("stakeEnd")),
+    })
     base.update(extra)
     return base
 
@@ -127,4 +238,29 @@ def first(data: Dict[str, Any], *keys: str) -> Optional[str]:
     raw = data.get("raw")
     if isinstance(raw, dict):
         return first(raw, *keys)
+    return None
+
+
+def first_value(data: Dict[str, Any], *keys: str) -> Optional[Any]:
+    if not isinstance(data, dict):
+        return None
+    for key in keys:
+        value = data.get(key)
+        if value not in (None, ""):
+            return value
+    raw = data.get("raw")
+    if isinstance(raw, dict):
+        return first_value(raw, *keys)
+    return None
+
+
+def first_dict(data: Dict[str, Any], *keys: str) -> Dict[str, Any]:
+    value = first_value(data, *keys)
+    return value if isinstance(value, dict) else {}
+
+
+def first_present(*values: Any) -> Optional[Any]:
+    for value in values:
+        if value not in (None, ""):
+            return value
     return None

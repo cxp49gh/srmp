@@ -113,7 +113,17 @@ export function buildUnifiedAnalysisTargets(args: {
   }
   if (args.mapObject) {
     const type = normalizeGisContextType(pickValue(args.mapObject, 'objectType', 'object_type', 'type', 'layerType'))
-    return [{ type, label: gisContextTypeLabel(type), routeCode: pickValue(args.mapObject, 'routeCode', 'route_code') || args.query?.routeCode, raw: args.mapObject }]
+    const routeCode = pickValue(args.mapObject, 'routeCode', 'route_code') || args.query?.routeCode
+    if (type === 'ROAD_ROUTE') {
+      return [
+        { type, label: gisContextTypeLabel(type), routeCode, raw: args.mapObject },
+        { type: 'ROAD_SECTION', label: '路线相关路段', count: pickValue(args.mapObject, 'relatedSectionCount', 'related_section_count', 'sectionCount', 'section_count'), routeCode },
+        { type: 'EVALUATION_UNIT', label: '路线相关评定单元', count: pickValue(args.mapObject, 'relatedEvaluationUnitCount', 'related_evaluation_unit_count', 'unitCount', 'unit_count'), routeCode },
+        { type: 'DISEASE', label: '路线相关病害', count: pickValue(args.mapObject, 'relatedDiseaseCount', 'related_disease_count', 'diseaseCount', 'disease_count'), routeCode },
+        { type: 'ASSESSMENT_RESULT', label: '路线相关评定结果', count: pickValue(args.mapObject, 'relatedAssessmentCount', 'related_assessment_count', 'assessmentCount', 'assessment_count'), routeCode }
+      ].filter((it) => it.count !== undefined || it.type === 'ROAD_ROUTE')
+    }
+    return [{ type, label: gisContextTypeLabel(type), routeCode, raw: args.mapObject }]
   }
   return [{ type: 'ROUTE', label: args.query?.routeCode ? `线路筛选｜${args.query.routeCode}` : '全图筛选', routeCode: args.query?.routeCode, raw: args.query || {} }]
 }

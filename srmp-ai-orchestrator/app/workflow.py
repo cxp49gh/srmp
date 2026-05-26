@@ -7,10 +7,12 @@ from typing import Any, Dict, List, Optional, Tuple, TypedDict
 from .adaptive_planner import plan_adaptive_tools, summarize_evidence
 from .answer_enhancers import enhance_answer
 from .config import settings
+from .governance import resolve_capability
 from .intent import recognize_intent
 from .java_tools import JavaToolGateway, extract_knowledge_sources
 from .live_trace import LiveTraceStore
 from .llm_client import LlmClient, LlmResult
+from .observability import _business_scope_from_request
 from .plan_execution import build_plan_execution, normalize_plan_preview
 from .plan_preview import build_plan_warnings, build_source_hints, enrich_tool_plan
 from .planner import plan_tools
@@ -77,6 +79,7 @@ class AgentState(TypedDict, total=False):
     context_summary: Dict[str, Any]
     intent: str
     intent_detail: Dict[str, Any]
+    capability: Dict[str, Any]
     tool_plan: List[ToolCall]
     toolPlan: List[ToolCall]
     tool_results: List[ToolResult]
@@ -138,6 +141,8 @@ class LangGraphWorkflow:
             "strategy": strategy_metadata(),
             "action": final_state["request"].action,
             "intent": final_state.get("intent"),
+            "capabilityId": (final_state.get("capability") or {}).get("capabilityId"),
+            "capability": final_state.get("capability", {}),
             "contextSummary": final_state.get("context_summary", {}),
             "normalizedRequest": final_state["request"].model_dump(exclude_none=True),
             "toolPlan": enriched_tool_plan,
@@ -215,6 +220,7 @@ class LangGraphWorkflow:
             state.get("trace_id") or "",
             action=action,
             graph_name=self._graph_name_from_action(action),
+            business_scope=_business_scope_from_request(state.get("request")),
         )
 
     def _wrap_node(self, node: str, handler):
@@ -274,9 +280,19 @@ class LangGraphWorkflow:
         return {"context_summary": summary}
 
     async def _intent_recognize(self, state: AgentState) -> Dict[str, Any]:
-        intent, detail = recognize_intent(state["request"])
-        self._step(state, "intent_recognize", "识别用户意图", {"intent": intent, "intentDetail": detail})
-        return {"intent": intent, "intent_detail": detail}
+        fallback_intent, detail = recognize_intent(state["request"])
+        capability = resolve_capability(state["request"], fallback_intent=fallback_intent, intent_detail=detail)
+        intent = capability.get("intent") or fallback_intent
+        detail = dict(detail or {})
+        detail["capabilityId"] = capability.get("capabilityId")
+        detail["capabilityName"] = capability.get("name")
+        self._step(
+            state,
+            "intent_recognize",
+            "识别用户意图",
+            {"intent": intent, "fallbackIntent": fallback_intent, "intentDetail": detail, "capability": capability},
+        )
+        return {"intent": intent, "intent_detail": detail, "capability": capability}
 
     async def _context_enrich(self, state: AgentState) -> Dict[str, Any]:
         if not settings.enable_context_enrich:
@@ -305,7 +321,6 @@ class LangGraphWorkflow:
                     context.geometry = geometry
                     changed["geometry"] = True
             context.extra = context.extra or {}
-            context.extra["orchestratorStrategy"] = settings.strategy_version
             context.extra["readOnly"] = not settings.allow_write_tools
             context.extra["intent"] = state.get("intent")
             context.extra["traceId"] = state.get("trace_id")
@@ -317,8 +332,13 @@ class LangGraphWorkflow:
         return {"request": request, "context_summary": summary}
 
     async def _tool_plan(self, state: AgentState) -> Dict[str, Any]:
-        calls = plan_tools(state["request"], state["intent"], state.get("intent_detail", {}))
-        self._step(state, "tool_plan", "规划只读工具", {"strategy": settings.strategy_version, "tools": [item.model_dump() for item in calls]})
+        calls = plan_tools(state["request"], state["intent"], state.get("intent_detail", {}), capability=state.get("capability"))
+        self._step(
+            state,
+            "tool_plan",
+            "规划只读工具",
+            {"readOnly": not settings.allow_write_tools, "capability": state.get("capability", {}), "tools": [item.model_dump() for item in calls]},
+        )
         return {"tool_plan": calls}
 
     async def _tool_execute(self, state: AgentState) -> Dict[str, Any]:
@@ -383,7 +403,6 @@ class LangGraphWorkflow:
                 business_hit_count += count
 
         return {
-            "strategyVersion": settings.strategy_version,
             "toolSuccessCount": len(success),
             "toolFailedCount": len(failed),
             "businessHitCount": business_hit_count,
@@ -410,6 +429,7 @@ class LangGraphWorkflow:
             evidence=state.get("evidence", {}),
             tool_results=state.get("tool_results", []),
             existing_plan=state.get("tool_plan", []),
+            capability=state.get("capability"),
         )
         summary = decision.to_summary()
         self._step(
@@ -605,11 +625,10 @@ class LangGraphWorkflow:
             state["answer_meta"] = meta
 
         if not settings.allow_write_tools and re.search(r"(已保存|已派单|已转工单|已更新|已删除|已经写入)", answer):
-            answer += "\n\n注意：当前 LangGraph 编排处于只读模式，未执行保存、派单或数据库更新。"
+            answer += "\n\n注意：当前为只读分析，未执行保存、派单或数据库更新。"
             changed.append("readonly_notice_added")
 
         quality = {
-            "strategyVersion": settings.strategy_version,
             "changed": changed,
             "beforeLength": len(before),
             "afterLength": len(answer),
@@ -657,13 +676,20 @@ class LangGraphWorkflow:
             },
         )
         answer_meta = dict(answer_meta)
+        capability = dict(state.get("capability") or {})
+        capability_id = capability.get("capabilityId")
+        if capability_id:
+            answer_meta["capabilityId"] = capability_id
+            answer_meta["capabilityName"] = capability.get("name")
+            answer_meta["capabilityIntent"] = capability.get("intent")
+            answer_meta["capabilityContextUsage"] = capability.get("contextUsage")
         answer_meta["planExecutionStatus"] = plan_execution.get("status")
         answer_meta["adaptivePlanningStatus"] = adaptive_planning.get("status")
         trace_payload = {
             "traceId": state.get("trace_id"),
             "orchestratorProvider": "langgraph",
-            "strategyVersion": settings.strategy_version,
             "nodeFlow": NODE_FLOW,
+            "capability": capability,
             "steps": state.get("steps", []),
             "planExecution": plan_execution,
             "adaptivePlanning": adaptive_planning,
@@ -690,9 +716,10 @@ class LangGraphWorkflow:
             data={
                 "orchestratorProvider": "langgraph",
                 "orchestratorFallback": False,
-                "strategyVersion": settings.strategy_version,
                 "intent": state.get("intent"),
                 "intentDetail": state.get("intent_detail", {}),
+                "capabilityId": capability_id,
+                "capability": capability,
                 "nodeFlow": NODE_FLOW,
                 "toolPlan": [item.model_dump(exclude_none=True) for item in state.get("tool_plan", [])],
                 "toolResults": [item.model_dump(exclude_none=True) for item in tool_results],
@@ -712,7 +739,6 @@ class LangGraphWorkflow:
                 "sourceCount": len(sources),
                 "readOnly": not settings.allow_write_tools,
                 "langgraphAvailable": LANGGRAPH_AVAILABLE,
-                "parityVersion": "phase50.15-native-parity",
             },
         )
 

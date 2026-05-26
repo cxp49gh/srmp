@@ -28,6 +28,7 @@
       </div>
       <router-link to="/agent/ai-ops">AI 运维总览</router-link>
       <router-link to="/agent/langgraph-ops">LangGraph 编排</router-link>
+      <router-link to="/agent/ai-governance">AI 能力治理</router-link>
       <router-link to="/agent/chat">AI 问答</router-link>
       <router-link to="/agent/ai-traces">AI 调用监控</router-link>
       <router-link to="/agent/solution-templates">方案模板</router-link>

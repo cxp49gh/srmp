@@ -50,7 +50,7 @@ public class SolutionGenerateTool implements AiTool {
             return AiToolResult.success(name(), "区域养护建议预览已生成", data, 1, System.currentTimeMillis() - start);
         }
         if ("GENERATE_OBJECT_SOLUTION".equals(action)) {
-            MapObjectSolutionResponse response = mapObjectSolutionService.generate(objectSolutionRequest(safeArgs, mapContext, context, "GENERAL_ADVICE", null));
+            MapObjectSolutionResponse response = mapObjectSolutionService.generate(objectSolutionRequest(safeArgs, mapContext, context, null, null));
             Map<String, Object> data = objectMapper.convertValue(response, Map.class);
             return AiToolResult.success(name(), "对象方案预览已生成", data, 1, System.currentTimeMillis() - start);
         }
@@ -68,9 +68,16 @@ public class SolutionGenerateTool implements AiTool {
                                                            String defaultSolutionType,
                                                            String forcedObjectType) {
         Map<String, Object> mapObject = mapValue(firstNonNull(args.get("mapObject"), mapContext.get("mapObject")));
+        Map<String, Object> mapContextExtra = mapValue(mapContext.get("extra"));
         String objectType = firstNonBlank(forcedObjectType, stringValue(args.get("objectType")), stringValue(mapObject.get("objectType")), stringValue(mapObject.get("object_type")));
-        String routeCode = firstNonBlank(stringValue(args.get("routeCode")), stringValue(mapContext.get("routeCode")), stringValue(mapContext.get("route_code")), stringValue(mapObject.get("routeCode")), stringValue(mapObject.get("route_code")));
-        Integer year = intValue(firstNonNull(args.get("year"), mapContext.get("year"), mapObject.get("year")));
+        boolean objectMode = "OBJECT".equalsIgnoreCase(stringValue(mapContext.get("mode"))) || !mapObject.isEmpty();
+        String objectRouteCode = firstNonBlank(stringValue(mapObject.get("routeCode")), stringValue(mapObject.get("route_code")));
+        String routeCode = objectMode
+                ? firstNonBlank(objectRouteCode, stringValue(args.get("routeCode")), stringValue(mapContext.get("routeCode")), stringValue(mapContext.get("route_code")))
+                : firstNonBlank(stringValue(args.get("routeCode")), stringValue(mapContext.get("routeCode")), stringValue(mapContext.get("route_code")), objectRouteCode);
+        Integer year = objectMode
+                ? intValue(firstNonNull(mapObject.get("year"), args.get("year"), mapContext.get("year")))
+                : intValue(firstNonNull(args.get("year"), mapContext.get("year"), mapObject.get("year")));
         if (mapObject.isEmpty() && "ROAD_ROUTE".equals(objectType)) {
             putIfPresent(mapObject, "objectType", objectType);
             putIfPresent(mapObject, "routeCode", routeCode);
@@ -84,6 +91,7 @@ public class SolutionGenerateTool implements AiTool {
         request.setYear(year);
         request.setSolutionType(firstNonBlank(stringValue(args.get("solutionType")), defaultSolutionType));
         request.setMapObject(mapObject);
+        request.setBusinessEvidence(mapValue(firstNonNull(args.get("businessEvidence"), mapContext.get("businessEvidence"), mapContextExtra.get("businessEvidence"))));
         request.setOptions(mergeOptions(args, context));
         return request;
     }
@@ -103,6 +111,10 @@ public class SolutionGenerateTool implements AiTool {
         putIfPresent(query, "routeCode", firstNonNull(mapContext.get("routeCode"), mapContext.get("route_code")));
         putIfPresent(query, "year", mapContext.get("year"));
         Map<String, Object> extra = mapValue(mapContext.get("extra"));
+        Map<String, Object> rawContext = mapValue(firstNonNull(extra.get("rawContext"), extra.get("raw_context")));
+        Map<String, Object> rawQuery = mapValue(rawContext.get("query"));
+        putIfPresent(query, "projectId", firstNonNull(mapContext.get("projectId"), mapContext.get("project_id"), extra.get("projectId"), extra.get("project_id"), rawQuery.get("projectId"), rawQuery.get("project_id")));
+        putIfPresent(query, "sectionTier", firstNonNull(mapContext.get("sectionTier"), mapContext.get("section_tier"), extra.get("sectionTier"), extra.get("section_tier"), rawQuery.get("sectionTier"), rawQuery.get("section_tier")));
         putIfPresent(query, "indexCode", extra.get("indexCode"));
         putIfPresent(query, "grade", extra.get("grade"));
         return query;

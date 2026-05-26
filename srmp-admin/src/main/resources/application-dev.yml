@@ -14,14 +14,14 @@ spring:
       max-request-size: 500MB
 
   datasource:
-    url: jdbc:postgresql://127.0.0.1:5432/srmp
-    username: srmp
-    password: srmp123
+    url: jdbc:postgresql://${DB_HOST:127.0.0.1}:${DB_PORT:5432}/${DB_NAME:srmp}
+    username: ${DB_USER:srmp}
+    password: ${DB_PASSWORD:srmp123}
     driver-class-name: org.postgresql.Driver
 
   redis:
-    host: 127.0.0.1
-    port: 6379
+    host: ${REDIS_HOST:127.0.0.1}
+    port: ${REDIS_PORT:6379}
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
@@ -40,16 +40,16 @@ srmp:
       dbf-charset: UTF-8
 
   minio:
-    endpoint: http://127.0.0.1:9000
-    access-key: minioadmin
-    secret-key: minioadmin
-    bucket: srmp
+    endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:9000}
+    access-key: ${MINIO_ACCESS_KEY:minioadmin}
+    secret-key: ${MINIO_SECRET_KEY:minioadmin}
+    bucket: ${MINIO_BUCKET:srmp}
 
   llm:
     provider: openai-compatible
-    base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
-    api-key: ${DASHSCOPE_API_KEY:sk-f39cf265c5ad4c378dc052d01db084e3}
-    model: qwen3.6-plus-2026-04-02
+    base-url: ${SRMP_LLM_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    api-key: ${SRMP_LLM_API_KEY:${DASHSCOPE_API_KEY:}}
+    model: ${SRMP_LLM_MODEL:qwen3.6-plus-2026-04-02}
     # 建立连接超时，默认 15 秒
     connect-timeout-ms: 15000
     # 等待模型返回超时，区域养护方案建议 180~300 秒
@@ -76,10 +76,10 @@ srmp:
       dimensions: ${SRMP_EMBEDDING_DIMENSIONS:1024}
 
   outline:
-    enabled: ${OUTLINE_ENABLED:true}
+    enabled: ${OUTLINE_ENABLED:false}
     base-url: ${OUTLINE_BASE_URL:http://outline.kuandeng.com}
-    api-token: ${OUTLINE_API_TOKEN:ol_api_5TP6DjcUyfd21beILa5tqybmbxoQIAgLtPskHK}
-    sync-enabled: true
+    api-token: ${OUTLINE_API_TOKEN:}
+    sync-enabled: ${OUTLINE_SYNC_ENABLED:false}
     default-collection-id: ${OUTLINE_DEFAULT_COLLECTION_ID:b2e510d9-4582-4991-8360-ba31d3b735ea}
     search-limit: ${OUTLINE_SEARCH_LIMIT:5}
     connect-timeout-ms: ${OUTLINE_CONNECT_TIMEOUT_MS:10000}

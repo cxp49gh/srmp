@@ -47,6 +47,43 @@ class LiveTraceStoreTest(unittest.TestCase):
         self.assertEqual("FAILED", failed["steps"][0]["status"])
         self.assertEqual("NOT_FOUND", store.not_found("missing")["status"])
 
+    def test_records_business_scope(self):
+        store = LiveTraceStore(max_records=3)
+        store.start_trace(
+            "trace-scope",
+            action="ANALYZE_OBJECT",
+            graph_name="object_analysis_graph",
+            business_scope={"projectId": "project-2026", "routeCode": "Y016140727", "sectionTier": "LEDGER"},
+        )
+
+        running = store.get("trace-scope")
+
+        self.assertEqual("project-2026", running["businessScope"]["projectId"])
+        self.assertEqual("LEDGER", running["businessScope"]["sectionTier"])
+
+    def test_solution_evidence_step_updates_tool_and_source_summary(self):
+        store = LiveTraceStore(max_records=3)
+        store.start_trace("trace-solution", action="GENERATE_OBJECT_SOLUTION", graph_name="solution_generation_graph")
+        store.complete_step("trace-solution", {
+            "name": "solution_evidence_collect",
+            "label": "查询业务证据",
+            "status": "SUCCESS",
+            "count": 4,
+            "data": {
+                "toolNames": ["gis.queryAssessmentResults", "gis.queryDiseases", "knowledge.retrieve"],
+                "businessHitCount": 12,
+                "knowledgeHitCount": 2,
+            },
+        })
+
+        snapshot = store.get("trace-solution")
+
+        self.assertEqual(3, snapshot["toolSummary"]["planned"])
+        self.assertEqual(3, snapshot["toolSummary"]["completed"])
+        self.assertEqual(4, snapshot["toolSummary"]["success"])
+        self.assertEqual(12, snapshot["sourceSummary"]["business"])
+        self.assertEqual(2, snapshot["sourceSummary"]["knowledge"])
+
     def test_prunes_old_records(self):
         store = LiveTraceStore(max_records=2)
         store.start_trace("trace-a", action="CHAT", graph_name="chat_graph")

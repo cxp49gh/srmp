@@ -109,7 +109,7 @@
 
 <script setup lang="ts">
 import L, { GeoJSON, LatLngBounds, Map as LeafletMap } from 'leaflet'
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
@@ -185,6 +185,8 @@ const layers = reactive<LayerState>({
 const statistics = ref<Record<string, any>>({})
 const selectedDetail = ref<Record<string, any> | null>(null)
 const selectedFeatureProperties = ref<Record<string, any> | null>(null)
+const selectedObjectStatistics = ref<Record<string, any> | null>(null)
+const selectedObjectStatisticsLoading = ref(false)
 const loading = ref(false)
 const mapLoadingMask = ref(false)
 const agentVisible = ref(true)
@@ -240,6 +242,7 @@ let diseaseLastMoveZoom = 11
 let regionLiveTraceTimer: ReturnType<typeof window.setInterval> | null = null
 let mapDisposed = false
 const objectDetailRequestGuard = createLatestRequestGuard()
+const selectedObjectStatisticsRequestGuard = createLatestRequestGuard()
 const regionSolutionRequestGuard = createLatestRequestGuard()
 
 const regionFinalStyle = { color: '#0284c7', weight: 3, fillColor: '#38bdf8', fillOpacity: 0.16 }
@@ -256,7 +259,7 @@ function firstValue(...values: any[]) {
   return values.find((it) => it !== undefined && it !== null && it !== '')
 }
 
-const selectedMapObject = computed(() => {
+const selectedMapObjectBase = computed(() => {
   const raw: any = selectedFeatureProperties.value || {}
   const detail: any = selectedDetail.value || {}
   const detailProps: any = detail.properties || detail
@@ -309,6 +312,61 @@ const selectedMapObject = computed(() => {
   }
 })
 
+function selectedRouteRelatedCounts(stats: Record<string, any> | null) {
+  if (!stats || typeof stats !== 'object') return {}
+  return {
+    relatedSectionCount: firstValue(stats.sectionCount, stats.section_count, stats.roadSectionCount, stats.road_section_count),
+    relatedDiseaseCount: firstValue(stats.diseaseCount, stats.disease_count),
+    relatedEvaluationUnitCount: firstValue(stats.unitCount, stats.unit_count, stats.evaluationUnitCount, stats.evaluation_unit_count),
+    relatedAssessmentCount: firstValue(stats.assessmentCount, stats.assessment_count, stats.evaluationCount, stats.evaluation_count)
+  }
+}
+
+const selectedMapObject = computed(() => {
+  const base = selectedMapObjectBase.value
+  if (!base) return null
+  if (normalizeObjectType(base.objectType) !== 'ROAD_ROUTE') return base
+
+  const relatedCounts = selectedRouteRelatedCounts(selectedObjectStatistics.value)
+  const hasRelatedCounts = Object.values(relatedCounts).some((it) => it !== undefined && it !== null && it !== '')
+  if (!hasRelatedCounts) return base
+
+  return {
+    ...base,
+    ...relatedCounts,
+    routeStatistics: selectedObjectStatistics.value
+  }
+})
+
+type SelectedObjectStatisticsTarget = {
+  objectType?: string
+  routeCode?: string
+  projectId?: string
+  year?: number | string
+  indexCode?: string
+  grade?: string
+  sectionTier?: string
+}
+
+watch(
+  () => {
+    const base: any = selectedMapObjectBase.value || {}
+    return {
+      objectType: normalizeObjectType(base.objectType),
+      routeCode: String(base.routeCode || base.route_code || ''),
+      projectId: String(query.projectId || ''),
+      year: query.year || '',
+      indexCode: query.indexCode || '',
+      grade: query.grade || '',
+      sectionTier: query.sectionTier || ''
+    }
+  },
+  (target) => {
+    void loadSelectedObjectStatistics(target)
+  },
+  { immediate: true }
+)
+
 const activeRegionContext = computed(() => {
   if (!regionGeometry.value) return null
   return buildRegionUnifiedContext({
@@ -336,6 +394,8 @@ const agentContext = computed(() => ({
   regionSummary: regionSummary.value,
   regionGeometry: regionGeometry.value,
   regionGeometryType: regionGeometryType.value,
+  selectedObjectStatistics: selectedObjectStatistics.value,
+  selectedObjectStatisticsLoading: selectedObjectStatisticsLoading.value,
   selectedLayers: activeLayerNames(),
   analysisTargets: analysisTargets.value,
   viewport: currentViewport(),
@@ -399,6 +459,7 @@ onMounted(async () => {
 onUnmounted(() => {
   mapDisposed = true
   objectDetailRequestGuard.invalidate()
+  selectedObjectStatisticsRequestGuard.invalidate()
   regionSolutionRequestGuard.invalidate()
   regionSummaryRequestSeq += 1
   regionLoading.value = false
@@ -484,6 +545,41 @@ function diseaseLayerQuery(): GisLayerQuery {
   const mode = diseaseTargetMode()
   const zoom = mode === 'cluster' ? ZOOM_DISEASE_SUMMARY : map.getZoom()
   return { ...base, minLng: w, minLat: s, maxLng: e, maxLat: n, zoom }
+}
+
+async function loadSelectedObjectStatistics(target: SelectedObjectStatisticsTarget) {
+  selectedObjectStatistics.value = null
+  selectedObjectStatisticsLoading.value = false
+
+  const objectType = normalizeObjectType(target.objectType)
+  const routeCode = String(target.routeCode || '').trim()
+  if (objectType !== 'ROAD_ROUTE' || !routeCode || !hasProjectSelected()) {
+    selectedObjectStatisticsRequestGuard.invalidate()
+    return
+  }
+
+  const requestToken = selectedObjectStatisticsRequestGuard.next()
+  selectedObjectStatisticsLoading.value = true
+  try {
+    const selectedLayers = activeLayerNames()
+    const nextStatistics = await getMapStatistics({
+      ...layerQuery(),
+      routeCode: routeCode,
+      layers: selectedLayers,
+      enabledLayers: selectedLayers
+    } as any)
+    if (selectedObjectStatisticsRequestGuard.isCurrent(requestToken)) {
+      selectedObjectStatistics.value = unwrapApiPayload(nextStatistics) || {}
+    }
+  } catch {
+    if (selectedObjectStatisticsRequestGuard.isCurrent(requestToken)) {
+      selectedObjectStatistics.value = null
+    }
+  } finally {
+    if (selectedObjectStatisticsRequestGuard.isCurrent(requestToken)) {
+      selectedObjectStatisticsLoading.value = false
+    }
+  }
 }
 
 function scheduleDiseaseViewportReload(reason: 'zoom' | 'move' | 'sync' = 'sync') {
@@ -1245,6 +1341,9 @@ async function loadObjectDetail(properties: Record<string, any>) {
 
 function clearSelection() {
   objectDetailRequestGuard.invalidate()
+  selectedObjectStatisticsRequestGuard.invalidate()
+  selectedObjectStatistics.value = null
+  selectedObjectStatisticsLoading.value = false
   if (map) map.closePopup()
   selectedDetail.value = null
   selectedFeatureProperties.value = null

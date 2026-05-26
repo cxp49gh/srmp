@@ -171,7 +171,15 @@ const summaryItems = computed(() => {
 const renderedMarkdown = computed(() => renderMarkdown(props.solution?.markdown || ''))
 const traceDrawerVisible = ref(false)
 const activeTrace = computed(() => props.trace || (props.solution as any)?.trace || null)
-const answerMeta = computed(() => (props.solution as any)?.answerMeta || (props.solution as any)?.answer_meta || null)
+const answerMeta = computed(() =>
+  (props.solution as any)?.answerMeta
+  || (props.solution as any)?.answer_meta
+  || (props.solution as any)?.data?.answerMeta
+  || (props.solution as any)?.data?.answer_meta
+  || (props.solution as any)?.actionResult?.answerMeta
+  || (props.solution as any)?.actionResult?.answer_meta
+  || null
+)
 const toolResults = computed(() => (props.solution as any)?.toolResults || [])
 const sources = computed(() => (props.solution as any)?.sources || (props.solution as any)?.knowledgeSources || [])
 const activeExecution = ref<Record<string, any> | null>(null)
@@ -179,10 +187,12 @@ const activeExecution = ref<Record<string, any> | null>(null)
 const answerNotice = computed(() => {
   const meta = answerMeta.value || {}
   if (!meta || Object.keys(meta).length === 0) return null
-  if (meta.llmSuccess === true || meta.answerSource === 'LLM') {
-    return { type: 'success' as const, title: '本次区域养护建议已调用大模型生成。' }
+  const answerSource = String(meta.answerSource || meta.answer_source || '').toUpperCase()
+  const llmStatus = String(meta.llmStatus || meta.llm_status || '').toUpperCase()
+  if (meta.llmSuccess === true || answerSource === 'LLM' || llmStatus === 'SUCCESS') {
+    return { type: 'success' as const, title: '本次养护建议已调用大模型生成。' }
   }
-  const reason = meta.fallbackReason || meta.llmError || '大模型未返回有效内容，当前为业务统计模板兜底结果。'
+  const reason = meta.fallbackReason || meta.fallback_reason || meta.llmError || meta.llm_error || meta.errorMessage || meta.error_message || '大模型未返回有效内容，当前为业务统计模板兜底结果。'
   return { type: 'warning' as const, title: `本次未使用大模型生成：${reason}` }
 })
 
