@@ -331,22 +331,11 @@
         </el-tab-pane>
 
         <el-tab-pane label="工具目录" name="tools">
-          <el-table :data="tools" border stripe>
-            <el-table-column prop="name" label="工具名" min-width="210" />
-            <el-table-column prop="label" label="展示名" width="150" />
-            <el-table-column prop="category" label="分类" width="130" />
-            <el-table-column label="风险" width="110">
-              <template #default="{ row }">
-                <el-tag :type="row.writeRisk ? 'danger' : 'success'">{{ row.writeRisk ? '写风险' : '只读' }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="description" label="说明" min-width="280" />
-            <el-table-column label="操作" width="90" fixed="right">
-              <template #default="{ row }">
-                <el-button link type="primary" :loading="toolDetailLoading && toolDetailId === row.name" @click="openToolDetail(row.name)">详情</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+          <GovernanceToolCatalogEditor
+            :tools-config="draftToolsConfig"
+            @update:tools-config="applyStructuredToolsConfig"
+            @open-runtime-detail="openToolDetail"
+          />
         </el-tab-pane>
 
         <el-tab-pane label="工具影响面" name="tool-impact">
@@ -555,6 +544,7 @@
               <el-empty v-if="!planResult" description="暂无模拟结果" />
               <template v-else>
                 <section class="plan-summary">
+                  <div><span>模式</span><strong>{{ planResult.mode || '-' }}</strong></div>
                   <div><span>能力</span><strong>{{ planResult.capabilityId || '-' }}</strong></div>
                   <div><span>Intent</span><strong>{{ planResult.intent || '-' }}</strong></div>
                   <div><span>Trace</span><strong>{{ planResult.traceId || '-' }}</strong></div>
@@ -803,6 +793,7 @@ import AgentPageShell from './components/AgentPageShell.vue'
 import GovernanceDraftReviewPanel from './components/GovernanceDraftReviewPanel.vue'
 import GovernanceEvalCaseSet from './components/GovernanceEvalCaseSet.vue'
 import GovernanceMatrixEditor from './components/GovernanceMatrixEditor.vue'
+import GovernanceToolCatalogEditor from './components/GovernanceToolCatalogEditor.vue'
 import {
   decideAiGovernanceConfigPublishRequest,
   getAiGovernanceCapability,
@@ -1136,6 +1127,8 @@ function resetDraftEditor() {
   draftToolsText.value = prettyJson(configPayload.value.toolsConfig || {})
   draftValidationPayload.value = {}
   draftCoveragePayload.value = {}
+  publishSubmitPayload.value = {}
+  planResult.value = null
 }
 
 function applyStructuredCapabilitiesConfig(value: Record<string, any>) {
@@ -1143,6 +1136,15 @@ function applyStructuredCapabilitiesConfig(value: Record<string, any>) {
   draftValidationPayload.value = {}
   draftCoveragePayload.value = {}
   publishSubmitPayload.value = {}
+  planResult.value = null
+}
+
+function applyStructuredToolsConfig(value: Record<string, any>) {
+  draftToolsText.value = prettyJson(value || {})
+  draftValidationPayload.value = {}
+  draftCoveragePayload.value = {}
+  publishSubmitPayload.value = {}
+  planResult.value = null
 }
 
 function applyRollbackDraft(rollbackDraft: Record<string, any>): boolean {
@@ -1154,6 +1156,7 @@ function applyRollbackDraft(rollbackDraft: Record<string, any>): boolean {
   draftValidationPayload.value = {}
   draftCoveragePayload.value = {}
   publishSubmitPayload.value = {}
+  planResult.value = null
   activeTab.value = 'config'
   return true
 }
@@ -1293,6 +1296,9 @@ async function applyPlanQuery(query: LocationQuery) {
 }
 
 async function simulatePlan() {
+  const draftCapabilitiesConfig = parseDraftJson(draftCapabilitiesText.value, '能力配置')
+  const draftToolsConfig = parseDraftJson(draftToolsText.value, '工具配置')
+  if (!draftCapabilitiesConfig || !draftToolsConfig) return
   planning.value = true
   try {
     const stakeStart = nullableNumber(planForm.startStake)
@@ -1310,7 +1316,7 @@ async function simulatePlan() {
         }
       : undefined
     const selectedLayers = planForm.selectedLayers.filter(Boolean)
-    const response = await simulateAiGovernancePlan({
+    const request = {
       action: planForm.action || undefined,
       message: planForm.message,
       mapContext: {
@@ -1338,6 +1344,11 @@ async function simulatePlan() {
         sourceTraceId: planForm.sourceTraceId || undefined,
         traceId: `governance-plan-${Date.now()}`
       }
+    }
+    const response = await simulateAiGovernancePlan({
+      request: { ...request },
+      capabilitiesConfig: draftCapabilitiesConfig,
+      toolsConfig: draftToolsConfig
     })
     planResult.value = extractBody(response)
     activeTab.value = 'simulator'
@@ -1733,7 +1744,7 @@ function uniqueStrings(values: any[]): string[] {
 
 .plan-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 16px;
 }

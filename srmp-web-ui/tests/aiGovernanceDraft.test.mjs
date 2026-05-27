@@ -28,12 +28,69 @@ test('governanceDraft exports matrix and evaluation helpers', () => {
   for (const name of [
     'buildCapabilityMatrixRows',
     'updateCapabilityToolPolicy',
+    'buildToolCatalogRows',
+    'updateToolCatalogEntry',
     'extractEvaluationCases',
     'writeEvaluationCases',
     'derivePublishBlockers'
   ]) {
     assert.match(source, new RegExp(`export function ${name}\\b`))
   }
+})
+
+test('tool catalog editor updates one tool without renaming implementation binding', async () => {
+  const module = loadGovernanceDraftModule()
+  const config = {
+    version: 'test',
+    tools: [
+      {
+        name: 'knowledge.retrieve',
+        label: '知识检索',
+        category: 'KNOWLEDGE',
+        description: '检索知识库',
+        enabled: true,
+        readOnly: true,
+        writeRisk: false,
+        adaptiveAllowed: true,
+        customerVisible: true,
+        adminVisible: true,
+        allowUnboundUsage: false
+      }
+    ]
+  }
+
+  const rows = module.buildToolCatalogRows(config)
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].name, 'knowledge.retrieve')
+  assert.equal(rows[0].enabled, true)
+
+  const next = module.updateToolCatalogEntry(config, 'knowledge.retrieve', {
+    name: 'renamed.tool',
+    label: '知识检索改',
+    category: 'KNOWLEDGE_RETRIEVAL',
+    description: '只用于指标解释和规范依据补充',
+    enabled: false,
+    readOnly: true,
+    writeRisk: true,
+    adaptiveAllowed: false,
+    customerVisible: false,
+    adminVisible: true,
+    allowUnboundUsage: true
+  })
+
+  const tool = next.tools[0]
+  assert.equal(tool.name, 'knowledge.retrieve')
+  assert.equal(tool.label, '知识检索改')
+  assert.equal(tool.category, 'KNOWLEDGE_RETRIEVAL')
+  assert.equal(tool.description, '只用于指标解释和规范依据补充')
+  assert.equal(tool.enabled, false)
+  assert.equal(tool.readOnly, true)
+  assert.equal(tool.writeRisk, true)
+  assert.equal(tool.adaptiveAllowed, false)
+  assert.equal(tool.customerVisible, false)
+  assert.equal(tool.adminVisible, true)
+  assert.equal(tool.allowUnboundUsage, true)
+  assert.equal(config.tools[0].label, '知识检索')
 })
 
 test('policy editor removes a tool from conflicting buckets', async () => {

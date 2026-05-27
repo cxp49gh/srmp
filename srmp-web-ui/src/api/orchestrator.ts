@@ -16,6 +16,9 @@ export interface OrchestratorPlanRequest {
   context?: Record<string, any>
   mapObject?: Record<string, any>
   options?: Record<string, any>
+  request?: Record<string, any>
+  capabilitiesConfig?: Record<string, any>
+  toolsConfig?: Record<string, any>
 }
 
 export function getOrchestratorOpsSummary(recentLimit = 10): Promise<Record<string, any>> {
