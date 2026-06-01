@@ -22,11 +22,16 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR"
 
 NO_ORCHESTRATOR=0
+SKIP_SCHEMA_CHECK=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --no-orchestrator)
       NO_ORCHESTRATOR=1
+      shift
+      ;;
+    --skip-schema-check)
+      SKIP_SCHEMA_CHECK=1
       shift
       ;;
     --help)
@@ -35,6 +40,7 @@ Usage: ./scripts/srmp-one-click-start-dev.sh [options]
 
 Options:
   --no-orchestrator  Do not start bundled srmp-ai-orchestrator.
+  --skip-schema-check Skip read-only external database schema preflight.
   --help             Show this help.
 
 Configuration:
@@ -110,6 +116,12 @@ echo "    MinIO:      $DEV_MINIO_ENDPOINT"
 
 require_cmd docker
 
+if [ "${DEV_SCHEMA_PREFLIGHT:-1}" = "1" ] && [ "$SKIP_SCHEMA_CHECK" = "0" ]; then
+  ./scripts/srmp-check-dev-schema.sh --no-env
+else
+  echo "[INFO] Skipping dev database schema preflight"
+fi
+
 # 确定 compose 文件
 if [ "$NO_ORCHESTRATOR" = "1" ]; then
   compose_files="-f docker-compose.yml -f docker-compose.app.yml -f docker-compose.dev.yml"
@@ -125,7 +137,7 @@ docker compose $compose_files up -d --no-deps --build $services
 
 echo
 echo "[OK] SRMP 开发环境启动完成"
-echo "Frontend:  http://localhost:5173"
+echo "Frontend:  http://localhost:${FRONTEND_PORT:-5173}"
 echo "Backend:   http://localhost:8080"
 if [ "$NO_ORCHESTRATOR" = "0" ]; then
   echo "LangGraph: http://localhost:18080"
