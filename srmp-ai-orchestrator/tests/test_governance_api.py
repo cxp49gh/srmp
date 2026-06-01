@@ -36,6 +36,10 @@ class GovernanceApiTest(unittest.TestCase):
         body = response.json()
         self.assertEqual("knowledge.metric_explain", body["capabilityId"])
         self.assertEqual(["knowledge.retrieve"], [item["toolName"] for item in body["toolPlan"]])
+        self.assertEqual("PASS", body["policyStatus"])
+        check_codes = [item["code"] for item in body["policyChecks"]]
+        self.assertIn("REQUIRED_TOOLS_PRESENT", check_codes)
+        self.assertIn("PROHIBITED_TOOLS_ABSENT", check_codes)
 
     def test_plan_simulate_uses_draft_registry_when_wrapper_payload_is_sent(self):
         client = TestClient(app)
@@ -119,6 +123,36 @@ class GovernanceApiTest(unittest.TestCase):
         active_case = next(item for item in active_coverage["cases"] if item["id"] == "knowledge.metric_explain.basic")
         self.assertEqual("PASS", active_case["status"])
         self.assertEqual(["knowledge.retrieve"], active_case["actualToolNames"])
+
+    def test_draft_policy_coverage_compares_against_active_cases(self):
+        client = TestClient(app)
+        active = client.get("/api/srmp/langgraph/governance/config").json()
+        capabilities_config = copy.deepcopy(active["capabilitiesConfig"])
+        tools_config = copy.deepcopy(active["toolsConfig"])
+        capability = next(item for item in capabilities_config["capabilities"] if item["id"] == "knowledge.metric_explain")
+        capability["toolPolicy"]["required"] = ["gis.queryRegionSummary"]
+        capability["toolPolicy"]["optional"] = []
+        capability["toolPolicy"]["adaptive"] = []
+        capability["toolPolicy"]["prohibited"] = []
+
+        response = client.post(
+            "/api/srmp/langgraph/governance/policies/coverage/draft",
+            json={
+                "capabilitiesConfig": capabilities_config,
+                "toolsConfig": tools_config,
+                "caseIds": ["knowledge.metric_explain.basic"],
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        comparison = response.json()["comparison"]
+        self.assertEqual(1, comparison["regressedCount"])
+        self.assertEqual(0, comparison["improvedCount"])
+        regression = comparison["regressions"][0]
+        self.assertEqual("knowledge.metric_explain.basic", regression["id"])
+        self.assertEqual("PASS", regression["activeStatus"])
+        self.assertEqual("FAIL", regression["draftStatus"])
+        self.assertIn("gis.queryRegionSummary", regression["draftToolNames"])
 
     def test_draft_policy_coverage_filters_selected_cases(self):
         client = TestClient(app)
@@ -291,6 +325,28 @@ class GovernanceApiTest(unittest.TestCase):
         self.assertIn("name", capability_changes["knowledge.metric_explain"]["changedFields"])
         self.assertEqual("MODIFIED", tool_changes["knowledge.retrieve"]["changeType"])
         self.assertIn("description", tool_changes["knowledge.retrieve"]["changedFields"])
+
+    def test_config_draft_validate_includes_policy_coverage_comparison(self):
+        client = TestClient(app)
+        active = client.get("/api/srmp/langgraph/governance/config").json()
+        capabilities_config = copy.deepcopy(active["capabilitiesConfig"])
+        tools_config = copy.deepcopy(active["toolsConfig"])
+        capability = next(item for item in capabilities_config["capabilities"] if item["id"] == "knowledge.metric_explain")
+        capability["toolPolicy"]["required"] = ["gis.queryRegionSummary"]
+        capability["toolPolicy"]["optional"] = []
+        capability["toolPolicy"]["adaptive"] = []
+        capability["toolPolicy"]["prohibited"] = []
+
+        response = client.post(
+            "/api/srmp/langgraph/governance/config/draft/validate",
+            json={"capabilitiesConfig": capabilities_config, "toolsConfig": tools_config},
+        )
+
+        self.assertEqual(200, response.status_code)
+        comparison = response.json()["coverageComparison"]
+        self.assertGreaterEqual(comparison["caseCount"], 1)
+        self.assertGreaterEqual(comparison["regressedCount"], 1)
+        self.assertIn("knowledge.metric_explain.basic", [item["id"] for item in comparison["regressions"]])
 
     def test_publish_request_blocks_failed_draft_policy_coverage(self):
         client = TestClient(app)

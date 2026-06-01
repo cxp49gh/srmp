@@ -346,23 +346,16 @@ async def governance_plan_simulate(
     x_ai_trace_id: Optional[str] = Header(default=None, alias="X-AI-Trace-Id"),
 ) -> dict:
     payload = body or {}
-    if isinstance(payload.get("request"), dict) or isinstance(payload.get("capabilitiesConfig"), dict) or isinstance(payload.get("toolsConfig"), dict):
-        return governance_plan_simulate_for_payload(payload)
-    request = MapAiAgentRequest(**payload)
-    plan = await workflow.plan(request=request, tenant_id=x_tenant_id, trace_id=x_ai_trace_id)
-    return {
-        "traceId": plan.get("traceId"),
-        "strategy": plan.get("strategy"),
-        "action": plan.get("action"),
-        "intent": plan.get("intent"),
-        "capabilityId": plan.get("capabilityId"),
-        "capability": plan.get("capability") or {},
-        "contextSummary": plan.get("contextSummary") or {},
-        "toolPlan": plan.get("toolPlan") or [],
-        "sourceHints": plan.get("sourceHints") or [],
-        "warnings": plan.get("warnings") or [],
-        "steps": plan.get("steps") or [],
-    }
+    target = payload.get("request") if isinstance(payload.get("request"), dict) else payload
+    if x_tenant_id:
+        map_context = target.get("mapContext") if isinstance(target.get("mapContext"), dict) else {}
+        map_context.setdefault("tenantId", x_tenant_id)
+        target["mapContext"] = map_context
+    if x_ai_trace_id:
+        options = target.get("options") if isinstance(target.get("options"), dict) else {}
+        options.setdefault("traceId", x_ai_trace_id)
+        target["options"] = options
+    return governance_plan_simulate_for_payload(payload)
 
 
 @app.get("/api/srmp/langgraph/governance/policies/coverage")

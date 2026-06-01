@@ -34,6 +34,18 @@ export interface AiExecutionPlanWarning {
   message: string
 }
 
+export interface AiExecutionPolicyCheck {
+  status: string
+  code: string
+  severity: string
+  message: string
+  expectedToolNames: string[]
+  actualToolNames: string[]
+  missingToolNames: string[]
+  extraToolNames: string[]
+  prohibitedToolNames: string[]
+}
+
 export interface AiExecutionPlanExecution {
   available: boolean
   status: string
@@ -91,6 +103,8 @@ export interface AiExecutionSnapshot {
   businessScope: Record<string, any>
   capability: Record<string, any>
   planExecution: AiExecutionPlanExecution
+  policyStatus: string
+  policyChecks: AiExecutionPolicyCheck[]
   raw: Record<string, any>
   warnings: string[]
   repairActions: AiExecutionRepairAction[]
@@ -261,6 +275,8 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     toolFailedCount: numberValue(responseData.toolFailedCount ?? responseData.tool_failed_count ?? record?.toolFailedCount ?? record?.tool_failed_count ?? liveToolSummary.failed ?? evidenceData.toolFailedCount ?? tools.filter((item) => !item.success).length),
     sourceCount: numberValue(responseData.sourceCount ?? responseData.source_count ?? responsePreview.sourceCount ?? responsePreview.source_count ?? record?.sourceCount ?? record?.source_count ?? evidenceData.sourceCount ?? sources.length)
   }
+  const policyChecks = buildExecutionPolicyChecks(capability, tools, planExecution)
+  const policyStatus = policyChecks.some((item) => item.status === 'FAIL') ? 'FAIL' : 'PASS'
 
   return {
     summary,
@@ -279,8 +295,10 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     businessScope,
     capability,
     planExecution,
+    policyStatus,
+    policyChecks,
     raw: sanitizeInternalDiagnostics(compactRaw(input)) as Record<string, any>,
-    warnings: buildWarnings(answerMeta, steps, summary.sourceCount, sources.length, tools, summary.status, currentStep),
+    warnings: buildWarnings(answerMeta, steps, summary.sourceCount, sources.length, tools, summary.status, currentStep, policyChecks),
     repairActions: buildRepairActions(tools, answerMeta)
   }
 }
@@ -438,7 +456,8 @@ function buildWarnings(
   actualSources = 0,
   tools: AiExecutionTool[] = [],
   status?: string,
-  currentStep?: AiExecutionStep | null
+  currentStep?: AiExecutionStep | null,
+  policyChecks: AiExecutionPolicyCheck[] = []
 ): string[] {
   const warnings: string[] = []
   const llmStep = steps.find((step) => step.key === 'llm_answer' || step.label.includes('LLM') || step.label.includes('大模型'))
@@ -461,7 +480,106 @@ function buildWarnings(
         : '知识库检索提示'
     warnings.push(`${prefix}：${knowledgeTool.diagnostic}`)
   }
+  const failedPolicyChecks = policyChecks.filter((item) => item.status === 'FAIL')
+  if (failedPolicyChecks.length) {
+    const details = failedPolicyChecks
+      .slice(0, 3)
+      .map((item) => item.message || item.code)
+      .filter(Boolean)
+      .join('；')
+    warnings.push(`能力策略违规：${details || '实际工具调用不符合当前能力策略。'}`)
+  }
   return warnings
+}
+
+function buildExecutionPolicyChecks(
+  capability: Record<string, any>,
+  tools: AiExecutionTool[] = [],
+  planExecution?: AiExecutionPlanExecution
+): AiExecutionPolicyCheck[] {
+  const policy = firstRecord(capability.toolPolicy, capability.tool_policy)
+  const requiredTools = uniqueStringList(stringList(policy.required).concat(stringList(policy.required_tools)))
+  const prohibitedTools = uniqueStringList(stringList(policy.prohibited).concat(stringList(policy.prohibited_tools)))
+  const observedToolNames = uniqueStringList(tools.map((item) => item.name).concat(planExecution?.actualToolNames || []))
+  const actualToolNames = observedToolNames.length ? observedToolNames : uniqueStringList(planExecution?.plannedToolNames || [])
+  const checks: AiExecutionPolicyCheck[] = []
+  if (!actualToolNames.length) return checks
+
+  if (requiredTools.length) {
+    const missing = requiredTools.filter((name) => !actualToolNames.includes(name))
+    if (missing.length) {
+      checks.push(policyCheck(
+        'FAIL',
+        'REQUIRED_TOOL_MISSING',
+        'ERROR',
+        `缺少必选工具：${missing.join(', ')}`,
+        requiredTools,
+        actualToolNames,
+        missing
+      ))
+    } else {
+      checks.push(policyCheck(
+        'PASS',
+        'REQUIRED_TOOLS_PRESENT',
+        'INFO',
+        '必选工具均已调用。',
+        requiredTools,
+        actualToolNames
+      ))
+    }
+  }
+
+  if (prohibitedTools.length) {
+    const hits = prohibitedTools.filter((name) => actualToolNames.includes(name))
+    if (hits.length) {
+      checks.push(policyCheck(
+        'FAIL',
+        'PROHIBITED_TOOL_USED',
+        'ERROR',
+        `调用了禁用工具：${hits.join(', ')}`,
+        prohibitedTools,
+        actualToolNames,
+        [],
+        [],
+        hits
+      ))
+    } else {
+      checks.push(policyCheck(
+        'PASS',
+        'PROHIBITED_TOOLS_ABSENT',
+        'INFO',
+        '禁用工具未被调用。',
+        prohibitedTools,
+        actualToolNames
+      ))
+    }
+  }
+
+  return checks
+}
+
+function policyCheck(
+  status: string,
+  code: string,
+  severity: string,
+  message: string,
+  expectedToolNames: string[] = [],
+  actualToolNames: string[] = [],
+  missingToolNames: string[] = [],
+  extraToolNames: string[] = [],
+  prohibitedToolNames: string[] = []
+): AiExecutionPolicyCheck {
+  return {
+    status,
+    code,
+    severity,
+    message,
+    expectedToolNames,
+    actualToolNames,
+    missingToolNames,
+    extraToolNames,
+    prohibitedToolNames
+  }
 }
 
 function buildRepairActions(tools: AiExecutionTool[], answerMeta: Record<string, any> = {}): AiExecutionRepairAction[] {
@@ -568,6 +686,15 @@ function planWarnings(values: any): AiExecutionPlanWarning[] {
 
 function stringList(values: any): string[] {
   if (!Array.isArray(values)) return []
+  const result: string[] = []
+  values.forEach((value) => {
+    const item = stringValue(value)
+    if (item && !result.includes(item)) result.push(item)
+  })
+  return result
+}
+
+function uniqueStringList(values: any[]): string[] {
   const result: string[] = []
   values.forEach((value) => {
     const item = stringValue(value)

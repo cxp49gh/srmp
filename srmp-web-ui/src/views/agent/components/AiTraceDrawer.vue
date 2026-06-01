@@ -98,6 +98,26 @@
         />
       </section>
 
+      <section v-if="snapshot.policyChecks.length" class="trace-section policy-panel">
+        <div class="step-title">
+          <h3>策略校验</h3>
+          <el-tag size="small" :type="policyCheckTagType(snapshot.policyStatus)">{{ snapshot.policyStatus }}</el-tag>
+        </div>
+        <div class="policy-check-list">
+          <div v-for="check in snapshot.policyChecks" :key="check.code + check.message" class="policy-check-row">
+            <el-tag size="small" :type="policyCheckTagType(check.status)">{{ check.status }}</el-tag>
+            <div>
+              <strong>{{ check.code }}</strong>
+              <span>{{ check.message || '-' }}</span>
+              <div class="tag-list">
+                <el-tag v-for="name in check.expectedToolNames" :key="`${check.code}-expected-${name}`" size="small" effect="plain">{{ name }}</el-tag>
+                <el-tag v-for="name in check.prohibitedToolNames" :key="`${check.code}-blocked-${name}`" size="small" type="danger">{{ name }}</el-tag>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section v-if="Object.keys(snapshot.businessScope || {}).length" class="trace-section">
         <h3>业务范围</h3>
         <el-descriptions :column="2" border size="small">
@@ -283,6 +303,14 @@ function planExecutionTagType(status?: string) {
   return 'info'
 }
 
+function policyCheckTagType(status?: string) {
+  const normalized = String(status || '').toUpperCase()
+  if (normalized === 'PASS' || normalized === 'SUCCESS') return 'success'
+  if (normalized === 'FAIL' || normalized === 'ERROR') return 'danger'
+  if (normalized === 'WARN' || normalized === 'WARNING') return 'warning'
+  return 'info'
+}
+
 function formatJson(value: any) {
   return JSON.stringify(value || {}, null, 2)
 }
@@ -394,6 +422,38 @@ function stringValue(...values: any[]) {
   border: 1px solid #bfdbfe;
   border-radius: 8px;
   background: #f8fbff;
+}
+
+.policy-panel {
+  padding: 10px;
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  background: #f8faff;
+}
+
+.policy-check-list {
+  display: grid;
+  gap: 8px;
+}
+
+.policy-check-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.policy-check-row strong,
+.policy-check-row span {
+  display: block;
+}
+
+.policy-check-row span {
+  color: #475569;
+  font-size: 12px;
 }
 
 .plan-compare-grid {

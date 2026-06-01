@@ -410,3 +410,35 @@ test('AiTrace snapshot normalizes plan execution for planned vs actual troublesh
   assert.deepEqual(snapshot.planExecution.adaptiveExtraToolNames, ['knowledge.retrieve'])
   assert.match(snapshot.planExecution.adaptiveReason, /业务证据不足/)
 })
+
+test('AiTrace snapshot flags actual tools that violate capability policy', () => {
+  const snapshot = toAiExecutionSnapshot({
+    record: {
+      traceId: 'trace-policy-violation',
+      status: 'SUCCESS',
+      toolResults: [
+        { toolName: 'knowledge.retrieve', success: true },
+        { toolName: 'gis.queryRegionSummary', success: true }
+      ],
+      capability: {
+        capabilityId: 'knowledge.metric_explain',
+        name: '指标解释',
+        toolPolicy: {
+          required: ['knowledge.retrieve'],
+          prohibited: ['gis.queryRegionSummary']
+        }
+      }
+    },
+    answerMeta: {
+      llmStatus: 'SUCCESS',
+      llmSuccess: true
+    }
+  })
+
+  assert.equal(snapshot.policyStatus, 'FAIL')
+  assert.deepEqual(
+    snapshot.policyChecks.filter((item) => item.status === 'FAIL').map((item) => item.code),
+    ['PROHIBITED_TOOL_USED']
+  )
+  assert.match(snapshot.warnings.join('\n'), /能力策略违规/)
+})
