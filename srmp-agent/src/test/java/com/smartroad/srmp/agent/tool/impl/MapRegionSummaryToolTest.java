@@ -60,6 +60,39 @@ public class MapRegionSummaryToolTest {
         assertEquals(Types.NUMERIC, params.getSqlType("endStake"));
     }
 
+    @Test
+    public void queryRouteSummaryUsesSectionLengthForTotalLength() throws Exception {
+        MapRegionSummaryTool tool = new MapRegionSummaryTool();
+        CapturingJdbcTemplate jdbcTemplate = new CapturingJdbcTemplate();
+        setField(tool, "namedParameterJdbcTemplate", jdbcTemplate);
+
+        MapAiContext mapContext = new MapAiContext();
+        mapContext.setTenantId("tenant-a");
+        mapContext.setMode("OBJECT");
+        mapContext.setRouteCode("Y016140727");
+        mapContext.setYear(2026);
+        mapContext.setMapObject(mapOf(
+                "objectType", "ROAD_ROUTE",
+                "routeCode", "Y016140727",
+                "startStake", 0,
+                "endStake", 14.072
+        ));
+        mapContext.setExtra(mapOf(
+                "rawContext", mapOf("query", mapOf("projectId", "project-a", "sectionTier", "LINE"))
+        ));
+
+        AiToolContext context = new AiToolContext();
+        context.setTenantId("tenant-a");
+        context.setMapContext(mapContext);
+
+        AiToolResult result = tool.execute(context, mapOf("limit", 50));
+
+        assertTrue(result.isSuccess());
+        String totalLengthSql = jdbcTemplate.sqlAt(2);
+        assertTrue(totalLengthSql.contains("from road_section_line s"));
+        assertTrue(totalLengthSql.contains("sum(coalesce(s.length_km"));
+    }
+
     private void setField(Object target, String fieldName, Object value) throws Exception {
         Field field = AbstractJdbcAiTool.class.getDeclaredField(fieldName);
         field.setAccessible(true);
@@ -103,6 +136,10 @@ public class MapRegionSummaryToolTest {
                 sb.append(sql).append('\n');
             }
             return sb.toString();
+        }
+
+        String sqlAt(int index) {
+            return sqlList.get(index);
         }
     }
 }

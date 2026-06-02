@@ -46,10 +46,11 @@ public class MapRegionSummaryTool extends AbstractJdbcAiTool {
             String diseaseFilters = routeFilter("d") + directProjectFilter("d") + directionFilter("d") + stakeOverlapFilter("d");
             String assessmentFilters = routeFilter("a") + yearFilter("a") + assessmentProjectFilter("a") + sectionTierFilter("a") + directionFilter("a") + stakeOverlapFilter("a");
             String sectionTable = sectionTable(scope.getSectionTier());
+            String sectionLengthKm = sectionLengthKmExpression("s", scope.getSectionTier());
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("routeCount", first("select count(*) from road_route r where r.tenant_id=:tenantId and r.deleted=false " + routeFilters, p));
             data.put("sectionCount", first("select count(*) from " + sectionTable + " s where s.tenant_id=:tenantId and s.deleted=false " + sectionFilters, p));
-            data.put("totalLengthKm", first("select round(coalesce(sum(r.length_km),0),3) from road_route r where r.tenant_id=:tenantId and r.deleted=false " + routeFilters, p));
+            data.put("totalLengthKm", first("select round(coalesce(sum(" + sectionLengthKm + "),0),3) from " + sectionTable + " s where s.tenant_id=:tenantId and s.deleted=false " + sectionFilters, p));
             data.put("diseaseCount", first("select count(*) from disease_record d where d.tenant_id=:tenantId and d.deleted=false " + diseaseFilters, p));
             data.put("assessmentCount", first("select count(*) from assessment_result a where a.tenant_id=:tenantId and a.deleted=false " + assessmentFilters, p));
             data.put("avgMqi", first("select round(avg(a.mqi),3) from assessment_result a where a.tenant_id=:tenantId and a.deleted=false " + assessmentFilters, p));
@@ -83,6 +84,7 @@ public class MapRegionSummaryTool extends AbstractJdbcAiTool {
         String diseaseFilters = routeFilter("d") + directProjectFilter("d") + directionFilter("d") + stakeOverlapFilter("d");
         String assessmentFilters = routeFilter("a") + yearFilter("a") + assessmentProjectFilter("a") + sectionTierFilter("a") + directionFilter("a") + stakeOverlapFilter("a");
         String sectionTable = sectionTable(scope.getSectionTier());
+        String sectionLengthKm = sectionLengthKmExpression("s", scope.getSectionTier());
         String assessmentFrom = " from assessment_result a "
                 + "left join road_section_ledger u on u.tenant_id=a.tenant_id and a.unit_id is not null and u.id=a.unit_id and u.deleted=false "
                 + "left join road_section_line ln on ln.tenant_id=a.tenant_id and a.section_id is not null and ln.id=a.section_id and ln.deleted=false "
@@ -97,7 +99,7 @@ public class MapRegionSummaryTool extends AbstractJdbcAiTool {
         data.put("sourcePrecision", "POSTGIS");
         data.put("routeCount", first("select count(*) from road_route r where r.tenant_id=:tenantId and r.deleted=false " + routeFilters + spatialFilter("r.geom"), p));
         data.put("sectionCount", first("select count(*) from " + sectionTable + " s where s.tenant_id=:tenantId and s.deleted=false " + sectionFilters + spatialFilter("s.geom"), p));
-        data.put("totalLengthKm", first("select round(coalesce(sum(r.length_km),0),3) from road_route r where r.tenant_id=:tenantId and r.deleted=false " + routeFilters + spatialFilter("r.geom"), p));
+        data.put("totalLengthKm", first("select round(coalesce(sum(" + sectionLengthKm + "),0),3) from " + sectionTable + " s where s.tenant_id=:tenantId and s.deleted=false " + sectionFilters + spatialFilter("s.geom"), p));
         data.put("diseaseCount", first("select count(*) from disease_record d where d.tenant_id=:tenantId and d.deleted=false " + diseaseFilters + spatialFilter("d.geom"), p));
         data.put("assessmentCount", first("select count(*) " + assessmentFrom, p));
         data.put("avgMqi", first("select round(avg(a.mqi),3) " + assessmentFrom, p));
@@ -150,5 +152,14 @@ public class MapRegionSummaryTool extends AbstractJdbcAiTool {
             return "road_section_hm";
         }
         return "road_section_line";
+    }
+
+    private String sectionLengthKmExpression(String alias, String sectionTier) {
+        String a = alias == null || alias.trim().isEmpty() ? "" : alias.trim() + ".";
+        String tier = sectionTier == null ? "" : sectionTier.trim().toUpperCase();
+        if ("LEDGER".equals(tier) || "KM".equals(tier) || "HM".equals(tier)) {
+            return "coalesce(" + a + "length_m / 1000.0, abs(" + a + "end_stake - " + a + "start_stake))";
+        }
+        return "coalesce(" + a + "length_km, abs(" + a + "end_stake - " + a + "start_stake))";
     }
 }
