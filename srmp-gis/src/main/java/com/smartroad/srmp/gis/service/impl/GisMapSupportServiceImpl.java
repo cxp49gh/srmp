@@ -36,7 +36,7 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("totalLengthKm", firstValue(
-                "select coalesce(sum(length_km),0) from road_route where tenant_id=:tenantId and deleted=false " + optionalRoute() + optionalProjectIdRow(),
+                "select round(coalesce(sum(coalesce(length_km, abs(end_stake - start_stake))),0),3) from road_section_line where tenant_id=:tenantId and deleted=false " + optionalRoute() + optionalProjectIdRow(),
                 params
         ));
         result.put("routeCount", firstValue(
