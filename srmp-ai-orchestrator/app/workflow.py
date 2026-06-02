@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple, TypedDict
 from .adaptive_planner import plan_adaptive_tools, summarize_evidence
 from .answer_enhancers import enhance_answer
 from .config import settings
-from .governance import resolve_capability
+from .governance import governance_tool_policy_result, normalize_tool_policy, resolve_capability
 from .intent import recognize_intent
 from .java_tools import JavaToolGateway, extract_knowledge_sources
 from .live_trace import LiveTraceStore
@@ -86,6 +86,8 @@ class AgentState(TypedDict, total=False):
     adaptive_tool_plan: List[ToolCall]
     adaptive_tool_results: List[ToolResult]
     adaptive_planning: Dict[str, Any]
+    tool_policy: Dict[str, Any]
+    blocked_tool_names: List[str]
     evidence: Dict[str, Any]
     answer: str
     answer_meta: Dict[str, Any]
@@ -332,14 +334,28 @@ class LangGraphWorkflow:
         return {"request": request, "context_summary": summary}
 
     async def _tool_plan(self, state: AgentState) -> Dict[str, Any]:
-        calls = plan_tools(state["request"], state["intent"], state.get("intent_detail", {}), capability=state.get("capability"))
+        raw_calls = plan_tools(state["request"], state["intent"], state.get("intent_detail", {}), capability=state.get("capability"))
+        calls, blocked = self._filter_prohibited_tool_calls(state, raw_calls)
+        tool_policy = self._runtime_tool_policy(
+            state,
+            raw_calls,
+            executable_tool_names=[item.toolName for item in calls],
+            blocked_tool_names=blocked,
+        )
         self._step(
             state,
             "tool_plan",
             "规划只读工具",
-            {"readOnly": not settings.allow_write_tools, "capability": state.get("capability", {}), "tools": [item.model_dump() for item in calls]},
+            {
+                "readOnly": not settings.allow_write_tools,
+                "capability": state.get("capability", {}),
+                "tools": [item.model_dump() for item in calls],
+                "toolPolicy": tool_policy,
+            },
+            status="FAILED" if tool_policy.get("policyStatus") == "FAIL" else "SUCCESS",
+            count=len(calls),
         )
-        return {"tool_plan": calls}
+        return {"tool_plan": calls, "tool_policy": tool_policy, "blocked_tool_names": blocked}
 
     async def _tool_execute(self, state: AgentState) -> Dict[str, Any]:
         calls = state.get("tool_plan", [])
@@ -382,6 +398,34 @@ class LangGraphWorkflow:
             request=state["request"],
             tenant_id=state.get("tenant_id") or "default",
             trace_id=state.get("trace_id"),
+        )
+
+    def _filter_prohibited_tool_calls(self, state: AgentState, calls: List[ToolCall]) -> Tuple[List[ToolCall], List[str]]:
+        policy = normalize_tool_policy((state.get("capability") or {}).get("toolPolicy") or {})
+        prohibited = set(policy.get("prohibited") or [])
+        if not prohibited:
+            return calls, []
+        allowed: List[ToolCall] = []
+        blocked: List[str] = []
+        for call in calls or []:
+            if call.toolName in prohibited:
+                blocked.append(call.toolName)
+                continue
+            allowed.append(call)
+        return allowed, _unique_list(blocked)
+
+    def _runtime_tool_policy(
+        self,
+        state: AgentState,
+        planned_calls: List[ToolCall],
+        executable_tool_names: Optional[List[str]] = None,
+        blocked_tool_names: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        return governance_tool_policy_result(
+            state.get("capability") or {},
+            planned_tool_names=[item.toolName for item in planned_calls or []],
+            executable_tool_names=executable_tool_names,
+            blocked_tool_names=blocked_tool_names,
         )
 
     async def _evidence_fuse(self, state: AgentState) -> Dict[str, Any]:
@@ -431,6 +475,18 @@ class LangGraphWorkflow:
             existing_plan=state.get("tool_plan", []),
             capability=state.get("capability"),
         )
+        if decision.added_calls:
+            filtered_calls, blocked = self._filter_prohibited_tool_calls(state, decision.added_calls)
+            if blocked:
+                blocked_names = list(state.get("blocked_tool_names") or []) + blocked
+                state["blocked_tool_names"] = blocked_names
+                decision.added_calls = filtered_calls
+                decision.skipped_tool_names = _unique_list(list(decision.skipped_tool_names or []) + blocked)
+                if not filtered_calls:
+                    decision.should_replan = False
+                    decision.status = "SKIPPED_POLICY_BLOCKED"
+                    decision.reason = "自适应候选工具命中能力禁用策略，已阻断：" + ", ".join(blocked)
+                state["tool_policy"] = self._runtime_tool_policy(state, state.get("tool_plan", []), blocked_tool_names=blocked_names)
         summary = decision.to_summary()
         self._step(
             state,
@@ -663,6 +719,12 @@ class LangGraphWorkflow:
             adaptive_planning["evidenceBefore"] = summarize_evidence(state.get("evidence", {}))
         if not adaptive_planning.get("evidenceAfter"):
             adaptive_planning["evidenceAfter"] = summarize_evidence(state.get("evidence", {}))
+        tool_policy = governance_tool_policy_result(
+            state.get("capability") or {},
+            planned_tool_names=(state.get("tool_policy") or {}).get("plannedToolNames") or [item.toolName for item in state.get("tool_plan", [])],
+            executable_tool_names=[item.toolName for item in tool_results],
+            blocked_tool_names=state.get("blocked_tool_names", []),
+        )
         plan_execution = build_plan_execution(
             normalize_plan_preview((request.options or {}).get("planPreview")),
             {
@@ -686,6 +748,8 @@ class LangGraphWorkflow:
             answer_meta["capabilityContextUsage"] = capability.get("contextUsage")
         answer_meta["planExecutionStatus"] = plan_execution.get("status")
         answer_meta["adaptivePlanningStatus"] = adaptive_planning.get("status")
+        answer_meta["policyStatus"] = tool_policy.get("policyStatus")
+        answer_meta["policyChecks"] = tool_policy.get("policyChecks") or []
         trace_payload = {
             "traceId": state.get("trace_id"),
             "orchestratorProvider": "langgraph",
@@ -694,6 +758,7 @@ class LangGraphWorkflow:
             "steps": state.get("steps", []),
             "planExecution": plan_execution,
             "adaptivePlanning": adaptive_planning,
+            "toolPolicy": tool_policy,
             "costMs": int((time.perf_counter() - state.get("started_at", time.perf_counter())) * 1000),
         }
         if self.live_trace_store:
@@ -729,6 +794,7 @@ class LangGraphWorkflow:
                 "toolFailedCount": sum(1 for item in tool_results if not item.success),
                 "evidence": state.get("evidence", {}),
                 "adaptivePlanning": adaptive_planning,
+                "toolPolicy": tool_policy,
                 "answerMeta": answer_meta,
                 "planExecution": plan_execution,
                 "answerSource": answer_meta.get("answerSource"),
@@ -920,6 +986,15 @@ def _dedupe_and_limit_calls(calls: List[ToolCall]) -> List[ToolCall]:
         result.append(call)
         if len(result) >= settings.max_tool_calls:
             break
+    return result
+
+
+def _unique_list(values: List[Any]) -> List[str]:
+    result: List[str] = []
+    for value in values or []:
+        text = str(value or "").strip()
+        if text and text not in result:
+            result.append(text)
     return result
 
 

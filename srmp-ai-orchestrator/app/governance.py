@@ -480,6 +480,43 @@ def governance_plan_simulate_for_payload(payload: Dict[str, Any]) -> Dict[str, A
     }
 
 
+def governance_tool_policy_result(
+    capability: Dict[str, Any],
+    planned_tool_names: List[Any],
+    executable_tool_names: Optional[List[Any]] = None,
+    blocked_tool_names: Optional[List[Any]] = None,
+) -> Dict[str, Any]:
+    planned_names = _unique_strings(planned_tool_names or [])
+    executable_names = _unique_strings(executable_tool_names if executable_tool_names is not None else planned_names)
+    blocked_names = _unique_strings(blocked_tool_names or [])
+    checks = _policy_checks_for_tool_names(capability or {}, executable_names)
+    if blocked_names:
+        policy = normalize_tool_policy((capability or {}).get("toolPolicy") or {})
+        checks.append(_policy_check(
+            "FAIL",
+            "PROHIBITED_TOOL_BLOCKED",
+            "ERROR",
+            "已阻断禁用工具：" + ", ".join(blocked_names),
+            expected_tool_names=policy.get("prohibited") or [],
+            actual_tool_names=executable_names,
+            prohibited_tool_names=blocked_names,
+        ))
+    failed_checks = [item for item in checks if item.get("status") == "FAIL"]
+    return {
+        "policyStatus": _policy_status(checks),
+        "policyChecks": checks,
+        "plannedToolNames": planned_names,
+        "executableToolNames": executable_names,
+        "blockedToolNames": blocked_names,
+        "missingRequiredToolNames": _unique_strings([
+            name
+            for item in failed_checks
+            for name in item.get("missingToolNames") or []
+        ]),
+        "failedCheckCodes": _unique_strings([item.get("code") for item in failed_checks]),
+    }
+
+
 def _run_governance_policy_case(
     example: Dict[str, Any],
     registry: Optional[GovernanceRegistry] = None,

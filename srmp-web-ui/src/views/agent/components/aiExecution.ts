@@ -275,8 +275,32 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     toolFailedCount: numberValue(responseData.toolFailedCount ?? responseData.tool_failed_count ?? record?.toolFailedCount ?? record?.tool_failed_count ?? liveToolSummary.failed ?? evidenceData.toolFailedCount ?? tools.filter((item) => !item.success).length),
     sourceCount: numberValue(responseData.sourceCount ?? responseData.source_count ?? responsePreview.sourceCount ?? responsePreview.source_count ?? record?.sourceCount ?? record?.source_count ?? evidenceData.sourceCount ?? sources.length)
   }
-  const policyChecks = buildExecutionPolicyChecks(capability, tools, planExecution)
-  const policyStatus = policyChecks.some((item) => item.status === 'FAIL') ? 'FAIL' : 'PASS'
+  const persistedPolicyChecks = normalizePolicyChecks(firstArray(
+    answerMeta.policyChecks,
+    answerMeta.policy_checks,
+    trace?.toolPolicy?.policyChecks,
+    trace?.tool_policy?.policy_checks,
+    responseData.toolPolicy?.policyChecks,
+    responseData.tool_policy?.policy_checks,
+    responsePreview.toolPolicy?.policyChecks,
+    responsePreview.tool_policy?.policy_checks,
+    record?.toolPolicy?.policyChecks,
+    record?.tool_policy?.policy_checks
+  ))
+  const policyChecks = persistedPolicyChecks.length ? persistedPolicyChecks : buildExecutionPolicyChecks(capability, tools, planExecution)
+  const persistedPolicyStatus = stringValue(
+    answerMeta.policyStatus,
+    answerMeta.policy_status,
+    trace?.toolPolicy?.policyStatus,
+    trace?.tool_policy?.policy_status,
+    responseData.toolPolicy?.policyStatus,
+    responseData.tool_policy?.policy_status,
+    responsePreview.toolPolicy?.policyStatus,
+    responsePreview.tool_policy?.policy_status,
+    record?.toolPolicy?.policyStatus,
+    record?.tool_policy?.policy_status
+  )
+  const policyStatus = persistedPolicyStatus || (policyChecks.some((item) => item.status === 'FAIL') ? 'FAIL' : 'PASS')
 
   return {
     summary,
@@ -558,6 +582,26 @@ function buildExecutionPolicyChecks(
   return checks
 }
 
+function normalizePolicyChecks(values: any[]): AiExecutionPolicyCheck[] {
+  return values.map((value) => {
+    const item = asRecord(value)
+    const code = stringValue(item.code)
+    const message = stringValue(item.message)
+    if (!code && !message) return null
+    return policyCheck(
+      stringValue(item.status) || 'INFO',
+      code || message || 'TOOL_POLICY_CHECK',
+      stringValue(item.severity) || 'INFO',
+      message || code || '',
+      stringList(item.expectedToolNames || item.expected_tool_names),
+      stringList(item.actualToolNames || item.actual_tool_names),
+      stringList(item.missingToolNames || item.missing_tool_names),
+      stringList(item.extraToolNames || item.extra_tool_names),
+      stringList(item.prohibitedToolNames || item.prohibited_tool_names)
+    )
+  }).filter((item): item is AiExecutionPolicyCheck => Boolean(item))
+}
+
 function policyCheck(
   status: string,
   code: string,
@@ -742,9 +786,12 @@ function asRecord(value: any): Record<string, any> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
 }
 
-function stringValue(value: any): string | undefined {
-  if (value === undefined || value === null || value === '') return undefined
-  return String(value)
+function stringValue(...values: any[]): string | undefined {
+  for (const value of values) {
+    if (value === undefined || value === null || value === '') continue
+    return String(value)
+  }
+  return undefined
 }
 
 function numberValue(value: any): number | undefined {

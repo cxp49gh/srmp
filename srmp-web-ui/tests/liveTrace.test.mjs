@@ -442,3 +442,34 @@ test('AiTrace snapshot flags actual tools that violate capability policy', () =>
   )
   assert.match(snapshot.warnings.join('\n'), /能力策略违规/)
 })
+
+test('AiTrace snapshot uses persisted runtime policy checks from answerMeta', () => {
+  const snapshot = toAiExecutionSnapshot({
+    trace: {
+      traceId: 'trace-policy-persisted',
+      toolPolicy: {
+        policyStatus: 'FAIL',
+        blockedToolNames: ['gis.queryRegionSummary']
+      }
+    },
+    answerMeta: {
+      llmStatus: 'SUCCESS',
+      llmSuccess: true,
+      policyStatus: 'FAIL',
+      policyChecks: [
+        {
+          status: 'FAIL',
+          code: 'PROHIBITED_TOOL_BLOCKED',
+          severity: 'ERROR',
+          message: '已阻断禁用工具：gis.queryRegionSummary',
+          prohibitedToolNames: ['gis.queryRegionSummary']
+        }
+      ]
+    }
+  })
+
+  assert.equal(snapshot.policyStatus, 'FAIL')
+  assert.deepEqual(snapshot.policyChecks.map((item) => item.code), ['PROHIBITED_TOOL_BLOCKED'])
+  assert.deepEqual(snapshot.policyChecks[0].prohibitedToolNames, ['gis.queryRegionSummary'])
+  assert.match(snapshot.warnings.join('\n'), /能力策略违规/)
+})
