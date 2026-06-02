@@ -8,6 +8,8 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +41,50 @@ public class GisMapSupportServiceImplTest {
         assertTrue(totalLengthSql.contains("from road_section_line"));
         assertTrue(totalLengthSql.contains("sum(coalesce(length_km"));
         assertFalse(totalLengthSql.contains("from road_route"));
+    }
+
+    @Test
+    public void routeObjectDetailUsesSectionLengthForDisplayedLength() throws Exception {
+        GisMapSupportServiceImpl service = new GisMapSupportServiceImpl();
+        CapturingJdbcTemplate jdbcTemplate = new CapturingJdbcTemplate();
+        setField(service, "namedParameterJdbcTemplate", jdbcTemplate);
+        TenantContextHolder.setTenantId("tenant-a");
+
+        try {
+            service.objectDetail("ROAD_ROUTE", "route-1");
+        } finally {
+            TenantContextHolder.clear();
+        }
+
+        String sql = jdbcTemplate.sqlAt(0);
+        assertTrue(sql.contains("road_section_line"));
+        assertTrue(sql.contains("coalesce(sec.length_km"));
+    }
+
+    @Test
+    public void spatialRouteLayerUsesSectionLengthForFeatureLength() throws Exception {
+        GisMapSupportServiceImpl service = new GisMapSupportServiceImpl();
+        CapturingJdbcTemplate jdbcTemplate = new CapturingJdbcTemplate();
+        setField(service, "namedParameterJdbcTemplate", jdbcTemplate);
+
+        service.spatialQuery(mapOf(
+                "geometry", mapOf(
+                        "type", "Polygon",
+                        "coordinates", Collections.singletonList(Arrays.asList(
+                                Arrays.asList(112.0, 37.0),
+                                Arrays.asList(113.0, 37.0),
+                                Arrays.asList(113.0, 38.0),
+                                Arrays.asList(112.0, 37.0)
+                        ))
+                ),
+                "projectId", "project-a",
+                "query", mapOf("routeCode", "Y016140727"),
+                "layers", Collections.singletonList("ROAD_ROUTE")
+        ));
+
+        String sql = jdbcTemplate.sqlAt(0);
+        assertTrue(sql.contains("road_section_line"));
+        assertTrue(sql.contains("coalesce(sec.length_km"));
     }
 
     private static void setField(Object target, String fieldName, Object value) throws Exception {

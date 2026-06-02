@@ -12,7 +12,18 @@
     </sql>
     <sql id="RouteColumns">
         id, route_code, route_name, route_type, admin_grade, technical_grade, start_stake, end_stake,
-        length_km, adcode, manage_org_id, project_id, ST_AsGeoJSON(geom) AS geom_geo_json, remark, created_at
+        COALESCE(
+            (
+                SELECT round(sum(coalesce(s.length_km, abs(s.end_stake - s.start_stake))), 3)
+                FROM road_section_line s
+                WHERE s.tenant_id = road_route.tenant_id
+                AND s.deleted = false
+                AND (s.route_id = road_route.id OR (s.route_id IS NULL AND s.route_code = road_route.route_code))
+                AND (road_route.project_id IS NULL OR s.project_id IS NULL OR s.project_id = road_route.project_id)
+            ),
+            length_km
+        ) AS length_km,
+        adcode, manage_org_id, project_id, ST_AsGeoJSON(geom) AS geom_geo_json, remark, created_at
     </sql>
     <select id="selectPageVO" resultType="com.smartroad.srmp.roadasset.vo.RoadRouteVO">
         SELECT <include refid="RouteColumns"/> FROM road_route WHERE <include refid="RouteWhere"/> ORDER BY route_code ASC, created_at DESC

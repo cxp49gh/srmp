@@ -22,7 +22,7 @@ public class AgentDataQueryServiceImpl implements AgentDataQueryService {
         String sql =
                 "select " +
                 " count(distinct r.id) as route_count, " +
-                " coalesce(sum(r.length_km),0) as route_length_km, " +
+                routeLengthSubquery() + " as route_length_km, " +
                 " count(distinct d.id) as disease_count, " +
                 " count(distinct a.id) as assessment_count, " +
                 " round(avg(a.mqi),3) as avg_mqi, " +
@@ -179,6 +179,16 @@ public class AgentDataQueryServiceImpl implements AgentDataQueryService {
 
     private String optionalSeverity() {
         return " and (nullif(:severity, '') is not distinct from d.severity) ";
+    }
+
+    private String routeLengthSubquery() {
+        return " coalesce((select round(sum(coalesce(s.length_km, abs(s.end_stake - s.start_stake))),3) "
+                + "from road_section_line s "
+                + "where s.tenant_id=:tenantId and s.deleted=false "
+                + "and exists (select 1 from road_route rr "
+                + "where rr.tenant_id=:tenantId and rr.deleted=false and rr.route_code=s.route_code "
+                + optionalRoute("rr")
+                + ")),0) ";
     }
 
     private String blankToNull(String value) {

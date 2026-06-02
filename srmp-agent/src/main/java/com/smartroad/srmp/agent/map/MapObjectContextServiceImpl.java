@@ -86,7 +86,15 @@ public class MapObjectContextServiceImpl implements MapObjectContextService {
                 .addValue("year", y);
 
         if ("ROAD_ROUTE".equals(type) || "ROUTE".equals(type)) {
-            return one("select 'ROAD_ROUTE' object_type,id,route_code,route_name,route_type,admin_grade,technical_grade,start_stake,end_stake,length_km,adcode,concat('路线 ',route_code,' ',coalesce(route_name,''),'，里程 ',coalesce(length_km,0),' km') context_summary from road_route where tenant_id=:tenantId and coalesce(deleted,false)=false and ((:id<>'' and id=:id) or (:routeCode<>'' and route_code=:routeCode)) order by route_code limit 1", p);
+            return one("select 'ROAD_ROUTE' object_type,r.id,r.route_code,r.route_name,r.route_type,r.admin_grade,r.technical_grade,r.start_stake,r.end_stake,"
+                    + "coalesce(sec.length_km, r.length_km) as length_km,r.adcode,"
+                    + "concat('路线 ',r.route_code,' ',coalesce(r.route_name,''),'，里程 ',coalesce(coalesce(sec.length_km, r.length_km),0),' km') context_summary "
+                    + "from road_route r "
+                    + "left join lateral (select round(sum(coalesce(s.length_km, abs(s.end_stake - s.start_stake))),3) as length_km "
+                    + "from road_section_line s where s.tenant_id = r.tenant_id and s.deleted = false "
+                    + "and (s.route_id = r.id or (s.route_id is null and s.route_code = r.route_code)) "
+                    + "and (r.project_id is null or s.project_id is null or s.project_id = r.project_id)) sec on true "
+                    + "where r.tenant_id=:tenantId and coalesce(r.deleted,false)=false and ((:id<>'' and r.id=:id) or (:routeCode<>'' and r.route_code=:routeCode)) order by r.route_code limit 1", p);
         }
         if ("ROAD_SECTION".equals(type) || "SECTION".equals(type)) {
             return one("select 'ROAD_SECTION' object_type,id,route_id,route_code,line_code as section_code,line_name as section_name,direction,start_stake,end_stake,length_km,pavement_type,technical_grade,lane_count,road_width,adcode,concat('路段 ',route_code,' K',coalesce(start_stake,0),'—K',coalesce(end_stake,0),'，长度 ',coalesce(length_km,0),' km') context_summary from road_section_line where tenant_id=:tenantId and coalesce(deleted,false)=false and id=:id", p);

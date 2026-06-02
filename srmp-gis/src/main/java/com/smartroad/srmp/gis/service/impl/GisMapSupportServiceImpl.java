@@ -87,7 +87,10 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
                 .addValue("id", id);
         String type = objectType == null ? "" : objectType.trim().toUpperCase();
         if ("ROAD_ROUTE".equals(type)) {
-            return queryOne("select id, route_code, route_name, route_type, technical_grade, start_stake, end_stake, length_km from road_route where tenant_id=:tenantId and id=:id and deleted=false", params);
+            return queryOne("select id, route_code, route_name, route_type, technical_grade, start_stake, end_stake, "
+                    + routeLengthExpression()
+                    + " from road_route " + routeLengthLateralJoin()
+                    + " where tenant_id=:tenantId and id=:id and deleted=false", params);
         }
         if ("ROAD_SECTION".equals(type) || "ROAD_SECTION_LINE".equals(type)) {
             return queryOne("select id, route_code, line_code as section_code, line_name as section_name, direction, start_stake, end_stake, length_km, pavement_type from road_section_line where tenant_id=:tenantId and id=:id and deleted=false", params);
@@ -137,8 +140,10 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
         if (layers.contains("ROAD_ROUTE")) {
             collection.getFeatures().addAll(querySpatialLayer(
                     "ROAD_ROUTE",
-                    "select id, ST_AsGeoJSON(geom) as geom_geojson, route_code, route_name, route_type, technical_grade, start_stake, end_stake, length_km " +
-                            "from road_route where tenant_id=:tenantId and deleted=false and geom is not null " +
+                    "select id, ST_AsGeoJSON(geom) as geom_geojson, route_code, route_name, route_type, technical_grade, start_stake, end_stake, "
+                            + routeLengthExpression() + " "
+                            + "from road_route " + routeLengthLateralJoin()
+                            + "where tenant_id=:tenantId and deleted=false and geom is not null " +
                             optionalRoute() + optionalProjectIdRow() + spatialIntersectsSql("geom") +
                             " order by route_code limit " + limit,
                     params
@@ -289,6 +294,21 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
 
     private String optionalSeverity() {
         return " and (nullif(:severity, '') is null or severity = nullif(:severity, '')) ";
+    }
+
+    private String routeLengthExpression() {
+        return "coalesce(sec.length_km, road_route.length_km) as length_km";
+    }
+
+    private String routeLengthLateralJoin() {
+        return "left join lateral ("
+                + "select round(sum(coalesce(s.length_km, abs(s.end_stake - s.start_stake))),3) as length_km "
+                + "from road_section_line s "
+                + "where s.tenant_id = road_route.tenant_id "
+                + "and s.deleted = false "
+                + "and (s.route_id = road_route.id or (s.route_id is null and s.route_code = road_route.route_code)) "
+                + "and (road_route.project_id is null or s.project_id is null or s.project_id = road_route.project_id)"
+                + ") sec on true ";
     }
 
     private String spatialIntersectsSql(String geomColumn) {
