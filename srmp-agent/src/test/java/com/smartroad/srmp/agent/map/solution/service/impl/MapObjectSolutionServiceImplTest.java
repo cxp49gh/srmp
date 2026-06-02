@@ -198,6 +198,41 @@ public class MapObjectSolutionServiceImplTest {
         assertTrue(llmClient.lastUserPrompt.contains("查询到 2 条病害记录"));
     }
 
+    @Test
+    public void routeReportSummaryPrefersRequestedRouteExtentOverLookupSlice() throws Exception {
+        MapObjectSolutionServiceImpl service = new MapObjectSolutionServiceImpl();
+        setField(service, "mapObjectContextService", new ConflictingRouteLookupContextService());
+        setField(service, "qualityChecker", new MapObjectSolutionQualityChecker());
+        setField(service, "templatePipelineService", new PassthroughTemplatePipelineService());
+        setField(service, "aiTraceService", new FakeAiTraceService());
+        setField(service, "llmClient", new FakeLlmClient(""));
+
+        MapObjectSolutionRequest request = new MapObjectSolutionRequest();
+        request.setTenantId("default");
+        request.setObjectType("ROAD_ROUTE");
+        request.setObjectId("route-Y016140727");
+        request.setRouteCode("Y016140727");
+        request.setYear(2026);
+        request.setSolutionType("ROUTE_REPORT");
+        request.setMapObject(mapOf(
+                "objectType", "ROAD_ROUTE",
+                "objectId", "route-Y016140727",
+                "id", "route-Y016140727",
+                "routeCode", "Y016140727",
+                "routeName", "峪口村--上庄线",
+                "startStake", 0,
+                "endStake", 14.072
+        ));
+
+        MapObjectSolutionResponse response = service.generate(request);
+
+        assertEquals("K0-K14.072", response.getObjectSummary().get("stakeRange"));
+        assertEquals("14.072", String.valueOf(response.getObjectSummary().get("lengthKm")));
+        assertTrue(String.valueOf(response.getObjectSummary().get("contextSummary")).contains("14.072 km"));
+        assertFalse(String.valueOf(response.getObjectSummary().get("contextSummary")).contains("0.926 km"));
+        assertFalse(response.getMarkdown().contains("0.926 km"));
+    }
+
     private Map<String, Object> assessmentObject() {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("objectType", "ASSESSMENT_RESULT");
@@ -232,6 +267,37 @@ public class MapObjectSolutionServiceImplTest {
             Map wrapper = context == null ? new LinkedHashMap() : context;
             Object raw = wrapper.get("mapObject");
             return raw instanceof Map ? MapObjectContext.of((Map) raw) : MapObjectContext.empty();
+        }
+
+        @Override
+        public Map getObjectDetail(String objectType, String objectId, String routeCode, Integer year) {
+            return new LinkedHashMap();
+        }
+    }
+
+    private static class ConflictingRouteLookupContextService implements MapObjectContextService {
+        @Override
+        public MapObjectContext resolve(Map context) {
+            Map raw = context == null || !(context.get("mapObject") instanceof Map)
+                    ? new LinkedHashMap()
+                    : (Map) context.get("mapObject");
+            Map merged = new LinkedHashMap();
+            merged.putAll(raw);
+            merged.putAll(mapOf(
+                    "object_type", "ROAD_ROUTE",
+                    "id", "route-db-slice",
+                    "route_code", "Y016140727",
+                    "route_name", "峪口村--上庄线",
+                    "start_stake", 13.146,
+                    "end_stake", 14.072,
+                    "length_km", 0.926,
+                    "context_summary", "路线 Y016140727 峪口村--上庄线，里程 0.926 km"
+            ));
+            merged.put("objectType", "ROAD_ROUTE");
+            merged.put("objectId", raw.get("objectId"));
+            merged.put("routeCode", raw.get("routeCode"));
+            merged.put("year", raw.get("year"));
+            return MapObjectContext.of(merged);
         }
 
         @Override

@@ -17,6 +17,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -88,11 +90,12 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
 
     private MapObjectSolutionResponse buildResponse(MapObjectSolutionRequest request, MapObjectContext ctx, AiTraceContext trace) {
         Map detail = ctx.getDetail() == null ? new LinkedHashMap() : ctx.getDetail();
-        String objectType = normalizeType(firstString(detail, "objectType", "object_type", "type", "layerType", "assessment_object_type"));
+        Map<String, Object> effectiveDetail = mapObjectVariables(request, detail);
+        String objectType = normalizeType(firstString(effectiveDetail, "objectType", "object_type", "type", "layerType", "assessment_object_type"));
         if (objectType == null || objectType.length() == 0) {
             objectType = normalizeType(request.getObjectType());
         }
-        Map<String, Object> summary = buildObjectSummary(ctx, detail, objectType);
+        Map<String, Object> summary = buildObjectSummary(ctx, effectiveDetail, objectType);
         MapObjectSolutionType solutionType = resolveSolutionType(request, objectType, summary);
         Map<String, Object> businessEvidence = request.getBusinessEvidence() == null ? new LinkedHashMap<String, Object>() : request.getBusinessEvidence();
         String businessEvidenceSummary = businessEvidenceText(businessEvidence);
@@ -521,6 +524,7 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
         summary.put("routeName", firstString(detail, "routeName", "route_name"));
         summary.put("sectionName", firstString(detail, "sectionName", "section_name"));
         summary.put("sectionCode", firstString(detail, "sectionCode", "section_code"));
+        summary.put("lengthKm", summaryLengthKm(detail, objectType));
         summary.put("unitCode", firstString(detail, "unitCode", "unit_code"));
         summary.put("diseaseName", firstString(detail, "diseaseName", "disease_name", "diseaseType", "disease_type"));
         summary.put("severity", firstObject(detail, "severity"));
@@ -533,12 +537,73 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
         summary.put("activeMetricCode", firstObject(detail, "activeMetricCode", "active_metric_code", "activeIndexCode", "active_index_code", "indexCode", "index_code"));
         summary.put("activeMetricValue", firstObject(detail, "activeMetricValue", "active_metric_value", "activeIndexValue", "active_index_value", "metricValue", "metric_value"));
         summary.put("activeMetricGrade", firstObject(detail, "activeMetricGrade", "active_metric_grade", "activeIndexGrade", "active_index_grade", "metricGrade", "metric_grade"));
-        summary.put("contextSummary", firstString(detail, "contextSummary", "context_summary"));
+        summary.put("contextSummary", buildContextSummary(detail, objectType, summary));
         summary.put("raw", detail);
         if (summary.get("year") == null && ctx != null) {
             summary.put("year", ctx.getYear());
         }
         return summary;
+    }
+
+    private String buildContextSummary(Map detail, String objectType, Map<String, Object> summary) {
+        String explicit = firstString(detail, "contextSummary");
+        if (explicit != null && explicit.trim().length() > 0) {
+            return explicit;
+        }
+        String type = normalizeType(objectType);
+        if ("ROAD_ROUTE".equals(type) || "ROUTE".equals(type)) {
+            String route = stringValue(summary.get("routeCode"), "");
+            String routeName = stringValue(summary.get("routeName"), "");
+            String length = routeLengthText(detail);
+            if (route.length() > 0 || routeName.length() > 0 || length.length() > 0) {
+                StringBuilder sb = new StringBuilder("路线");
+                if (route.length() > 0) {
+                    sb.append(" ").append(route);
+                }
+                if (routeName.length() > 0) {
+                    sb.append(" ").append(routeName);
+                }
+                if (length.length() > 0) {
+                    sb.append("，里程 ").append(length).append(" km");
+                }
+                return sb.toString();
+            }
+        }
+        return stringValue(firstString(detail, "context_summary"), "");
+    }
+
+    private String routeLengthText(Map detail) {
+        Object explicit = firstObject(detail, "lengthKm");
+        if (explicit != null) {
+            return stringValue(explicit, "");
+        }
+        String derivedFromRequestStyleStakes = stakeLengthText(firstObject(detail, "startStake"), firstObject(detail, "endStake"));
+        if (derivedFromRequestStyleStakes.length() > 0) {
+            return derivedFromRequestStyleStakes;
+        }
+        String derivedFromDbStyleStakes = stakeLengthText(firstObject(detail, "start_stake"), firstObject(detail, "end_stake"));
+        if (derivedFromDbStyleStakes.length() > 0) {
+            return derivedFromDbStyleStakes;
+        }
+        return stringValue(firstObject(detail, "length_km", "length"), "");
+    }
+
+    private Object summaryLengthKm(Map detail, String objectType) {
+        String type = normalizeType(objectType);
+        if ("ROAD_ROUTE".equals(type) || "ROUTE".equals(type)) {
+            String length = routeLengthText(detail);
+            return length.length() == 0 ? null : length;
+        }
+        return firstObject(detail, "lengthKm", "length_km");
+    }
+
+    private String stakeLengthText(Object start, Object end) {
+        Double startValue = firstNumber(start);
+        Double endValue = firstNumber(end);
+        if (startValue == null || endValue == null || endValue < startValue) {
+            return "";
+        }
+        return decimalText(endValue - startValue);
     }
 
     private boolean isLowAssessment(Map<String, Object> summary) {
@@ -910,5 +975,9 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
             }
         }
         return null;
+    }
+
+    private String decimalText(double value) {
+        return BigDecimal.valueOf(value).setScale(3, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
     }
 }
