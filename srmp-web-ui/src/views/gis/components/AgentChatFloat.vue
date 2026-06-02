@@ -247,6 +247,7 @@ import { assessmentAnalyzeLabel, assessmentOperationHint, assessmentSolutionActi
 import { buildWaitFeedback, formatElapsedMs, normalizeLangGraphDiagnostics, summarizeRunTiming, type LangGraphDiagnostics } from '../../../utils/aiRunFeedback'
 import { buildPlanPreviewMeta, normalizeMapAiPlanResponse, normalizePlanExecution, type MapAiPlanExecution, type MapAiPlanPreview } from '../../../utils/mapAiPlanPreview'
 import { buildMapAiContextPayload } from '../../../utils/mapAiContext'
+import { resolveChatAction } from '../../../utils/mapAiChatAction'
 import {
   buildLiveTraceSummary,
   createWebTraceId,
@@ -993,14 +994,8 @@ function buildPlanRequest(action: MapAgentAction, message: string, actionInput: 
 }
 
 function buildCurrentPlanSnapshot(): PlanExecutionSnapshot {
-  const action: MapAgentAction = contextMode.value === 'REGION'
-    ? 'ANALYZE_REGION'
-    : contextMode.value === 'OBJECT'
-      ? 'ANALYZE_OBJECT'
-      : contextMode.value === 'ROUTE'
-        ? 'ANALYZE_ROUTE'
-        : 'CHAT'
   const message = defaultPlanMessage()
+  const action = resolveChatAction(contextMode.value, message)
   return {
     kind: 'SEND',
     action,
@@ -1275,19 +1270,9 @@ async function saveSolutionDraft() {
   }
 }
 
-function chatActionForCurrentContext(): MapAgentAction {
-  return contextMode.value === 'REGION'
-    ? 'ANALYZE_REGION'
-    : contextMode.value === 'OBJECT'
-      ? 'ANALYZE_OBJECT'
-      : contextMode.value === 'ROUTE'
-        ? 'ANALYZE_ROUTE'
-        : 'CHAT'
-}
-
 function buildChatRunRequest(message: string, traceId: string): MapAgentRunRequest {
   return {
-    action: chatActionForCurrentContext(),
+    action: resolveChatAction(contextMode.value, message),
     message,
     mapContext: buildMapAiContext(message),
     actionInput: {
