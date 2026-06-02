@@ -102,8 +102,13 @@ def governance_config_draft_validate(payload: Dict[str, Any]) -> Dict[str, Any]:
         "capabilitiesConfig": capabilities_raw,
         "toolsConfig": tools_raw,
     })[:16]
-    result["readiness"] = governance_readiness_for_registry(registry)
-    result["policyCoverage"] = governance_policy_coverage_for_registry(registry)
+    draft_policy_coverage = governance_policy_coverage_for_registry(registry)
+    active_policy_coverage = governance_policy_coverage_for_registry(
+        build_governance_registry(active_capabilities_raw, active_tools_raw)
+    )
+    result["readiness"] = governance_readiness_for_registry(registry, policy_coverage=draft_policy_coverage)
+    result["policyCoverage"] = draft_policy_coverage
+    result["coverageComparison"] = _policy_coverage_comparison(active_policy_coverage, draft_policy_coverage)
     result["diff"] = governance_config_diff(
         base_capabilities_raw=active_capabilities_raw,
         base_tools_raw=active_tools_raw,
@@ -411,10 +416,15 @@ def governance_policy_coverage_for_registry(
 def governance_draft_policy_coverage(payload: Dict[str, Any]) -> Dict[str, Any]:
     capabilities_raw = dict((payload or {}).get("capabilitiesConfig") or {})
     tools_raw = dict((payload or {}).get("toolsConfig") or {})
+    case_ids = _string_list((payload or {}).get("caseIds"))
     registry = build_governance_registry(capabilities_raw, tools_raw)
     coverage = governance_policy_coverage_for_registry(
         registry=registry,
-        case_ids=_string_list((payload or {}).get("caseIds")),
+        case_ids=case_ids,
+    )
+    active_coverage = governance_policy_coverage_for_registry(
+        registry=governance_registry(),
+        case_ids=case_ids,
     )
     coverage.update({
         "mode": "DRAFT_POLICY_COVERAGE",
@@ -422,6 +432,7 @@ def governance_draft_policy_coverage(payload: Dict[str, Any]) -> Dict[str, Any]:
             "capabilitiesConfig": capabilities_raw,
             "toolsConfig": tools_raw,
         })[:16],
+        "comparison": _policy_coverage_comparison(active_coverage, coverage),
     })
     return coverage
 
@@ -445,6 +456,7 @@ def governance_plan_simulate_for_payload(payload: Dict[str, Any]) -> Dict[str, A
     )
     intent = capability.get("intent") or fallback_intent
     tool_plan = enrich_tool_plan(plan_tools(request, intent, detail, capability=capability))
+    policy_checks = _policy_checks_for_tool_names(capability, [item.get("toolName") for item in tool_plan])
     ctx = request.mapContext
     return {
         "mode": "DRAFT_PLAN_SIMULATE" if is_draft else "ACTIVE_PLAN_SIMULATE",
@@ -458,11 +470,50 @@ def governance_plan_simulate_for_payload(payload: Dict[str, Any]) -> Dict[str, A
             "year": ctx.year if ctx else None,
         },
         "toolPlan": tool_plan,
+        "policyStatus": _policy_status(policy_checks),
+        "policyChecks": policy_checks,
         "warnings": registry.validation.get("errors") or [],
         "draftId": _stable_hash({
             "capabilitiesConfig": capabilities_raw or {},
             "toolsConfig": tools_raw or {},
         })[:16] if is_draft else "",
+    }
+
+
+def governance_tool_policy_result(
+    capability: Dict[str, Any],
+    planned_tool_names: List[Any],
+    executable_tool_names: Optional[List[Any]] = None,
+    blocked_tool_names: Optional[List[Any]] = None,
+) -> Dict[str, Any]:
+    planned_names = _unique_strings(planned_tool_names or [])
+    executable_names = _unique_strings(executable_tool_names if executable_tool_names is not None else planned_names)
+    blocked_names = _unique_strings(blocked_tool_names or [])
+    checks = _policy_checks_for_tool_names(capability or {}, executable_names)
+    if blocked_names:
+        policy = normalize_tool_policy((capability or {}).get("toolPolicy") or {})
+        checks.append(_policy_check(
+            "FAIL",
+            "PROHIBITED_TOOL_BLOCKED",
+            "ERROR",
+            "已阻断禁用工具：" + ", ".join(blocked_names),
+            expected_tool_names=policy.get("prohibited") or [],
+            actual_tool_names=executable_names,
+            prohibited_tool_names=blocked_names,
+        ))
+    failed_checks = [item for item in checks if item.get("status") == "FAIL"]
+    return {
+        "policyStatus": _policy_status(checks),
+        "policyChecks": checks,
+        "plannedToolNames": planned_names,
+        "executableToolNames": executable_names,
+        "blockedToolNames": blocked_names,
+        "missingRequiredToolNames": _unique_strings([
+            name
+            for item in failed_checks
+            for name in item.get("missingToolNames") or []
+        ]),
+        "failedCheckCodes": _unique_strings([item.get("code") for item in failed_checks]),
     }
 
 
@@ -488,6 +539,7 @@ def _run_governance_policy_case(
     required_tools = _string_list(expect.get("requiredTools"))
     prohibited_tools = _string_list(expect.get("prohibitedTools"))
     exact_tools = _string_list(expect.get("exactToolNames"))
+    policy_checks = _policy_checks_for_tool_names({}, actual_tool_names, expect=expect)
     missing_tools = [name for name in required_tools if name not in actual_tool_names]
     prohibited_hits = [name for name in prohibited_tools if name in actual_tool_names]
     capability_mismatch = bool(expected_capability and expected_capability != capability.get("capabilityId"))
@@ -504,7 +556,15 @@ def _run_governance_policy_case(
         warnings.append({"code": "PROHIBITED_TOOL_PLANNED", "message": "计划误用了禁用工具：" + ", ".join(prohibited_hits)})
     if exact_mismatch:
         warnings.append({"code": "EXACT_TOOLS_MISMATCH", "message": "计划工具与精确期望不一致。"})
-    status = "PASS" if not warnings else "FAIL"
+    warning_codes = {str(item.get("code") or "") for item in warnings}
+    for check in policy_checks:
+        if check.get("status") == "FAIL" and check.get("code") not in warning_codes:
+            warnings.append({
+                "code": str(check.get("code") or "TOOL_POLICY_FAILED"),
+                "message": str(check.get("message") or "能力工具策略未通过。"),
+            })
+            warning_codes.add(str(check.get("code") or "TOOL_POLICY_FAILED"))
+    status = "PASS" if not warnings and _policy_status(policy_checks) == "PASS" else "FAIL"
     return {
         "id": str(example.get("id") or ""),
         "name": str(example.get("name") or example.get("id") or ""),
@@ -520,11 +580,204 @@ def _run_governance_policy_case(
         "actualToolNames": actual_tool_names,
         "missingRequiredTools": missing_tools,
         "prohibitedToolNames": prohibited_hits,
+        "policyStatus": _policy_status(policy_checks),
+        "policyChecks": policy_checks,
         "warnings": warnings,
         "request": request.model_dump(exclude_none=True),
         "capability": capability,
         "toolPlan": tool_plan,
     }
+
+
+def _policy_checks_for_tool_names(
+    capability: Dict[str, Any],
+    tool_names: List[Any],
+    expect: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    actual_tool_names = _unique_strings(tool_names)
+    policy = normalize_tool_policy((capability or {}).get("toolPolicy") or {})
+    expected = expect if isinstance(expect, dict) else {}
+    required_tools = _unique_strings(policy.get("required") + _string_list(expected.get("requiredTools")))
+    prohibited_tools = _unique_strings(policy.get("prohibited") + _string_list(expected.get("prohibitedTools")))
+    exact_tools = _string_list(expected.get("exactToolNames"))
+    checks: List[Dict[str, Any]] = []
+
+    if required_tools:
+        missing = [name for name in required_tools if name not in actual_tool_names]
+        if missing:
+            checks.append(_policy_check(
+                "FAIL",
+                "REQUIRED_TOOL_MISSING",
+                "ERROR",
+                "缺少必选工具：" + ", ".join(missing),
+                expected_tool_names=required_tools,
+                actual_tool_names=actual_tool_names,
+                missing_tool_names=missing,
+            ))
+        else:
+            checks.append(_policy_check(
+                "PASS",
+                "REQUIRED_TOOLS_PRESENT",
+                "INFO",
+                "必选工具均已计划。",
+                expected_tool_names=required_tools,
+                actual_tool_names=actual_tool_names,
+            ))
+
+    if prohibited_tools:
+        hits = [name for name in prohibited_tools if name in actual_tool_names]
+        if hits:
+            checks.append(_policy_check(
+                "FAIL",
+                "PROHIBITED_TOOL_PLANNED",
+                "ERROR",
+                "计划误用了禁用工具：" + ", ".join(hits),
+                expected_tool_names=prohibited_tools,
+                actual_tool_names=actual_tool_names,
+                prohibited_tool_names=hits,
+            ))
+        else:
+            checks.append(_policy_check(
+                "PASS",
+                "PROHIBITED_TOOLS_ABSENT",
+                "INFO",
+                "禁用工具未被计划。",
+                expected_tool_names=prohibited_tools,
+                actual_tool_names=actual_tool_names,
+            ))
+
+    if exact_tools:
+        if exact_tools == actual_tool_names:
+            checks.append(_policy_check(
+                "PASS",
+                "EXACT_TOOLS_MATCHED",
+                "INFO",
+                "计划工具与精确期望一致。",
+                expected_tool_names=exact_tools,
+                actual_tool_names=actual_tool_names,
+            ))
+        else:
+            checks.append(_policy_check(
+                "FAIL",
+                "EXACT_TOOLS_MISMATCH",
+                "ERROR",
+                "计划工具与精确期望不一致。",
+                expected_tool_names=exact_tools,
+                actual_tool_names=actual_tool_names,
+                missing_tool_names=[name for name in exact_tools if name not in actual_tool_names],
+                extra_tool_names=[name for name in actual_tool_names if name not in exact_tools],
+            ))
+    return checks
+
+
+def _policy_check(
+    status: str,
+    code: str,
+    severity: str,
+    message: str,
+    expected_tool_names: Optional[List[str]] = None,
+    actual_tool_names: Optional[List[str]] = None,
+    missing_tool_names: Optional[List[str]] = None,
+    extra_tool_names: Optional[List[str]] = None,
+    prohibited_tool_names: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    return {
+        "status": status,
+        "code": code,
+        "severity": severity,
+        "message": message,
+        "expectedToolNames": expected_tool_names or [],
+        "actualToolNames": actual_tool_names or [],
+        "missingToolNames": missing_tool_names or [],
+        "extraToolNames": extra_tool_names or [],
+        "prohibitedToolNames": prohibited_tool_names or [],
+    }
+
+
+def _policy_status(checks: List[Dict[str, Any]]) -> str:
+    return "FAIL" if any(check.get("status") == "FAIL" for check in checks or []) else "PASS"
+
+
+def _policy_coverage_comparison(active: Dict[str, Any], draft: Dict[str, Any]) -> Dict[str, Any]:
+    active_cases = {
+        str(item.get("id") or ""): item
+        for item in active.get("cases") or []
+        if str(item.get("id") or "")
+    } if isinstance(active, dict) else {}
+    draft_cases = {
+        str(item.get("id") or ""): item
+        for item in draft.get("cases") or []
+        if str(item.get("id") or "")
+    } if isinstance(draft, dict) else {}
+    case_ids = sorted(set(active_cases.keys()) | set(draft_cases.keys()))
+    regressions: List[Dict[str, Any]] = []
+    improvements: List[Dict[str, Any]] = []
+    changed_cases: List[Dict[str, Any]] = []
+
+    for case_id in case_ids:
+        active_case = active_cases.get(case_id) or {}
+        draft_case = draft_cases.get(case_id) or {}
+        row = _policy_case_comparison_row(case_id, active_case, draft_case)
+        active_status = row.get("activeStatus")
+        draft_status = row.get("draftStatus")
+        changed = (
+            active_status != draft_status
+            or row.get("activeCapabilityId") != row.get("draftCapabilityId")
+            or row.get("activeToolNames") != row.get("draftToolNames")
+            or row.get("activeWarnings") != row.get("draftWarnings")
+        )
+        if changed:
+            changed_cases.append(row)
+        if active_status == "PASS" and draft_status != "PASS":
+            regressions.append(row)
+        elif active_status != "PASS" and draft_status == "PASS":
+            improvements.append(row)
+
+    return {
+        "caseCount": len(case_ids),
+        "changedCount": len(changed_cases),
+        "unchangedCount": len(case_ids) - len(changed_cases),
+        "regressedCount": len(regressions),
+        "improvedCount": len(improvements),
+        "regressions": regressions,
+        "improvements": improvements,
+        "changedCases": changed_cases,
+    }
+
+
+def _policy_case_comparison_row(case_id: str, active_case: Dict[str, Any], draft_case: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": case_id,
+        "name": str(draft_case.get("name") or active_case.get("name") or case_id),
+        "activeStatus": str(active_case.get("status") or "MISSING"),
+        "draftStatus": str(draft_case.get("status") or "MISSING"),
+        "activeCapabilityId": str(active_case.get("actualCapabilityId") or active_case.get("expectedCapabilityId") or ""),
+        "draftCapabilityId": str(draft_case.get("actualCapabilityId") or draft_case.get("expectedCapabilityId") or ""),
+        "activeToolNames": _string_list(active_case.get("actualToolNames")),
+        "draftToolNames": _string_list(draft_case.get("actualToolNames")),
+        "activeWarnings": _warning_codes(active_case),
+        "draftWarnings": _warning_codes(draft_case),
+    }
+
+
+def _warning_codes(case: Dict[str, Any]) -> List[str]:
+    warnings = case.get("warnings") if isinstance(case, dict) else []
+    if not isinstance(warnings, list):
+        return []
+    return [
+        str(item.get("code") or item.get("message") or "").strip()
+        for item in warnings
+        if isinstance(item, dict) and str(item.get("code") or item.get("message") or "").strip()
+    ]
+
+
+def _unique_strings(values: List[Any]) -> List[str]:
+    result: List[str] = []
+    for value in values or []:
+        text = str(value or "").strip()
+        if text and text not in result:
+            result.append(text)
+    return result
 
 
 def governance_tool_impact() -> Dict[str, Any]:

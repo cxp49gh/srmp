@@ -1,5 +1,6 @@
 import json
 import unittest
+from unittest.mock import patch
 
 from app.config import settings
 from app.schemas import MapAiAgentRequest, MapAiContext, ToolCall, ToolResult
@@ -120,6 +121,57 @@ class AdaptiveWorkflowTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("指标解释", response.answerMeta["capabilityName"])
         self.assertEqual("knowledge.metric_explain", response.trace["capability"]["capabilityId"])
         self.assertEqual("knowledge.metric_explain", response.data["capabilityId"])
+
+    async def test_runtime_governance_blocks_prohibited_planned_tool(self):
+        gateway = SufficientFakeGateway()
+        workflow = LangGraphWorkflow(gateway=gateway, llm_client=FakeLlmClient())
+        request = MapAiAgentRequest(
+            message="解释 PCI 指标",
+            mapContext=MapAiContext(mode="ROUTE", routeCode="Y016140727", year=2026),
+            options={"traceId": "policy-block-run", "useKnowledge": True},
+        )
+
+        with patch(
+            "app.workflow.plan_tools",
+            return_value=[
+                ToolCall(toolName="knowledge.retrieve", args={"query": "PCI", "topK": 3}, reason="allowed"),
+                ToolCall(toolName="gis.queryRegionSummary", args={"limit": 50}, reason="should be blocked"),
+            ],
+        ):
+            response = await workflow.run(request, tenant_id="default", trace_id=None)
+
+        self.assertEqual(["knowledge.retrieve"], gateway.tool_names)
+        self.assertEqual(["knowledge.retrieve"], [item["toolName"] for item in response.toolResults])
+        self.assertEqual("FAIL", response.answerMeta["policyStatus"])
+        self.assertEqual("FAIL", response.data["toolPolicy"]["policyStatus"])
+        self.assertEqual("FAIL", response.trace["toolPolicy"]["policyStatus"])
+        self.assertIn("gis.queryRegionSummary", response.data["toolPolicy"]["blockedToolNames"])
+        self.assertIn("gis.queryRegionSummary", response.trace["toolPolicy"]["blockedToolNames"])
+        self.assertIn(
+            "PROHIBITED_TOOL_BLOCKED",
+            [item["code"] for item in response.answerMeta["policyChecks"]],
+        )
+
+    async def test_runtime_governance_records_missing_required_tool(self):
+        gateway = SufficientFakeGateway()
+        workflow = LangGraphWorkflow(gateway=gateway, llm_client=FakeLlmClient())
+        request = MapAiAgentRequest(
+            message="解释 PCI 指标",
+            mapContext=MapAiContext(mode="ROUTE", routeCode="Y016140727", year=2026),
+            options={"traceId": "policy-required-run", "useKnowledge": True, "disableAdaptivePlanning": True},
+        )
+
+        with patch("app.workflow.plan_tools", return_value=[]):
+            response = await workflow.run(request, tenant_id="default", trace_id=None)
+
+        self.assertEqual([], gateway.tool_names)
+        self.assertEqual("FAIL", response.answerMeta["policyStatus"])
+        self.assertEqual("FAIL", response.data["toolPolicy"]["policyStatus"])
+        self.assertEqual("FAIL", response.trace["toolPolicy"]["policyStatus"])
+        self.assertIn(
+            "REQUIRED_TOOL_MISSING",
+            [item["code"] for item in response.answerMeta["policyChecks"]],
+        )
 
 
 class AdaptiveFakeGateway:

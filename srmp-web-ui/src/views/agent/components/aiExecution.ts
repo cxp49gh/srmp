@@ -34,6 +34,18 @@ export interface AiExecutionPlanWarning {
   message: string
 }
 
+export interface AiExecutionPolicyCheck {
+  status: string
+  code: string
+  severity: string
+  message: string
+  expectedToolNames: string[]
+  actualToolNames: string[]
+  missingToolNames: string[]
+  extraToolNames: string[]
+  prohibitedToolNames: string[]
+}
+
 export interface AiExecutionPlanExecution {
   available: boolean
   status: string
@@ -91,6 +103,8 @@ export interface AiExecutionSnapshot {
   businessScope: Record<string, any>
   capability: Record<string, any>
   planExecution: AiExecutionPlanExecution
+  policyStatus: string
+  policyChecks: AiExecutionPolicyCheck[]
   raw: Record<string, any>
   warnings: string[]
   repairActions: AiExecutionRepairAction[]
@@ -261,6 +275,32 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     toolFailedCount: numberValue(responseData.toolFailedCount ?? responseData.tool_failed_count ?? record?.toolFailedCount ?? record?.tool_failed_count ?? liveToolSummary.failed ?? evidenceData.toolFailedCount ?? tools.filter((item) => !item.success).length),
     sourceCount: numberValue(responseData.sourceCount ?? responseData.source_count ?? responsePreview.sourceCount ?? responsePreview.source_count ?? record?.sourceCount ?? record?.source_count ?? evidenceData.sourceCount ?? sources.length)
   }
+  const persistedPolicyChecks = normalizePolicyChecks(firstArray(
+    answerMeta.policyChecks,
+    answerMeta.policy_checks,
+    trace?.toolPolicy?.policyChecks,
+    trace?.tool_policy?.policy_checks,
+    responseData.toolPolicy?.policyChecks,
+    responseData.tool_policy?.policy_checks,
+    responsePreview.toolPolicy?.policyChecks,
+    responsePreview.tool_policy?.policy_checks,
+    record?.toolPolicy?.policyChecks,
+    record?.tool_policy?.policy_checks
+  ))
+  const policyChecks = persistedPolicyChecks.length ? persistedPolicyChecks : buildExecutionPolicyChecks(capability, tools, planExecution)
+  const persistedPolicyStatus = stringValue(
+    answerMeta.policyStatus,
+    answerMeta.policy_status,
+    trace?.toolPolicy?.policyStatus,
+    trace?.tool_policy?.policy_status,
+    responseData.toolPolicy?.policyStatus,
+    responseData.tool_policy?.policy_status,
+    responsePreview.toolPolicy?.policyStatus,
+    responsePreview.tool_policy?.policy_status,
+    record?.toolPolicy?.policyStatus,
+    record?.tool_policy?.policy_status
+  )
+  const policyStatus = persistedPolicyStatus || (policyChecks.some((item) => item.status === 'FAIL') ? 'FAIL' : 'PASS')
 
   return {
     summary,
@@ -279,8 +319,10 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     businessScope,
     capability,
     planExecution,
+    policyStatus,
+    policyChecks,
     raw: sanitizeInternalDiagnostics(compactRaw(input)) as Record<string, any>,
-    warnings: buildWarnings(answerMeta, steps, summary.sourceCount, sources.length, tools, summary.status, currentStep),
+    warnings: buildWarnings(answerMeta, steps, summary.sourceCount, sources.length, tools, summary.status, currentStep, policyChecks),
     repairActions: buildRepairActions(tools, answerMeta)
   }
 }
@@ -438,7 +480,8 @@ function buildWarnings(
   actualSources = 0,
   tools: AiExecutionTool[] = [],
   status?: string,
-  currentStep?: AiExecutionStep | null
+  currentStep?: AiExecutionStep | null,
+  policyChecks: AiExecutionPolicyCheck[] = []
 ): string[] {
   const warnings: string[] = []
   const llmStep = steps.find((step) => step.key === 'llm_answer' || step.label.includes('LLM') || step.label.includes('大模型'))
@@ -461,7 +504,126 @@ function buildWarnings(
         : '知识库检索提示'
     warnings.push(`${prefix}：${knowledgeTool.diagnostic}`)
   }
+  const failedPolicyChecks = policyChecks.filter((item) => item.status === 'FAIL')
+  if (failedPolicyChecks.length) {
+    const details = failedPolicyChecks
+      .slice(0, 3)
+      .map((item) => item.message || item.code)
+      .filter(Boolean)
+      .join('；')
+    warnings.push(`能力策略违规：${details || '实际工具调用不符合当前能力策略。'}`)
+  }
   return warnings
+}
+
+function buildExecutionPolicyChecks(
+  capability: Record<string, any>,
+  tools: AiExecutionTool[] = [],
+  planExecution?: AiExecutionPlanExecution
+): AiExecutionPolicyCheck[] {
+  const policy = firstRecord(capability.toolPolicy, capability.tool_policy)
+  const requiredTools = uniqueStringList(stringList(policy.required).concat(stringList(policy.required_tools)))
+  const prohibitedTools = uniqueStringList(stringList(policy.prohibited).concat(stringList(policy.prohibited_tools)))
+  const observedToolNames = uniqueStringList(tools.map((item) => item.name).concat(planExecution?.actualToolNames || []))
+  const actualToolNames = observedToolNames.length ? observedToolNames : uniqueStringList(planExecution?.plannedToolNames || [])
+  const checks: AiExecutionPolicyCheck[] = []
+  if (!actualToolNames.length) return checks
+
+  if (requiredTools.length) {
+    const missing = requiredTools.filter((name) => !actualToolNames.includes(name))
+    if (missing.length) {
+      checks.push(policyCheck(
+        'FAIL',
+        'REQUIRED_TOOL_MISSING',
+        'ERROR',
+        `缺少必选工具：${missing.join(', ')}`,
+        requiredTools,
+        actualToolNames,
+        missing
+      ))
+    } else {
+      checks.push(policyCheck(
+        'PASS',
+        'REQUIRED_TOOLS_PRESENT',
+        'INFO',
+        '必选工具均已调用。',
+        requiredTools,
+        actualToolNames
+      ))
+    }
+  }
+
+  if (prohibitedTools.length) {
+    const hits = prohibitedTools.filter((name) => actualToolNames.includes(name))
+    if (hits.length) {
+      checks.push(policyCheck(
+        'FAIL',
+        'PROHIBITED_TOOL_USED',
+        'ERROR',
+        `调用了禁用工具：${hits.join(', ')}`,
+        prohibitedTools,
+        actualToolNames,
+        [],
+        [],
+        hits
+      ))
+    } else {
+      checks.push(policyCheck(
+        'PASS',
+        'PROHIBITED_TOOLS_ABSENT',
+        'INFO',
+        '禁用工具未被调用。',
+        prohibitedTools,
+        actualToolNames
+      ))
+    }
+  }
+
+  return checks
+}
+
+function normalizePolicyChecks(values: any[]): AiExecutionPolicyCheck[] {
+  return values.map((value) => {
+    const item = asRecord(value)
+    const code = stringValue(item.code)
+    const message = stringValue(item.message)
+    if (!code && !message) return null
+    return policyCheck(
+      stringValue(item.status) || 'INFO',
+      code || message || 'TOOL_POLICY_CHECK',
+      stringValue(item.severity) || 'INFO',
+      message || code || '',
+      stringList(item.expectedToolNames || item.expected_tool_names),
+      stringList(item.actualToolNames || item.actual_tool_names),
+      stringList(item.missingToolNames || item.missing_tool_names),
+      stringList(item.extraToolNames || item.extra_tool_names),
+      stringList(item.prohibitedToolNames || item.prohibited_tool_names)
+    )
+  }).filter((item): item is AiExecutionPolicyCheck => Boolean(item))
+}
+
+function policyCheck(
+  status: string,
+  code: string,
+  severity: string,
+  message: string,
+  expectedToolNames: string[] = [],
+  actualToolNames: string[] = [],
+  missingToolNames: string[] = [],
+  extraToolNames: string[] = [],
+  prohibitedToolNames: string[] = []
+): AiExecutionPolicyCheck {
+  return {
+    status,
+    code,
+    severity,
+    message,
+    expectedToolNames,
+    actualToolNames,
+    missingToolNames,
+    extraToolNames,
+    prohibitedToolNames
+  }
 }
 
 function buildRepairActions(tools: AiExecutionTool[], answerMeta: Record<string, any> = {}): AiExecutionRepairAction[] {
@@ -576,6 +738,15 @@ function stringList(values: any): string[] {
   return result
 }
 
+function uniqueStringList(values: any[]): string[] {
+  const result: string[] = []
+  values.forEach((value) => {
+    const item = stringValue(value)
+    if (item && !result.includes(item)) result.push(item)
+  })
+  return result
+}
+
 function isExecutionInProgress(status?: string, currentStep?: AiExecutionStep | null): boolean {
   const values = [status, currentStep?.status].map((item) => String(item || '').toUpperCase())
   return values.some((item) => ['RUNNING', 'PROCESSING', 'PENDING', 'QUEUED'].includes(item))
@@ -615,9 +786,12 @@ function asRecord(value: any): Record<string, any> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
 }
 
-function stringValue(value: any): string | undefined {
-  if (value === undefined || value === null || value === '') return undefined
-  return String(value)
+function stringValue(...values: any[]): string | undefined {
+  for (const value of values) {
+    if (value === undefined || value === null || value === '') continue
+    return String(value)
+  }
+  return undefined
 }
 
 function numberValue(value: any): number | undefined {

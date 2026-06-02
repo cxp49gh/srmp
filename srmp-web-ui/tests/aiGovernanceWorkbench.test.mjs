@@ -45,3 +45,18 @@ test('governance page wires draft review and rollback restore', () => {
   assert.match(page, /applyRollbackDraft/)
   assert.match(page, /draftCoveragePayload/)
 })
+
+test('governance page surfaces policy checks and coverage comparison', () => {
+  const page = readFileSync('srmp-web-ui/src/views/agent/AiGovernancePage.vue', 'utf8')
+  assert.match(page, /coverageComparison/)
+  assert.match(page, /regressedCount/)
+  assert.match(page, /planPolicyChecks/)
+  assert.match(page, /策略校验/)
+})
+
+test('trace drawer shows execution policy checks in one troubleshooting screen', () => {
+  const drawer = readFileSync('srmp-web-ui/src/views/agent/components/AiTraceDrawer.vue', 'utf8')
+  assert.match(drawer, /snapshot\.policyChecks/)
+  assert.match(drawer, /策略校验/)
+  assert.match(drawer, /policyCheckTagType/)
+})

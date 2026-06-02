@@ -2,7 +2,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from .java_tools import JavaToolGateway, extract_knowledge_sources
-from .governance import resolve_capability
+from .governance import governance_tool_policy_result, normalize_tool_policy, resolve_capability
 from .live_trace import LiveTraceStore
 from .observability import _business_scope_from_request
 from .plan_execution import build_plan_execution, normalize_plan_preview
@@ -92,11 +92,22 @@ class MapAgentRunWorkflow:
         evidence_started_at = time.perf_counter()
         self._start_live_step(resolved_trace_id, "solution_evidence_collect", "查询业务证据")
         try:
-            evidence_results = await self._collect_solution_evidence(agent_request, tenant_id or "default", resolved_trace_id)
+            evidence_results, planned_evidence_tool_names, blocked_tool_names = await self._collect_solution_evidence(
+                agent_request,
+                tenant_id or "default",
+                resolved_trace_id,
+                capability,
+            )
         except Exception as exc:
             self._fail_live_step(resolved_trace_id, "solution_evidence_collect", str(exc))
             raise
         business_evidence = self._business_evidence_from_results(evidence_results)
+        evidence_tool_policy = governance_tool_policy_result(
+            capability,
+            planned_tool_names=planned_evidence_tool_names,
+            executable_tool_names=[item.toolName for item in evidence_results],
+            blocked_tool_names=blocked_tool_names,
+        )
         self._complete_live_step(resolved_trace_id, {
             "name": "solution_evidence_collect",
             "label": "查询业务证据",
@@ -107,6 +118,7 @@ class MapAgentRunWorkflow:
                 "toolNames": [item.toolName for item in evidence_results],
                 "businessHitCount": business_evidence.get("businessHitCount", 0),
                 "knowledgeHitCount": business_evidence.get("knowledgeHitCount", 0),
+                "toolPolicy": evidence_tool_policy,
             },
         })
         self._start_live_step(resolved_trace_id, "solution_generate", "生成方案预览")
@@ -140,13 +152,21 @@ class MapAgentRunWorkflow:
             "llmStatus": "SKIPPED",
         }
         answer_meta = dict(answer_meta)
+        tool_results = list(evidence_results) + [tool_result]
+        tool_policy = governance_tool_policy_result(
+            capability,
+            planned_tool_names=list(planned_evidence_tool_names) + ["solution.generateDraft"],
+            executable_tool_names=[item.toolName for item in tool_results],
+            blocked_tool_names=blocked_tool_names,
+        )
         answer_meta.update({
             "capabilityId": capability.get("capabilityId"),
             "capabilityName": capability.get("name"),
             "capabilityIntent": capability.get("intent"),
             "capabilityContextUsage": capability.get("contextUsage"),
+            "policyStatus": tool_policy.get("policyStatus"),
+            "policyChecks": tool_policy.get("policyChecks") or [],
         })
-        tool_results = list(evidence_results) + [tool_result]
         source_summaries = data.get("sourceSummaries") if isinstance(data.get("sourceSummaries"), list) else []
         knowledge_sources = extract_knowledge_sources(evidence_results)
         merged_sources = list(source_summaries) + [item for item in knowledge_sources if item not in source_summaries]
@@ -176,17 +196,19 @@ class MapAgentRunWorkflow:
                 "sourceCount": len(merged_sources),
                 "actionResultStatus": action_result.status,
                 "businessEvidence": business_evidence,
+                "toolPolicy": tool_policy,
             },
         )
         response.trace = dict(response.trace or {})
         response.trace["capability"] = capability
+        response.trace["toolPolicy"] = tool_policy
         self._complete_live_step(resolved_trace_id, {
             "name": "solution_generate",
             "label": "生成方案预览",
             "status": action_result.status,
             "count": 1 if tool_result.success else 0,
             "elapsedMs": 0,
-            "data": {"toolName": "solution.generateDraft"},
+            "data": {"toolName": "solution.generateDraft", "toolPolicy": tool_policy},
             "error": action_result.errorMessage,
         })
         self._complete_live_trace(resolved_trace_id, response, status=action_result.status)
@@ -295,15 +317,32 @@ class MapAgentRunWorkflow:
         agent_request: MapAiAgentRequest,
         tenant_id: Optional[str],
         trace_id: Optional[str],
-    ) -> List[ToolResult]:
+        capability: Optional[Dict[str, Any]] = None,
+    ) -> tuple[List[ToolResult], List[str], List[str]]:
         calls = [
             call for call in plan_tools(agent_request, "SOLUTION_GENERATE", {})
             if call.toolName not in {"solution.generateDraft", "template.match"}
         ]
+        planned_tool_names = [call.toolName for call in calls]
+        calls, blocked_tool_names = self._filter_prohibited_tool_calls(calls, capability or {})
         results: List[ToolResult] = []
         for call in calls:
             results.append(await self.gateway.execute_tool(call=call, request=agent_request, tenant_id=tenant_id or "default", trace_id=trace_id))
-        return results
+        return results, planned_tool_names, blocked_tool_names
+
+    def _filter_prohibited_tool_calls(self, calls: List[ToolCall], capability: Dict[str, Any]) -> tuple[List[ToolCall], List[str]]:
+        policy = normalize_tool_policy((capability or {}).get("toolPolicy") or {})
+        prohibited = set(policy.get("prohibited") or [])
+        if not prohibited:
+            return calls, []
+        allowed: List[ToolCall] = []
+        blocked: List[str] = []
+        for call in calls or []:
+            if call.toolName in prohibited:
+                blocked.append(call.toolName)
+                continue
+            allowed.append(call)
+        return allowed, _unique_list(blocked)
 
     def _solution_args(self, request: MapAgentRunRequest, evidence_results: Optional[List[ToolResult]] = None) -> Dict[str, Any]:
         args = dict(request.actionInput or {})
@@ -418,6 +457,15 @@ def suggested_actions_for(action: str) -> List[SuggestedAction]:
     if action == "ANALYZE_ROUTE":
         return [SuggestedAction(action="GENERATE_ROUTE_REPORT", label="生成路线报告", requiresConfirmation=False)]
     return []
+
+
+def _unique_list(values: List[Any]) -> List[str]:
+    result: List[str] = []
+    for value in values or []:
+        text = str(value or "").strip()
+        if text and text not in result:
+            result.append(text)
+    return result
 
 
 def _estimate_hit_count(data: Any) -> int:

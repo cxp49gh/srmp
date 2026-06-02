@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from app.map_agent_run import MapAgentRunWorkflow
 from app.schemas import MapAgentRunRequest, MapAiContext, ToolResult
@@ -52,6 +53,57 @@ class MapAgentSolutionEvidenceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("方案生成", response.answerMeta["capabilityName"])
         self.assertEqual("solution.generate", response.trace["capability"]["capabilityId"])
         self.assertEqual("solution.generate", response.data["capabilityId"])
+        self.assertEqual("PASS", response.answerMeta["policyStatus"])
+        self.assertEqual("PASS", response.data["toolPolicy"]["policyStatus"])
+        self.assertEqual("PASS", response.trace["toolPolicy"]["policyStatus"])
+
+    async def test_solution_generation_blocks_prohibited_evidence_tool(self):
+        gateway = RecordingGateway()
+        workflow = MapAgentRunWorkflow(base_workflow=None, gateway=gateway)
+        request = MapAgentRunRequest(
+            action="GENERATE_OBJECT_SOLUTION",
+            message="生成当前对象的结构化养护建议",
+            mapContext=MapAiContext(
+                tenantId="default",
+                mode="OBJECT",
+                routeCode="Y016140727",
+                year=2026,
+                mapObject={
+                    "objectType": "ROAD_SECTION",
+                    "objectId": "section-1",
+                    "routeCode": "Y016140727",
+                    "startStake": 0,
+                    "endStake": 14.072,
+                },
+                selectedLayers=["ROAD_SECTION", "DISEASE", "ASSESSMENT_RESULT"],
+            ),
+            actionInput={"objectType": "ROAD_SECTION", "objectId": "section-1", "routeCode": "Y016140727", "year": 2026},
+            options={"useBusinessData": True, "useKnowledge": True, "topK": 5, "traceId": "solution-policy-test"},
+        )
+        capability = {
+            "capabilityId": "solution.generate",
+            "name": "方案生成",
+            "intent": "SOLUTION_GENERATE",
+            "contextUsage": "BUSINESS_SCOPE_REQUIRED",
+            "toolPolicy": {
+                "required": ["solution.generateDraft"],
+                "optional": ["knowledge.retrieve"],
+                "adaptive": ["knowledge.retrieve"],
+                "prohibited": ["gis.queryDiseases"],
+            },
+        }
+
+        with patch("app.map_agent_run.resolve_capability", return_value=capability):
+            response = await workflow.run(request, tenant_id="default", trace_id="solution-policy-test")
+
+        called_tool_names = [item.toolName for item in gateway.calls]
+        response_tool_names = [item["toolName"] for item in response.toolResults]
+        self.assertNotIn("gis.queryDiseases", called_tool_names)
+        self.assertNotIn("gis.queryDiseases", response_tool_names)
+        self.assertIn("solution.generateDraft", called_tool_names)
+        self.assertEqual("FAIL", response.answerMeta["policyStatus"])
+        self.assertIn("gis.queryDiseases", response.data["toolPolicy"]["blockedToolNames"])
+        self.assertIn("PROHIBITED_TOOL_BLOCKED", [item["code"] for item in response.answerMeta["policyChecks"]])
 
 
 class RecordingGateway:

@@ -188,6 +188,46 @@
             <div><span>根配置变更</span><strong>{{ diffRootChangeCount }}</strong></div>
             <div><span>是否有变更</span><strong>{{ draftDiff.changed ? '是' : '否' }}</strong></div>
           </section>
+          <section class="plan-summary coverage-comparison-summary" v-if="coverageComparison.caseCount !== undefined">
+            <div><span>策略样例</span><strong>{{ coverageComparison.caseCount }}</strong></div>
+            <div><span>策略回归</span><strong :class="{ error: regressedCount > 0 }">{{ regressedCount }}</strong></div>
+            <div><span>策略改善</span><strong>{{ improvedCount }}</strong></div>
+            <div><span>策略变化</span><strong>{{ changedCount }}</strong></div>
+          </section>
+          <el-alert
+            v-if="regressedCount > 0"
+            class="mb"
+            type="error"
+            show-icon
+            title="草稿策略校验出现回归，请先处理能力命中或工具策略差异。"
+          />
+          <el-table v-if="coverageRegressions.length" class="mb" :data="coverageRegressions" border stripe>
+            <el-table-column prop="id" label="回归样例" min-width="230" />
+            <el-table-column prop="activeStatus" label="活动状态" width="110" />
+            <el-table-column prop="draftStatus" label="草稿状态" width="110" />
+            <el-table-column label="活动工具" min-width="260">
+              <template #default="{ row }">
+                <div class="tag-list">
+                  <el-tag v-for="item in arrayValue(row.activeToolNames)" :key="`active-${row.id}-${item}`" size="small" type="success">{{ item }}</el-tag>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="草稿工具" min-width="260">
+              <template #default="{ row }">
+                <div class="tag-list">
+                  <el-tag v-for="item in arrayValue(row.draftToolNames)" :key="`draft-${row.id}-${item}`" size="small" type="warning">{{ item }}</el-tag>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="草稿问题" min-width="240">
+              <template #default="{ row }">
+                <span v-if="arrayValue(row.draftWarnings).length === 0" class="muted">无</span>
+                <div v-else class="stacked">
+                  <span v-for="item in arrayValue(row.draftWarnings)" :key="`${row.id}-${item}`" class="error">{{ item }}</span>
+                </div>
+              </template>
+            </el-table-column>
+          </el-table>
           <el-table v-if="draftConfigChanges.length" class="mb" :data="draftConfigChanges" border stripe>
             <el-table-column prop="kind" label="类型" width="90" />
             <el-table-column prop="key" label="对象" min-width="220" />
@@ -562,6 +602,16 @@
                     <span>{{ tool.reason || '-' }}</span>
                   </div>
                 </div>
+                <div v-if="planPolicyChecks.length" class="detail-block">
+                  <h3>策略校验</h3>
+                  <div v-for="check in planPolicyChecks" :key="check.code + check.message" class="policy-check-row">
+                    <el-tag size="small" :type="policyCheckTagType(check.status)">{{ check.status }}</el-tag>
+                    <div>
+                      <strong>{{ check.code }}</strong>
+                      <span>{{ check.message || '-' }}</span>
+                    </div>
+                  </div>
+                </div>
                 <div v-if="arrayValue(planResult.warnings).length" class="detail-block">
                   <h3>计划告警</h3>
                   <div class="tag-list">
@@ -903,6 +953,12 @@ const draftDiffSummary = computed(() => objectValue(draftDiff.value.summary))
 const diffCapabilityChangeCount = computed(() => Number(draftDiffSummary.value.capabilityAddedCount || 0) + Number(draftDiffSummary.value.capabilityRemovedCount || 0) + Number(draftDiffSummary.value.capabilityModifiedCount || 0))
 const diffToolChangeCount = computed(() => Number(draftDiffSummary.value.toolAddedCount || 0) + Number(draftDiffSummary.value.toolRemovedCount || 0) + Number(draftDiffSummary.value.toolModifiedCount || 0))
 const diffRootChangeCount = computed(() => Number(draftDiffSummary.value.rootChangedCount || 0))
+const coverageComparison = computed(() => objectValue(draftValidationPayload.value.coverageComparison || draftCoveragePayload.value.comparison))
+const coverageRegressions = computed(() => arrayValue(coverageComparison.value.regressions))
+const coverageImprovements = computed(() => arrayValue(coverageComparison.value.improvements))
+const regressedCount = computed(() => Number(coverageComparison.value.regressedCount ?? coverageRegressions.value.length))
+const improvedCount = computed(() => Number(coverageComparison.value.improvedCount ?? coverageImprovements.value.length))
+const changedCount = computed(() => Number(coverageComparison.value.changedCount || 0))
 const draftConfigChanges = computed(() => [
   ...arrayValue(draftDiff.value.capabilities).map((item) => ({
     kind: '能力',
@@ -960,6 +1016,7 @@ const toolCategories = computed(() => uniqueStrings(tools.value.map((item) => it
 const planTools = computed(() => arrayValue(planResult.value?.toolPlan))
 const planMatchedRules = computed(() => arrayValue(planResult.value?.capability?.matchedRules))
 const planProhibitedTools = computed(() => arrayValue(planResult.value?.capability?.toolPolicy?.prohibited))
+const planPolicyChecks = computed(() => arrayValue(planResult.value?.policyChecks))
 const capabilityPolicyBlocks = [
   { key: 'required', label: 'Required', type: '' },
   { key: 'optional', label: 'Optional', type: 'info' },
@@ -1394,6 +1451,14 @@ function issueTagType(severity: string) {
   return 'info'
 }
 
+function policyCheckTagType(status: string) {
+  const value = stringValue(status).toUpperCase()
+  if (value === 'PASS' || value === 'SUCCESS') return 'success'
+  if (value === 'FAIL' || value === 'ERROR') return 'danger'
+  if (value === 'WARN' || value === 'WARNING') return 'warning'
+  return 'info'
+}
+
 function changeTagType(changeType: string) {
   if (changeType === 'ADDED') return 'success'
   if (changeType === 'REMOVED') return 'danger'
@@ -1757,6 +1822,10 @@ function uniqueStrings(values: any[]): string[] {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.coverage-comparison-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .plan-summary div {
   padding: 10px;
   border: 1px solid #e5e7eb;
@@ -1789,6 +1858,26 @@ function uniqueStrings(values: any[]): string[] {
 
 .tool-row span {
   color: #64748b;
+}
+
+.policy-check-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.policy-check-row span {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.error {
+  color: #dc2626;
 }
 
 .stake-inputs {
