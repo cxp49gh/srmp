@@ -40,7 +40,7 @@ def plan_tools(
         plan_object_tools(calls, ctx, obj)
     if intent == "TEMPLATE_VERIFY":
         add(calls, "template.match", {"intent": intent, "routeCode": ctx.routeCode if ctx else None, "year": ctx.year if ctx else None}, "检查方案模板匹配情况")
-    if intent == "SOLUTION_GENERATE" and is_explicit_solution_draft_request(request.message or ""):
+    if intent == "SOLUTION_GENERATE":
         add(calls, "solution.generateDraft", {"intent": intent, "routeCode": ctx.routeCode if ctx else None, "year": ctx.year if ctx else None}, "生成方案草稿能力预检查")
     if should_use_knowledge(request.options, intent):
         add(calls, "knowledge.retrieve", {"query": build_query(request, intent), "topK": option_int(request, "topK", 5)}, "知识库检索处置规则")

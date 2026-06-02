@@ -1,6 +1,7 @@
 import unittest
 
 from app.governance import resolve_capability
+from app.governance import governance_plan_simulate_for_payload
 from app.intent import recognize_intent
 from app.planner import plan_tools
 from app.schemas import MapAiAgentRequest, MapAiContext
@@ -39,6 +40,27 @@ class GovernancePlanningTest(unittest.TestCase):
         self.assertIn("gis.queryAssessmentResults", names)
         self.assertIn("gis.queryDiseases", names)
         self.assertIn("knowledge.retrieve", names)
+
+    def test_route_report_plan_includes_draft_tool_for_policy_check(self):
+        result = governance_plan_simulate_for_payload({
+            "action": "GENERATE_ROUTE_REPORT",
+            "message": "生成当前路线养护报告",
+            "mapContext": {
+                "mode": "ROUTE",
+                "routeCode": "Y016140727",
+                "year": 2026,
+            },
+            "options": {"useKnowledge": True},
+        })
+        names = [item["toolName"] for item in result["toolPlan"]]
+
+        self.assertEqual("solution.generate", result["capabilityId"])
+        self.assertEqual("PASS", result["policyStatus"])
+        self.assertIn("gis.queryRegionSummary", names)
+        self.assertIn("gis.queryAssessmentResults", names)
+        self.assertIn("gis.queryDiseases", names)
+        self.assertIn("knowledge.retrieve", names)
+        self.assertIn("solution.generateDraft", names)
 
     def test_metric_question_with_explicit_route_context_uses_route_policy(self):
         request = MapAiAgentRequest(
