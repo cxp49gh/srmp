@@ -170,3 +170,29 @@ test('AI trace drawer renders plan execution comparison for admin troubleshootin
   assert.match(content, /snapshot\.planExecution\.adaptiveExtraToolNames/)
   assert.match(content, /snapshot\.planExecution\.adaptiveReason/)
 })
+
+test('AI traces page renders shared diagnosis conclusion before detail sections', () => {
+  const content = read('src/views/agent/AiTracesPage.vue')
+
+  assert.match(content, /<section v-if="selectedExecutionSnapshot\?\.diagnosis" class="detail-section diagnosis-panel/)
+  assert.match(content, /诊断结论/)
+  assert.match(content, /selectedExecutionSnapshot\.diagnosis\.title/)
+  assert.match(content, /selectedExecutionSnapshot\.diagnosis\.summary/)
+  assert.match(content, /selectedExecutionSnapshot\.diagnosis\.cause/)
+  assert.match(content, /selectedExecutionSnapshot\.diagnosis\.tags/)
+  assert.match(content, /diagnosisAlertType/)
+  assert.match(content, /diagnosisTagType/)
+})
+
+test('AI trace drawer renders shared diagnosis conclusion before timeline', () => {
+  const content = read('src/views/agent/components/AiTraceDrawer.vue')
+
+  assert.match(content, /<section v-if="snapshot\.diagnosis" class="trace-section diagnosis-panel/)
+  assert.match(content, /诊断结论/)
+  assert.match(content, /snapshot\.diagnosis\.title/)
+  assert.match(content, /snapshot\.diagnosis\.summary/)
+  assert.match(content, /snapshot\.diagnosis\.cause/)
+  assert.match(content, /snapshot\.diagnosis\.tags/)
+  assert.match(content, /diagnosisAlertType/)
+  assert.match(content, /diagnosisTagType/)
+})

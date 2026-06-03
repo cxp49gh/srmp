@@ -82,6 +82,33 @@
           :description="detailError"
         />
         <template v-else-if="detail">
+          <section v-if="selectedExecutionSnapshot?.diagnosis" class="detail-section diagnosis-panel">
+            <div class="section-title">
+              <h3>诊断结论</h3>
+              <el-tag size="small" :type="diagnosisTagType(selectedExecutionSnapshot.diagnosis.severity)">
+                {{ selectedExecutionSnapshot.diagnosis.title }}
+              </el-tag>
+            </div>
+            <el-alert
+              :type="diagnosisAlertType(selectedExecutionSnapshot.diagnosis.severity)"
+              show-icon
+              :closable="false"
+              :title="selectedExecutionSnapshot.diagnosis.summary"
+              :description="selectedExecutionSnapshot.diagnosis.cause"
+            />
+            <div class="diagnosis-tags">
+              <el-tag
+                v-for="tag in selectedExecutionSnapshot.diagnosis.tags"
+                :key="tag.label"
+                size="small"
+                :type="diagnosisTagType(tag.type || 'info')"
+                effect="plain"
+              >
+                {{ tag.label }}：{{ tag.value }}
+              </el-tag>
+            </div>
+          </section>
+
           <section class="summary-grid">
             <div class="summary-cell">
               <span>状态</span>
@@ -803,6 +830,20 @@ function planExecutionTagType(status?: string) {
   return 'info'
 }
 
+function diagnosisAlertType(severity?: string) {
+  if (severity === 'success') return 'success'
+  if (severity === 'danger') return 'error'
+  if (severity === 'warning') return 'warning'
+  return 'info'
+}
+
+function diagnosisTagType(severity?: string) {
+  if (severity === 'success') return 'success'
+  if (severity === 'danger') return 'danger'
+  if (severity === 'warning') return 'warning'
+  return 'info'
+}
+
 function formatStatus(status: any) {
   const normalized = String(status || '').toUpperCase()
   if (normalized === 'SUCCESS') return '成功'
@@ -924,6 +965,20 @@ function shouldShowAnswerSourceAlert(value: any) {
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 10px;
   margin-bottom: 12px;
+}
+
+.diagnosis-panel {
+  padding: 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.diagnosis-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .scope-grid {

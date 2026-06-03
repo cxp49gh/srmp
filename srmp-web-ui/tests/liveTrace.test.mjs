@@ -473,3 +473,153 @@ test('AiTrace snapshot uses persisted runtime policy checks from answerMeta', ()
   assert.deepEqual(snapshot.policyChecks[0].prohibitedToolNames, ['gis.queryRegionSummary'])
   assert.match(snapshot.warnings.join('\n'), /能力策略违规/)
 })
+
+test('AiTrace diagnosis explains no embedded chunks as vector readiness issue', () => {
+  const snapshot = toAiExecutionSnapshot({
+    trace: {
+      traceId: 'trace-diag-vector',
+      status: 'SUCCESS',
+      steps: [
+        {
+          step_name: 'tool_execute',
+          step_label: '执行只读工具',
+          status: 'SUCCESS',
+          step_data: {
+            toolResults: [
+              {
+                toolName: 'knowledge.retrieve',
+                success: true,
+                data: { fallbackReason: 'no embedded chunks' }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    answerMeta: { llmStatus: 'SUCCESS', llmSuccess: true }
+  })
+
+  assert.equal(snapshot.diagnosis.severity, 'warning')
+  assert.equal(snapshot.diagnosis.title, '知识库向量未就绪')
+  assert.match(snapshot.diagnosis.summary, /向量/)
+  assert.match(snapshot.diagnosis.cause, /no embedded chunks/)
+  assert.equal(snapshot.diagnosis.actions[0].key, 'VECTORIZE_OUTLINE')
+  assert.deepEqual(snapshot.diagnosis.tags.map((item) => item.label), ['模型', '降级', '工具', '证据'])
+})
+
+test('AiTrace diagnosis treats completed missing answerMeta as metadata gap', () => {
+  const snapshot = toAiExecutionSnapshot({
+    trace: {
+      traceId: 'trace-diag-no-meta',
+      status: 'SUCCESS',
+      steps: [{ name: 'answer_generate', label: '生成回答', status: 'SUCCESS' }]
+    }
+  })
+
+  assert.equal(snapshot.diagnosis.severity, 'info')
+  assert.equal(snapshot.diagnosis.title, '模型来源元数据缺失')
+  assert.match(snapshot.diagnosis.summary, /旧记录|旧接口|LangGraph/)
+  assert.match(snapshot.diagnosis.cause, /answerMeta/)
+})
+
+test('AiTrace diagnosis suppresses final metadata gap while execution is running', () => {
+  const snapshot = toAiExecutionSnapshot({
+    trace: {
+      traceId: 'trace-diag-running',
+      status: 'RUNNING',
+      currentStep: { name: 'answer_generate', label: '生成回答', status: 'RUNNING', elapsedMs: 1200 }
+    }
+  })
+
+  assert.equal(snapshot.diagnosis.severity, 'info')
+  assert.equal(snapshot.diagnosis.title, '执行中')
+  assert.match(snapshot.diagnosis.summary, /生成回答/)
+  assert.doesNotMatch(snapshot.diagnosis.summary, /answerMeta/)
+})
+
+test('AiTrace diagnosis prioritizes failed tools over generic evidence warnings', () => {
+  const snapshot = toAiExecutionSnapshot({
+    record: {
+      traceId: 'trace-diag-tool-failed',
+      status: 'FAILED',
+      toolResults: [
+        { toolName: 'gis.queryDiseases', success: false, error: 'database timeout' },
+        { toolName: 'knowledge.retrieve', success: true }
+      ]
+    },
+    answerMeta: { llmStatus: 'SKIPPED', llmSuccess: false }
+  })
+
+  assert.equal(snapshot.diagnosis.severity, 'danger')
+  assert.equal(snapshot.diagnosis.title, '工具调用失败')
+  assert.match(snapshot.diagnosis.summary, /gis\.queryDiseases/)
+  assert.match(snapshot.diagnosis.cause, /database timeout/)
+})
+
+test('AiTrace diagnosis surfaces business evidence gaps', () => {
+  const snapshot = toAiExecutionSnapshot({
+    record: {
+      traceId: 'trace-diag-business-gap',
+      status: 'SUCCESS',
+      capability: {
+        capabilityId: 'map.route_analysis',
+        contextUsage: 'BUSINESS_FIRST'
+      },
+      toolResults: [
+        { toolName: 'gis.queryAssessmentResults', success: true, count: 0 },
+        { toolName: 'knowledge.retrieve', success: true, count: 2 }
+      ],
+      sourceCount: 2
+    },
+    answerMeta: { llmStatus: 'SUCCESS', llmSuccess: true }
+  })
+
+  assert.equal(snapshot.diagnosis.severity, 'warning')
+  assert.equal(snapshot.diagnosis.title, '业务证据不足')
+  assert.match(snapshot.diagnosis.summary, /GIS|业务/)
+})
+
+test('AiTrace diagnosis surfaces policy or plan divergence', () => {
+  const snapshot = toAiExecutionSnapshot({
+    trace: {
+      traceId: 'trace-diag-plan',
+      status: 'SUCCESS',
+      planExecution: {
+        available: true,
+        status: 'PARTIAL',
+        plannedToolNames: ['gis.queryAssessmentResults', 'gis.queryDiseases'],
+        actualToolNames: ['gis.queryAssessmentResults'],
+        missingToolNames: ['gis.queryDiseases'],
+        extraToolNames: []
+      }
+    },
+    answerMeta: { llmStatus: 'SUCCESS', llmSuccess: true }
+  })
+
+  assert.equal(snapshot.diagnosis.severity, 'warning')
+  assert.equal(snapshot.diagnosis.title, '执行计划存在偏差')
+  assert.match(snapshot.diagnosis.summary, /gis\.queryDiseases/)
+})
+
+test('AiTrace diagnosis marks healthy execution when model tools and evidence are present', () => {
+  const snapshot = toAiExecutionSnapshot({
+    record: {
+      traceId: 'trace-diag-healthy',
+      status: 'SUCCESS',
+      toolResults: [
+        { toolName: 'gis.queryDiseases', success: true, count: 8 },
+        { toolName: 'knowledge.retrieve', success: true, count: 2 }
+      ],
+      sources: [
+        { sourceType: 'BUSINESS_DATA', title: '病害统计' },
+        { sourceType: 'KNOWLEDGE', title: '养护规范' }
+      ],
+      sourceCount: 2
+    },
+    answerMeta: { llmStatus: 'SUCCESS', llmSuccess: true, answerSource: 'LLM' }
+  })
+
+  assert.equal(snapshot.diagnosis.severity, 'success')
+  assert.equal(snapshot.diagnosis.title, '执行证据完整')
+  assert.match(snapshot.diagnosis.summary, /模型、工具和证据/)
+})

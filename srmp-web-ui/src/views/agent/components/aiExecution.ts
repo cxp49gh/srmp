@@ -28,6 +28,23 @@ export interface AiExecutionRepairAction {
   type?: 'primary' | 'success' | 'warning' | 'info' | 'danger'
 }
 
+export type AiExecutionDiagnosisSeverity = 'success' | 'info' | 'warning' | 'danger'
+
+export interface AiExecutionDiagnosisTag {
+  label: string
+  value: string
+  type?: AiExecutionDiagnosisSeverity
+}
+
+export interface AiExecutionDiagnosis {
+  severity: AiExecutionDiagnosisSeverity
+  title: string
+  summary: string
+  cause: string
+  actions: AiExecutionRepairAction[]
+  tags: AiExecutionDiagnosisTag[]
+}
+
 export interface AiExecutionPlanWarning {
   level: string
   code: string
@@ -108,6 +125,7 @@ export interface AiExecutionSnapshot {
   raw: Record<string, any>
   warnings: string[]
   repairActions: AiExecutionRepairAction[]
+  diagnosis: AiExecutionDiagnosis
 }
 
 export interface AiExecutionInput {
@@ -301,6 +319,15 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     record?.tool_policy?.policy_status
   )
   const policyStatus = persistedPolicyStatus || (policyChecks.some((item) => item.status === 'FAIL') ? 'FAIL' : 'PASS')
+  const evidence = {
+    sourceCount: summary.sourceCount,
+    knowledgeCount: numberValue(liveSourceSummary.knowledge) ?? evidenceData.knowledgeHitCount ?? countSources(sources, 'KNOWLEDGE'),
+    businessCount: numberValue(liveSourceSummary.business) ?? evidenceData.businessHitCount ?? countSources(sources, 'BUSINESS'),
+    outlineCount: numberValue(liveSourceSummary.outline) ?? evidenceData.outlineHitCount ?? countSources(sources, 'OUTLINE'),
+    sources
+  }
+  const warnings = buildWarnings(answerMeta, steps, summary.sourceCount, sources.length, tools, summary.status, currentStep, policyChecks)
+  const repairActions = buildRepairActions(tools, answerMeta)
 
   return {
     summary,
@@ -308,13 +335,7 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     currentStep,
     steps,
     tools,
-    evidence: {
-      sourceCount: summary.sourceCount,
-      knowledgeCount: numberValue(liveSourceSummary.knowledge) ?? evidenceData.knowledgeHitCount ?? countSources(sources, 'KNOWLEDGE'),
-      businessCount: numberValue(liveSourceSummary.business) ?? evidenceData.businessHitCount ?? countSources(sources, 'BUSINESS'),
-      outlineCount: numberValue(liveSourceSummary.outline) ?? evidenceData.outlineHitCount ?? countSources(sources, 'OUTLINE'),
-      sources
-    },
+    evidence,
     quality,
     businessScope,
     capability,
@@ -322,8 +343,19 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     policyStatus,
     policyChecks,
     raw: sanitizeInternalDiagnostics(compactRaw(input)) as Record<string, any>,
-    warnings: buildWarnings(answerMeta, steps, summary.sourceCount, sources.length, tools, summary.status, currentStep, policyChecks),
-    repairActions: buildRepairActions(tools, answerMeta)
+    warnings,
+    repairActions,
+    diagnosis: buildDiagnosis({
+      summary,
+      answerMeta,
+      currentStep,
+      tools,
+      evidence,
+      capability,
+      planExecution,
+      policyChecks,
+      repairActions
+    })
   }
 }
 
@@ -514,6 +546,192 @@ function buildWarnings(
     warnings.push(`能力策略违规：${details || '实际工具调用不符合当前能力策略。'}`)
   }
   return warnings
+}
+
+function buildDiagnosis(input: {
+  summary: AiExecutionSnapshot['summary']
+  answerMeta: Record<string, any>
+  currentStep?: AiExecutionStep | null
+  tools: AiExecutionTool[]
+  evidence: AiExecutionSnapshot['evidence']
+  capability: Record<string, any>
+  planExecution: AiExecutionPlanExecution
+  policyChecks: AiExecutionPolicyCheck[]
+  repairActions: AiExecutionRepairAction[]
+}): AiExecutionDiagnosis {
+  const tags = buildDiagnosisTags(input.summary, input.answerMeta, input.tools, input.evidence)
+  if (isExecutionInProgress(input.summary.status, input.currentStep)) {
+    return {
+      severity: 'info',
+      title: '执行中',
+      summary: input.currentStep?.label ? `当前正在${input.currentStep.label}。` : 'AI 执行仍在进行中，最终模型来源和证据结论尚未收口。',
+      cause: input.currentStep?.status || input.summary.status || 'RUNNING',
+      actions: [],
+      tags
+    }
+  }
+
+  const failedTools = input.tools.filter((tool) => !tool.success)
+  if (failedTools.length) {
+    const first = failedTools[0]
+    return {
+      severity: 'danger',
+      title: '工具调用失败',
+      summary: `共有 ${failedTools.length} 个工具失败，优先检查 ${first.name}。`,
+      cause: stringValue(first.error, first.diagnostic, first.fallbackReason, '工具返回失败或异常') || '工具返回失败或异常',
+      actions: input.repairActions,
+      tags
+    }
+  }
+
+  const knowledge = knowledgeDiagnosis(input.tools, input.answerMeta, input.repairActions, tags)
+  if (knowledge) return knowledge
+
+  if (hasBusinessEvidenceGap(input.capability, input.tools, input.evidence)) {
+    return {
+      severity: 'warning',
+      title: '业务证据不足',
+      summary: '当前能力需要 GIS 或业务数据支撑，但本次没有形成有效业务证据。',
+      cause: '业务工具返回为空、未命中，或来源中缺少 BUSINESS_DATA。',
+      actions: input.repairActions,
+      tags
+    }
+  }
+
+  const failedPolicyChecks = input.policyChecks.filter((item) => item.status === 'FAIL')
+  if (failedPolicyChecks.length || input.planExecution.missingToolNames.length || input.planExecution.missingSourceTypes.length) {
+    const missing = input.planExecution.missingToolNames.concat(input.planExecution.missingSourceTypes)
+    return {
+      severity: failedPolicyChecks.some((item) => String(item.severity).toUpperCase() === 'ERROR') ? 'danger' : 'warning',
+      title: failedPolicyChecks.length ? '能力策略校验未通过' : '执行计划存在偏差',
+      summary: failedPolicyChecks[0]?.message || (missing.length ? `缺少 ${missing.join(', ')}。` : '计划工具、实际工具或证据来源存在差异。'),
+      cause: failedPolicyChecks[0]?.code || input.planExecution.status || 'PLAN_DIVERGENCE',
+      actions: input.repairActions,
+      tags
+    }
+  }
+
+  if (!Object.keys(input.answerMeta).length) {
+    return {
+      severity: 'info',
+      title: '模型来源元数据缺失',
+      summary: '这条记录没有 answerMeta，通常来自旧记录、旧接口或未经过 LangGraph 管线的历史任务。',
+      cause: 'answerMeta missing',
+      actions: input.repairActions,
+      tags
+    }
+  }
+
+  return {
+    severity: 'success',
+    title: '执行证据完整',
+    summary: '本次执行的模型、工具和证据链路已返回，可继续查看下方工具、证据和时间线细节。',
+    cause: 'LLM、工具调用和证据来源均有可排查数据。',
+    actions: input.repairActions,
+    tags
+  }
+}
+
+function buildDiagnosisTags(
+  summary: AiExecutionSnapshot['summary'],
+  answerMeta: Record<string, any>,
+  tools: AiExecutionTool[],
+  evidence: AiExecutionSnapshot['evidence']
+): AiExecutionDiagnosisTag[] {
+  const llmUsed = answerMeta.llmSuccess === true || String(answerMeta.answerSource || answerMeta.answer_source || '').toUpperCase() === 'LLM'
+  const toolFailed = Boolean(summary.toolFailedCount) || tools.some((tool) => !tool.success)
+  const evidenceCount = evidence.sourceCount || evidence.sources.length || 0
+  return [
+    { label: '模型', value: llmUsed ? '已使用' : (Object.keys(answerMeta).length ? '未成功' : '未知'), type: llmUsed ? 'success' : 'info' },
+    { label: '降级', value: summary.fallback ? '是' : '否', type: summary.fallback ? 'warning' : 'success' },
+    { label: '工具', value: `${summary.toolSuccessCount || 0}/${summary.toolTotalCount || tools.length || 0}`, type: toolFailed ? 'danger' : 'success' },
+    { label: '证据', value: String(evidenceCount), type: evidenceCount ? 'success' : 'warning' }
+  ]
+}
+
+function knowledgeDiagnosis(
+  tools: AiExecutionTool[],
+  answerMeta: Record<string, any>,
+  repairActions: AiExecutionRepairAction[],
+  tags: AiExecutionDiagnosisTag[]
+): AiExecutionDiagnosis | null {
+  const knowledgeTool = tools.find((tool) => tool.name === 'knowledge.retrieve' && (tool.fallbackReason || tool.diagnostic))
+  const reason = stringValue(
+    knowledgeTool?.fallbackReason,
+    answerMeta.knowledgeFallbackReason,
+    answerMeta.knowledge_fallback_reason,
+    answerMeta.fallbackReason,
+    answerMeta.fallback_reason
+  )?.toLowerCase()
+  if (!reason) return null
+
+  if (reason === 'no embedded chunks') {
+    return {
+      severity: 'warning',
+      title: '知识库向量未就绪',
+      summary: '知识库有切片但没有可用向量，AI 已尝试关键词兜底，回答可能缺少语义检索证据。',
+      cause: 'knowledge.retrieve fallbackReason: no embedded chunks',
+      actions: repairActions,
+      tags
+    }
+  }
+  if (reason === 'no knowledge chunks') {
+    return {
+      severity: 'warning',
+      title: '知识库暂无切片',
+      summary: '本地知识库没有可检索切片，AI 只能依赖业务数据或模板兜底。',
+      cause: 'knowledge.retrieve fallbackReason: no knowledge chunks',
+      actions: repairActions,
+      tags
+    }
+  }
+  if (reason === 'query is empty') {
+    return {
+      severity: 'info',
+      title: '知识检索词为空',
+      summary: '本次问题没有形成有效知识库检索词，知识库未参与回答。',
+      cause: 'knowledge.retrieve fallbackReason: query is empty',
+      actions: repairActions,
+      tags
+    }
+  }
+  if (reason.includes('pgvector')) {
+    return {
+      severity: 'warning',
+      title: '向量检索能力异常',
+      summary: 'pgvector 或向量检索配置不可用，AI 已尝试关键词检索兜底。',
+      cause: `knowledge.retrieve fallbackReason: ${reason}`,
+      actions: repairActions,
+      tags
+    }
+  }
+  return null
+}
+
+function hasBusinessEvidenceGap(
+  capability: Record<string, any>,
+  tools: AiExecutionTool[],
+  evidence: AiExecutionSnapshot['evidence']
+): boolean {
+  const capabilityText = [
+    capability.capabilityId,
+    capability.capability_id,
+    capability.id,
+    capability.name,
+    capability.capabilityName,
+    capability.capability_name,
+    capability.intent,
+    capability.contextUsage,
+    capability.context_usage
+  ].filter(Boolean).join(' ').toUpperCase()
+  const expectsBusiness = capabilityText.includes('BUSINESS') || capabilityText.includes('MAP_') || capabilityText.includes('GIS')
+  if (!expectsBusiness) return false
+
+  const businessTools = tools.filter((tool) => tool.name.startsWith('gis.') || tool.name.startsWith('solution.'))
+  if (!businessTools.length) return false
+  const hasBusinessSource = Boolean(evidence.businessCount) || evidence.sources.some((source) => String(source.sourceType || source.source_type || source.type || '').toUpperCase().includes('BUSINESS'))
+  const businessToolsHaveOnlyEmptyResults = businessTools.every((tool) => Number(tool.count || 0) === 0)
+  return !hasBusinessSource && businessToolsHaveOnlyEmptyResults
 }
 
 function buildExecutionPolicyChecks(

@@ -22,6 +22,33 @@
 
       <AnswerSourceAlert v-if="shouldShowAnswerSourceAlert(snapshot)" :meta="snapshot.answerMeta" allow-empty />
 
+      <section v-if="snapshot.diagnosis" class="trace-section diagnosis-panel">
+        <div class="step-title">
+          <h3>诊断结论</h3>
+          <el-tag size="small" :type="diagnosisTagType(snapshot.diagnosis.severity)">
+            {{ snapshot.diagnosis.title }}
+          </el-tag>
+        </div>
+        <el-alert
+          :type="diagnosisAlertType(snapshot.diagnosis.severity)"
+          show-icon
+          :closable="false"
+          :title="snapshot.diagnosis.summary"
+          :description="snapshot.diagnosis.cause"
+        />
+        <div class="diagnosis-tags">
+          <el-tag
+            v-for="tag in snapshot.diagnosis.tags"
+            :key="tag.label"
+            size="small"
+            :type="diagnosisTagType(tag.type || 'info')"
+            effect="plain"
+          >
+            {{ tag.label }}：{{ tag.value }}
+          </el-tag>
+        </div>
+      </section>
+
       <section v-if="snapshot.planExecution.available" class="trace-section plan-panel">
         <div class="step-title">
           <h3>计划与实际</h3>
@@ -311,6 +338,20 @@ function policyCheckTagType(status?: string) {
   return 'info'
 }
 
+function diagnosisAlertType(severity?: string) {
+  if (severity === 'success') return 'success'
+  if (severity === 'danger') return 'error'
+  if (severity === 'warning') return 'warning'
+  return 'info'
+}
+
+function diagnosisTagType(severity?: string) {
+  if (severity === 'success') return 'success'
+  if (severity === 'danger') return 'danger'
+  if (severity === 'warning') return 'warning'
+  return 'info'
+}
+
 function formatJson(value: any) {
   return JSON.stringify(value || {}, null, 2)
 }
@@ -429,6 +470,20 @@ function stringValue(...values: any[]) {
   border: 1px solid #c7d2fe;
   border-radius: 8px;
   background: #f8faff;
+}
+
+.diagnosis-panel {
+  padding: 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.diagnosis-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .policy-check-list {
