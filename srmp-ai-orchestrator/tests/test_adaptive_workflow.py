@@ -173,6 +173,38 @@ class AdaptiveWorkflowTest(unittest.IsolatedAsyncioTestCase):
             [item["code"] for item in response.answerMeta["policyChecks"]],
         )
 
+    async def test_workflow_exposes_business_tool_items_as_locatable_sources(self):
+        gateway = RoadSectionBusinessGateway()
+        workflow = LangGraphWorkflow(gateway=gateway, llm_client=FakeLlmClient())
+        request = MapAiAgentRequest(
+            action="ANALYZE_OBJECT",
+            message="分析当前路段",
+            mapContext=MapAiContext(
+                mode="OBJECT",
+                routeCode="Y016140727",
+                year=2026,
+                mapObject={
+                    "objectType": "ROAD_SECTION",
+                    "objectId": "section-1",
+                    "routeCode": "Y016140727",
+                    "startStake": 10,
+                    "endStake": 12.5,
+                },
+            ),
+            options={"traceId": "business-source-run", "useKnowledge": False},
+        )
+
+        response = await workflow.run(request, tenant_id="default", trace_id=None)
+        business_sources = [item for item in response.sources if item.get("sourceType") == "BUSINESS_DATA"]
+        disease_source = next(item for item in business_sources if item.get("objectType") == "DISEASE")
+
+        self.assertTrue(business_sources)
+        self.assertIn("BUSINESS_DATA", response.planExecution["actualSourceTypes"])
+        self.assertEqual("disease-1", disease_source["objectId"])
+        self.assertEqual("Y016140727", disease_source["routeCode"])
+        self.assertEqual(10.2, disease_source["startStake"])
+        self.assertIn("裂缝", disease_source["title"])
+
 
 class AdaptiveFakeGateway:
     def __init__(self):
@@ -194,6 +226,50 @@ class SufficientFakeGateway:
     async def execute_tool(self, call: ToolCall, **kwargs):
         self.tool_names.append(call.toolName)
         return ToolResult(toolName=call.toolName, success=True, count=3, data={"items": [{"id": 1}, {"id": 2}, {"id": 3}]})
+
+
+class RoadSectionBusinessGateway:
+    def __init__(self):
+        self.tool_names = []
+
+    async def execute_tool(self, call: ToolCall, **kwargs):
+        self.tool_names.append(call.toolName)
+        if call.toolName == "gis.queryDiseasesByStakeRange":
+            return ToolResult(
+                toolName=call.toolName,
+                success=True,
+                count=1,
+                data={
+                    "items": [
+                        {
+                            "id": "disease-1",
+                            "route_code": "Y016140727",
+                            "start_stake": 10.2,
+                            "end_stake": 10.4,
+                            "disease_name": "裂缝",
+                            "severity": "HEAVY",
+                        }
+                    ]
+                },
+            )
+        if call.toolName == "gis.queryAssessmentResults":
+            return ToolResult(
+                toolName=call.toolName,
+                success=True,
+                count=1,
+                data={
+                    "items": [
+                        {
+                            "id": "assessment-1",
+                            "route_code": "Y016140727",
+                            "start_stake": 10,
+                            "end_stake": 12.5,
+                            "mqi": 82.4,
+                        }
+                    ]
+                },
+            )
+        return ToolResult(toolName=call.toolName, success=True, count=0, data={"items": []})
 
 
 class FakeLlmClient:

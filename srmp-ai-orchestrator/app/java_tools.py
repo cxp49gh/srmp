@@ -224,6 +224,15 @@ def _http_error_message(exc: Exception) -> str:
     return str(exc)
 
 
+BUSINESS_SOURCE_TOOL_TYPES = {
+    "gis.queryDiseases": "DISEASE",
+    "gis.queryDiseasesByStakeRange": "DISEASE",
+    "gis.queryAssessmentResults": "ASSESSMENT_RESULT",
+    "gis.queryNearbyObjects": "",
+    "gis.queryRegionSummary": "MAP_REGION",
+}
+
+
 def extract_knowledge_sources(tool_results: List[ToolResult]) -> List[Dict[str, Any]]:
     for result in tool_results:
         if result.toolName != "knowledge.retrieve" or not result.success:
@@ -233,6 +242,29 @@ def extract_knowledge_sources(tool_results: List[ToolResult]) -> List[Dict[str, 
         if candidates:
             return [_normalize_source(hit, idx) for idx, hit in enumerate(candidates) if isinstance(hit, dict)]
     return []
+
+
+def extract_business_sources(tool_results: List[ToolResult], limit_per_tool: int = 3) -> List[Dict[str, Any]]:
+    sources: List[Dict[str, Any]] = []
+    for result in tool_results or []:
+        if not result.success or result.toolName not in BUSINESS_SOURCE_TOOL_TYPES:
+            continue
+        default_object_type = BUSINESS_SOURCE_TOOL_TYPES.get(result.toolName, "")
+        candidates = _extract_source_candidates(result.data)
+        if not candidates and isinstance(result.data, dict) and result.toolName == "gis.queryRegionSummary":
+            candidates = [result.data]
+        for idx, item in enumerate(candidates[: max(1, limit_per_tool)]):
+            if not isinstance(item, dict):
+                continue
+            sources.append(_normalize_business_source(item, result, default_object_type, idx))
+    return _dedupe_sources(sources)
+
+
+def merge_sources(*groups: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    merged: List[Dict[str, Any]] = []
+    for group in groups:
+        merged.extend([item for item in group or [] if isinstance(item, dict)])
+    return _dedupe_sources(merged)
 
 
 def _extract_source_candidates(data: Any) -> List[Dict[str, Any]]:
@@ -273,6 +305,111 @@ def _normalize_source(hit: Dict[str, Any], idx: int) -> Dict[str, Any]:
         "content": str(content)[:500] if content is not None else None,
         "metadata": metadata,
     }
+
+
+def _normalize_business_source(item: Dict[str, Any], result: ToolResult, default_object_type: str, idx: int) -> Dict[str, Any]:
+    object_type = _normalize_object_type(_first(item, "objectType", "object_type", "type", "layerType") or default_object_type)
+    object_id = _first(item, "objectId", "object_id", "id", "sourceId", "source_id")
+    route_code = _first(item, "routeCode", "route_code", "route", "routeNo", "route_no")
+    start_stake = _first(item, "startStake", "start_stake", "stakeStart", "stake_start", "beginStake", "begin_stake")
+    end_stake = _first(item, "endStake", "end_stake", "stakeEnd", "stake_end", "finishStake", "finish_stake")
+    title = _business_source_title(item, result.toolName, object_type, idx)
+    content = _business_source_content(item, result)
+    return {
+        "sourceType": "BUSINESS_DATA",
+        "title": title,
+        "sourceTitle": title,
+        "toolName": result.toolName,
+        "objectType": object_type,
+        "objectId": str(object_id) if object_id not in (None, "") else None,
+        "id": str(object_id) if object_id not in (None, "") else None,
+        "routeCode": route_code,
+        "startStake": start_stake,
+        "endStake": end_stake,
+        "sourceId": str(object_id) if object_id not in (None, "") else f"{result.toolName}:{idx}",
+        "content": content,
+        "metadata": {
+            "toolName": result.toolName,
+            "summary": result.summary,
+            "count": result.count,
+        },
+        "raw": item,
+    }
+
+
+def _business_source_title(item: Dict[str, Any], tool_name: str, object_type: str, idx: int) -> str:
+    disease = _first(item, "diseaseName", "disease_name", "diseaseType", "disease_type")
+    severity = _first(item, "severity", "severityText", "severity_text")
+    metric = _first(item, "mqi", "pqi", "pci", "rqi", "rdi")
+    route_code = _first(item, "routeCode", "route_code", "route")
+    stake = _format_stake(_first(item, "startStake", "start_stake"), _first(item, "endStake", "end_stake"))
+    if object_type == "DISEASE":
+        parts = ["病害", disease, severity, route_code, stake]
+    elif object_type == "ASSESSMENT_RESULT":
+        parts = ["评定结果", route_code, stake, f"MQI {metric}" if metric not in (None, "") else ""]
+    elif object_type == "MAP_REGION":
+        parts = ["区域统计", route_code]
+    else:
+        parts = ["业务数据", route_code, stake]
+    title = "｜".join([str(part) for part in parts if part not in (None, "")])
+    return title or f"{tool_name} 业务记录 {idx + 1}"
+
+
+def _business_source_content(item: Dict[str, Any], result: ToolResult) -> str:
+    values = []
+    for key in ("summary", "disease_name", "disease_type", "severity", "mqi", "pqi", "pci", "route_code", "start_stake", "end_stake"):
+        value = item.get(key)
+        if value not in (None, ""):
+            values.append(f"{key}={value}")
+    if values:
+        return "；".join(values)[:500]
+    if result.summary:
+        return str(result.summary)[:500]
+    return ""
+
+
+def _format_stake(start: Any, end: Any) -> str:
+    if start in (None, ""):
+        return ""
+    left = str(start)
+    right = str(end) if end not in (None, "") else ""
+    if not left.upper().startswith("K"):
+        left = "K" + left
+    if right and not right.upper().startswith("K"):
+        right = "K" + right
+    return left + ("—" + right if right else "")
+
+
+def _normalize_object_type(value: Any) -> str:
+    raw = str(value or "").strip().upper()
+    aliases = {
+        "ASSESSMENT": "ASSESSMENT_RESULT",
+        "ASSESSMENT_RESULT_RECORD": "ASSESSMENT_RESULT",
+        "DISEASE_RECORD": "DISEASE",
+        "ROADSECTION": "ROAD_SECTION",
+        "ROADROUTE": "ROAD_ROUTE",
+    }
+    return aliases.get(raw, raw)
+
+
+def _dedupe_sources(sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    result: List[Dict[str, Any]] = []
+    seen = set()
+    for source in sources or []:
+        key = (
+            source.get("sourceType"),
+            source.get("toolName"),
+            source.get("objectType"),
+            source.get("objectId") or source.get("sourceId") or source.get("title"),
+            source.get("routeCode"),
+            source.get("startStake"),
+            source.get("endStake"),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(source)
+    return result
 
 
 def _first(data: Dict[str, Any], *keys: str) -> Any:

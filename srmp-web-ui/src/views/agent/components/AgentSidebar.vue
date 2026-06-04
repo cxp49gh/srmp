@@ -1,89 +1,205 @@
 <template>
   <aside class="sidebar">
     <div class="brand">智路养护平台</div>
-    <div class="subtitle">AI 知识库增强</div>
+    <div class="subtitle">养护业务与 AI 治理</div>
 
     <nav ref="navRef" class="sidebar-nav" @scroll="onNavScroll">
-      <router-link to="/gis/one-map">GIS 一张图</router-link>
-      <div class="nav-group">
-        <button
-          type="button"
-          class="nav-group-toggle"
-          :class="{ expanded: dataMgmtNavExpanded, active: isDataMgmtRoute }"
-          :aria-expanded="dataMgmtNavExpanded"
-          @click="toggleDataMgmtNav"
-        >
-          <span class="nav-group-label">数据管理</span>
-          <span class="nav-group-chevron" aria-hidden="true" />
-        </button>
-        <div v-show="dataMgmtNavExpanded" class="nav-group-children">
-          <router-link to="/admin/data-management/projects">项目总览</router-link>
-          <router-link to="/admin/data-management/import">项目导入</router-link>
-          <router-link to="/admin/data-management/import-records">导入记录</router-link>
-          <router-link to="/admin/data-management/quality">数据质量</router-link>
-          <router-link to="/admin/data-management/templates">模板与规范</router-link>
-          <router-link to="/admin/data-management/maintenance">清除与归档</router-link>
-          <router-link to="/admin/data-management/audit">操作审计</router-link>
-        </div>
-      </div>
-      <router-link to="/agent/ai-ops">AI 运维总览</router-link>
-      <router-link to="/agent/langgraph-ops">LangGraph 编排</router-link>
-      <router-link to="/agent/ai-governance">AI 能力治理</router-link>
-      <router-link to="/agent/chat">AI 问答</router-link>
-      <router-link to="/agent/ai-traces">AI 调用监控</router-link>
-      <router-link to="/agent/solution-templates">方案模板</router-link>
-      <router-link to="/agent/solution-generate">方案生成</router-link>
-      <router-link to="/agent/solution-tasks">方案任务</router-link>
-      <router-link to="/agent/knowledge-documents">知识库文档</router-link>
-        <router-link to="/agent/knowledge-search">知识库检索</router-link>
-        <router-link to="/agent/knowledge-feedback">AI 知识反馈</router-link>
-      <router-link to="/agent/knowledge-vector">向量知识库验证</router-link>
-      <router-link to="/agent/rag-eval">RAG 质量评测</router-link>
-      <router-link to="/agent/ai-health">AI 健康检查</router-link>
-      <div class="nav-group">
-        <button
-          type="button"
-          class="nav-group-toggle"
-          :class="{ expanded: outlineNavExpanded, active: isOutlineRoute }"
-          :aria-expanded="outlineNavExpanded"
-          @click="toggleOutlineNav"
-        >
-          <span class="nav-group-label">Outline 文档同步</span>
-          <span class="nav-group-chevron" aria-hidden="true" />
-        </button>
-        <div v-show="outlineNavExpanded" class="nav-group-children">
-          <router-link to="/agent/outline/status">连接状态</router-link>
-          <router-link to="/agent/outline/search">文档搜索</router-link>
-          <router-link to="/agent/outline/sync">同步入库</router-link>
-          <router-link to="/agent/outline/tasks">同步任务</router-link>
-          <router-link to="/agent/outline/auto-sync">自动同步</router-link>
-          <router-link to="/agent/outline/runs">运行监控</router-link>
-          <router-link to="/agent/outline/governance">内容治理</router-link>
-        </div>
-      </div>
+      <section v-for="section in menuSections" :key="section.title" class="nav-section">
+        <div class="nav-section-title">{{ section.title }}</div>
+        <template v-for="entry in section.items" :key="entryKey(entry)">
+          <router-link v-if="entry.type === 'link'" class="nav-item" :to="entry.to">{{ entry.label }}</router-link>
+          <div v-else class="nav-group">
+            <button
+              type="button"
+              class="nav-group-toggle"
+              :class="{ expanded: isGroupExpanded(entry.key), active: isGroupActive(entry) }"
+              :aria-expanded="isGroupExpanded(entry.key)"
+              @click="toggleGroup(entry.key)"
+            >
+              <span class="nav-group-label">{{ entry.label }}</span>
+              <span class="nav-group-chevron" aria-hidden="true" />
+            </button>
+            <div v-show="isGroupExpanded(entry.key)" class="nav-group-children">
+              <router-link v-for="child in entry.items" :key="child.to" class="sub-nav-item" :to="child.to">
+                {{ child.label }}
+              </router-link>
+            </div>
+          </div>
+        </template>
+      </section>
     </nav>
   </aside>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+
+type NavLink = {
+  type: 'link'
+  label: string
+  to: string
+}
+
+type NavGroup = {
+  type: 'group'
+  key: string
+  label: string
+  activePrefixes?: string[]
+  items: NavLink[]
+}
+
+type NavEntry = NavLink | NavGroup
+
+type NavSection = {
+  title: string
+  items: NavEntry[]
+}
 
 const NAV_SCROLL_KEY = 'srmp.agent.sidebar.scrollTop'
 
+const menuSections: NavSection[] = [
+  {
+    title: '工作台',
+    items: [
+      { type: 'link', label: 'GIS 一张图', to: '/gis/one-map' },
+      { type: 'link', label: 'AI 问答', to: '/agent/chat' },
+      { type: 'link', label: '方案生成', to: '/agent/solution-generate' },
+      { type: 'link', label: '方案任务', to: '/agent/solution-tasks' }
+    ]
+  },
+  {
+    title: '数据资产',
+    items: [
+      {
+        type: 'group',
+        key: 'data-assets',
+        label: '数据管理',
+        activePrefixes: ['/admin/data-management'],
+        items: [
+          { type: 'link', label: '项目总览', to: '/admin/data-management/projects' },
+          { type: 'link', label: '项目导入', to: '/admin/data-management/import' },
+          { type: 'link', label: '导入记录', to: '/admin/data-management/import-records' },
+          { type: 'link', label: '数据质量', to: '/admin/data-management/quality' },
+          { type: 'link', label: '模板与规范', to: '/admin/data-management/templates' },
+          { type: 'link', label: '清除与归档', to: '/admin/data-management/maintenance' },
+          { type: 'link', label: '操作审计', to: '/admin/data-management/audit' }
+        ]
+      }
+    ]
+  },
+  {
+    title: '知识库',
+    items: [
+      {
+        type: 'group',
+        key: 'knowledge-base',
+        label: '本地知识库',
+        activePrefixes: ['/agent/knowledge', '/agent/rag-eval'],
+        items: [
+          { type: 'link', label: '知识库文档', to: '/agent/knowledge-documents' },
+          { type: 'link', label: '知识库检索', to: '/agent/knowledge-search' },
+          { type: 'link', label: '向量验证', to: '/agent/knowledge-vector' },
+          { type: 'link', label: '知识反馈', to: '/agent/knowledge-feedback' },
+          { type: 'link', label: 'RAG 质量评测', to: '/agent/rag-eval' }
+        ]
+      },
+      {
+        type: 'group',
+        key: 'outline-sync',
+        label: 'Outline 同步',
+        activePrefixes: ['/agent/outline'],
+        items: [
+          { type: 'link', label: '连接状态', to: '/agent/outline/status' },
+          { type: 'link', label: '文档搜索', to: '/agent/outline/search' },
+          { type: 'link', label: '同步入库', to: '/agent/outline/sync' },
+          { type: 'link', label: '同步任务', to: '/agent/outline/tasks' },
+          { type: 'link', label: '自动同步', to: '/agent/outline/auto-sync' },
+          { type: 'link', label: '运行监控', to: '/agent/outline/runs' },
+          { type: 'link', label: '内容治理', to: '/agent/outline/governance' }
+        ]
+      }
+    ]
+  },
+  {
+    title: 'AI 治理',
+    items: [
+      {
+        type: 'group',
+        key: 'ai-governance',
+        label: '能力与模板',
+        activePrefixes: ['/agent/ai-governance', '/agent/solution-templates'],
+        items: [
+          { type: 'link', label: 'AI 能力治理', to: '/agent/ai-governance' },
+          { type: 'link', label: '方案模板', to: '/agent/solution-templates' }
+        ]
+      }
+    ]
+  },
+  {
+    title: '系统监控',
+    items: [
+      {
+        type: 'group',
+        key: 'system-monitoring',
+        label: '运行与排障',
+        activePrefixes: ['/agent/ai-ops', '/agent/ai-traces', '/agent/langgraph-ops', '/agent/ai-health'],
+        items: [
+          { type: 'link', label: 'AI 运维总览', to: '/agent/ai-ops' },
+          { type: 'link', label: 'AI 调用监控', to: '/agent/ai-traces' },
+          { type: 'link', label: 'LangGraph 编排', to: '/agent/langgraph-ops' },
+          { type: 'link', label: 'AI 健康检查', to: '/agent/ai-health' }
+        ]
+      }
+    ]
+  }
+]
+
 const route = useRoute()
 const navRef = ref<HTMLElement | null>(null)
-const outlineNavExpanded = ref(false)
-const dataMgmtNavExpanded = ref(false)
-const isOutlineRoute = computed(() => route.path.startsWith('/agent/outline'))
-const isDataMgmtRoute = computed(() => route.path.startsWith('/admin/data-management'))
+const expandedGroups = reactive<Record<string, boolean>>({
+  'data-assets': false,
+  'knowledge-base': false,
+  'outline-sync': false,
+  'ai-governance': false,
+  'system-monitoring': false
+})
 
-function toggleOutlineNav() {
-  outlineNavExpanded.value = !outlineNavExpanded.value
+function entryKey(entry: NavEntry) {
+  return entry.type === 'link' ? entry.to : entry.key
 }
 
-function toggleDataMgmtNav() {
-  dataMgmtNavExpanded.value = !dataMgmtNavExpanded.value
+function isGroupExpanded(key: string) {
+  return Boolean(expandedGroups[key])
+}
+
+function toggleGroup(key: string) {
+  expandedGroups[key] = !expandedGroups[key]
+}
+
+function isGroupActive(group: NavGroup) {
+  return isGroupActiveForPath(group, route.path)
+}
+
+function isGroupActiveForPath(group: NavGroup, path: string) {
+  if (group.activePrefixes?.some((prefix) => path.startsWith(prefix))) return true
+  return group.items.some((item) => isRouteMatch(path, item.to))
+}
+
+function isRouteMatch(path: string, target: string) {
+  return path === target || path.startsWith(`${target}/`)
+}
+
+function expandActiveEntry(entry: NavEntry, path: string) {
+  if (entry.type === 'group' && isGroupActiveForPath(entry, path)) {
+    expandedGroups[entry.key] = true
+  }
+}
+
+function expandActiveGroups(path = route.path) {
+  menuSections.forEach((section) => {
+    section.items.forEach((entry) => expandActiveEntry(entry, path))
+  })
 }
 
 function onNavScroll() {
@@ -117,12 +233,7 @@ function scrollActiveLinkIntoView() {
 watch(
   () => route.path,
   (path) => {
-    if (path.startsWith('/agent/outline')) {
-      outlineNavExpanded.value = true
-    }
-    if (path.startsWith('/admin/data-management')) {
-      dataMgmtNavExpanded.value = true
-    }
+    expandActiveGroups(path)
     nextTick(scrollActiveLinkIntoView)
   },
   { immediate: true }
@@ -136,7 +247,7 @@ onMounted(() => {
 <style scoped>
 .sidebar {
   width: 220px;
-  padding: 20px 16px;
+  padding: 20px 14px;
   background: #0f172a;
   color: #fff;
   height: 100vh;
@@ -159,12 +270,12 @@ onMounted(() => {
 }
 
 .sidebar-nav {
-  margin-top: 28px;
+  margin-top: 24px;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   overflow-y: auto;
   overflow-x: hidden;
   overflow-anchor: none;
@@ -194,26 +305,47 @@ onMounted(() => {
   background-clip: padding-box;
 }
 
-.sidebar-nav a {
+.nav-section {
+  flex: 0 0 auto;
+}
+
+.nav-section + .nav-section {
+  padding-top: 10px;
+  border-top: 1px solid #1e293b;
+}
+
+.nav-section-title {
+  margin: 0 0 6px 6px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.nav-item,
+.sub-nav-item {
+  display: block;
   color: #cbd5e1;
   text-decoration: none;
-  padding: 10px 12px;
-  border-radius: 10px;
+  padding: 9px 12px;
+  border-radius: 9px;
   font-size: 14px;
   flex: 0 0 auto;
 }
 
-.sidebar-nav a.router-link-active,
-.sidebar-nav a:hover {
+.nav-item.router-link-active,
+.nav-item:hover,
+.sub-nav-item.router-link-active,
+.sub-nav-item:hover {
   background: #1e293b;
   color: #fff;
 }
 
 .nav-group {
-  margin-top: 4px;
-  padding-top: 8px;
-  border-top: 1px solid #1e293b;
   flex: 0 0 auto;
+}
+
+.nav-group + .nav-group {
+  margin-top: 4px;
 }
 
 .nav-group-toggle {
@@ -222,13 +354,13 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 9px 12px;
   border: none;
-  border-radius: 10px;
+  border-radius: 9px;
   background: transparent;
   color: #cbd5e1;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   text-align: left;
 }
@@ -264,12 +396,12 @@ onMounted(() => {
 .nav-group-children {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-top: 4px;
+  gap: 3px;
+  margin-top: 3px;
   padding-left: 4px;
 }
 
-.nav-group-children a {
+.sub-nav-item {
   padding-left: 20px;
   font-size: 13px;
 }
@@ -278,7 +410,7 @@ onMounted(() => {
   .sidebar {
     width: 100%;
     height: auto;
-    max-height: 190px;
+    max-height: 210px;
   }
 
   .sidebar-nav {
@@ -298,7 +430,27 @@ onMounted(() => {
     height: 6px;
   }
 
-  .sidebar-nav a,
+  .nav-section {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+  }
+
+  .nav-section + .nav-section {
+    padding-top: 0;
+    padding-left: 10px;
+    border-top: none;
+    border-left: 1px solid #1e293b;
+  }
+
+  .nav-section-title {
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  .nav-item,
+  .sub-nav-item,
   .nav-group-toggle {
     white-space: nowrap;
   }
@@ -307,8 +459,6 @@ onMounted(() => {
     display: flex;
     flex-direction: row;
     align-items: center;
-    border-top: none;
-    padding-top: 0;
     flex: 0 0 auto;
   }
 
@@ -319,7 +469,7 @@ onMounted(() => {
     gap: 8px;
   }
 
-  .nav-group-children a {
+  .sub-nav-item {
     padding-left: 12px;
   }
 }

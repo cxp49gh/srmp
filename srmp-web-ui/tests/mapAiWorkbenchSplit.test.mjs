@@ -141,7 +141,7 @@ test('map AI analysis header avoids redundant metric tag and keeps plan inline',
 
   assert.doesNotMatch(titleRow, /analysis-title-actions|activeMetricMeta\.shortName|el-tag/)
   assert.doesNotMatch(titleRow, /综合\s*MQI|状态诊断|执行计划|el-button/)
-  assert.match(content, /<el-button size="small" plain @click="previewCurrentPlan">查看执行计划<\/el-button>/)
+  assert.match(content, /<el-button size="small" text @click="previewCurrentPlan">计划<\/el-button>/)
 })
 
 test('map AI optional controls collapse data source settings by default', () => {
@@ -160,21 +160,24 @@ test('map AI optional controls collapse data source settings by default', () => 
   assert.doesNotMatch(content, /<div class="fold-panel">[\s\S]*快捷提问[\s\S]*<\/div>\s*<div v-if="showQuickPanel"/)
 })
 
-test('map AI analysis groups operations by workflow stage', () => {
+test('map AI analysis uses a compact action rail instead of large stage cards', () => {
   const content = read('src/views/gis/components/AgentChatFloat.vue')
   const analysisSection = content.match(/<section v-if="showAnalysisPanel" class="analysis-workbench"[\s\S]*?<\/section>/)?.[0] || ''
 
-  assert.match(analysisSection, /<div class="analysis-flow">/)
-  assert.match(analysisSection, /<div class="analysis-flow-group primary">[\s\S]*<span class="flow-group-label">先分析<\/span>[\s\S]*\{\{ primaryAnalyzeLabel \}\}/)
-  assert.match(analysisSection, /<div class="analysis-flow-group produce">[\s\S]*<span class="flow-group-label">生成成果<\/span>[\s\S]*v-for="action in resultActions"[\s\S]*@click="runResultAction\(action\)"/)
-  assert.match(analysisSection, /<div class="analysis-flow-group utility">[\s\S]*<span class="flow-group-label">辅助<\/span>[\s\S]*@click="previewCurrentPlan">查看执行计划<\/el-button>[\s\S]*@click="copyCurrentContext">复制上下文<\/el-button>/)
+  assert.match(analysisSection, /<div class="analysis-action-rail">/)
+  assert.match(analysisSection, /<div class="analysis-primary-action" aria-label="先分析">[\s\S]*\{\{ primaryAnalyzeLabel \}\}/)
+  assert.match(analysisSection, /<div class="analysis-secondary-actions" aria-label="生成成果">[\s\S]*v-for="action in resultActions"[\s\S]*@click="runResultAction\(action\)"/)
+  assert.match(analysisSection, /<div class="analysis-utility-actions" aria-label="辅助工具">[\s\S]*@click="previewCurrentPlan">计划<\/el-button>[\s\S]*@click="copyCurrentContext">上下文<\/el-button>/)
   assert.match(content, /const resultActions = computed/)
   assert.match(content, /function runPrimaryAnalysis\(\)/)
   assert.match(content, /function runResultAction\(action: AnalysisResultAction\)/)
   assert.match(content, /type AnalysisResultAction/)
-  assert.match(analysisSection, /v-if="contextMode === 'OBJECT'" size="small" plain @click="emit\('close-detail'\)">取消对象<\/el-button>/)
-  assert.match(analysisSection, /v-if="contextMode === 'REGION'" size="small" plain @click="emit\('clear-region'\)">清除区域<\/el-button>/)
+  assert.match(analysisSection, /v-if="contextMode === 'OBJECT'" size="small" text @click="emit\('close-detail'\)">取消<\/el-button>/)
+  assert.match(analysisSection, /v-if="contextMode === 'REGION'" size="small" text @click="emit\('clear-region'\)">清除<\/el-button>/)
+  assert.match(content, /\.analysis-action-rail\s*\{[\s\S]*grid-template-columns:\s*minmax\(110px,\s*auto\)\s+minmax\(0,\s*1fr\)\s+auto;/)
+  assert.doesNotMatch(analysisSection, /flow-group-label|>成果<|>先分析</)
   assert.doesNotMatch(analysisSection, /class="analysis-actions"/)
+  assert.doesNotMatch(analysisSection, /analysis-flow-group/)
   assert.doesNotMatch(analysisSection, /<el-dropdown|更多操作|el-dropdown-item/)
   assert.doesNotMatch(content, /function handleContextCommand/)
 })
@@ -234,6 +237,24 @@ test('selected route object is enriched with route-related statistics', () => {
   assert.match(contextContent, /路线相关评定结果/)
 })
 
+test('selected road section object loads stake-scoped related statistics', () => {
+  const oneMapContent = read('src/views/gis/OneMap.vue')
+  const contextContent = read('src/utils/gisUnifiedContext.ts')
+
+  assert.match(oneMapContent, /function selectedObjectRelatedCounts\(/)
+  assert.match(oneMapContent, /function selectedObjectStatisticsSupported\(objectType: string\)[\s\S]*'ROAD_ROUTE'[\s\S]*'ROAD_SECTION'/)
+  assert.match(oneMapContent, /if \(!selectedObjectStatisticsSupported\(objectType\)\) return base/)
+  assert.match(oneMapContent, /selectedObjectStatistics: selectedObjectStatistics\.value/)
+  assert.match(oneMapContent, /const stakeRange = selectedObjectStakeRange\(target\)/)
+  assert.match(oneMapContent, /stakeStart: stakeRange\.stakeStart/)
+  assert.match(oneMapContent, /stakeEnd: stakeRange\.stakeEnd/)
+  assert.match(oneMapContent, /objectType !== 'ROAD_ROUTE' && objectType !== 'ROAD_SECTION'/)
+
+  assert.match(contextContent, /type === 'ROAD_SECTION'[\s\S]*路段相关评定单元/)
+  assert.match(contextContent, /type === 'ROAD_SECTION'[\s\S]*路段相关病害/)
+  assert.match(contextContent, /type === 'ROAD_SECTION'[\s\S]*路段相关评定结果/)
+})
+
 test('assistant answer keeps one collapsed audit entry below a unified answer card', () => {
   const content = read('src/views/gis/components/map-ai/MapAiConversation.vue')
 
@@ -269,6 +290,22 @@ test('assistant evidence panel labels knowledge fallback as retrieval status', (
   assert.match(evidenceContent, /不影响业务数据分析/)
   assert.doesNotMatch(evidenceContent, /降级原因/)
   assert.doesNotMatch(evidenceContent, /knowledgeTool\?\.fallback \? 'warning' : 'success'/)
+})
+
+test('assistant evidence actions distinguish map targets from plain references', () => {
+  const evidenceContent = read('src/views/gis/components/AiEvidencePanel.vue')
+  const oneMapContent = read('src/views/gis/OneMap.vue')
+
+  assert.match(evidenceContent, /<template v-if="canLocateSource\(source\)">[\s\S]*地图定位[\s\S]*<\/template>/)
+  assert.match(evidenceContent, /<span v-else class="source-unlocated">仅参考资料<\/span>/)
+  assert.match(evidenceContent, /sourceAskLabel\(source\)/)
+  assert.match(evidenceContent, /function referenceTargetLabel\(source: any\)[\s\S]*暂无地图位置/)
+  assert.match(evidenceContent, /function targetLabel\(source: any\)[\s\S]*if \(!hasLocatableTarget\(target\)\) return referenceTargetLabel\(source\)/)
+  assert.doesNotMatch(evidenceContent, /<el-button size="small" link :disabled="!canLocateSource\(source\)" @click="locateSource\(source\)">地图定位<\/el-button>/)
+
+  assert.match(oneMapContent, /function sourceExcerptText\(source: Record<string, any>\)/)
+  assert.match(oneMapContent, /const excerpt = sourceExcerptText\(source\)/)
+  assert.match(oneMapContent, /暂无地图定位信息/)
 })
 
 test('assistant collapsed detail summary avoids technical runtime labels', () => {

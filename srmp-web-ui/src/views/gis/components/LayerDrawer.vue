@@ -20,7 +20,7 @@
 
       <layer-row label="评定" layer-key="assessment" :layers="localLayers" :status="statusMap.assessment" @change="emitChange" />
 
-      <p class="tier-hint">路段粒度由工具栏「路段专题」与「查询」决定；勾选「评定」才在地图上展示指标专题数据。</p>
+      <p class="tier-hint">路段粒度由工具栏「评定」与「查询」决定；勾选「评定」才在地图上展示指标专题数据。</p>
 
       <div v-if="errorItems.length" class="layer-errors">
         <div class="error-title">加载异常</div>

@@ -113,38 +113,38 @@
           </div>
         </div>
 
-        <div class="analysis-flow">
-          <div class="analysis-flow-group primary">
-            <span class="flow-group-label">先分析</span>
+        <div class="analysis-action-rail">
+          <div class="analysis-primary-action" aria-label="先分析">
             <el-button
               size="small"
               type="primary"
+              class="analysis-main-button"
               :disabled="primaryAnalyzeDisabled"
               :loading="primaryAnalyzeLoading"
               @click="runPrimaryAnalysis"
             >{{ primaryAnalyzeLabel }}</el-button>
           </div>
 
-          <div class="analysis-flow-group produce">
-            <span class="flow-group-label">生成成果</span>
-            <el-button
-              v-for="action in resultActions"
-              :key="action.type"
-              size="small"
-              :type="action.buttonType || 'success'"
-              plain
-              :disabled="action.disabled"
-              :loading="solutionLoading && activeSolutionType === action.type"
-              @click="runResultAction(action)"
-            >{{ action.label }}</el-button>
+          <div class="analysis-secondary-actions" aria-label="生成成果">
+            <div class="analysis-button-row">
+              <el-button
+                v-for="action in resultActions"
+                :key="action.type"
+                size="small"
+                :type="action.buttonType || 'success'"
+                plain
+                :disabled="action.disabled"
+                :loading="solutionLoading && activeSolutionType === action.type"
+                @click="runResultAction(action)"
+              >{{ action.label }}</el-button>
+            </div>
           </div>
 
-          <div class="analysis-flow-group utility">
-            <span class="flow-group-label">辅助</span>
-            <el-button size="small" plain @click="previewCurrentPlan">查看执行计划</el-button>
-            <el-button size="small" plain @click="copyCurrentContext">复制上下文</el-button>
-            <el-button v-if="contextMode === 'OBJECT'" size="small" plain @click="emit('close-detail')">取消对象</el-button>
-            <el-button v-if="contextMode === 'REGION'" size="small" plain @click="emit('clear-region')">清除区域</el-button>
+          <div class="analysis-utility-actions" aria-label="辅助工具">
+            <el-button size="small" text @click="previewCurrentPlan">计划</el-button>
+            <el-button size="small" text @click="copyCurrentContext">上下文</el-button>
+            <el-button v-if="contextMode === 'OBJECT'" size="small" text @click="emit('close-detail')">取消</el-button>
+            <el-button v-if="contextMode === 'REGION'" size="small" text @click="emit('clear-region')">清除</el-button>
           </div>
         </div>
         <div class="analysis-summary">{{ analysisScopeDescription }}</div>
@@ -1683,32 +1683,67 @@ function openTrace(execution: Record<string, any>) {
   white-space: nowrap;
 }
 
-.analysis-flow {
+.analysis-action-rail {
   display: grid;
-  grid-template-columns: minmax(120px, 0.9fr) minmax(160px, 1.3fr) minmax(170px, 1.2fr);
-  gap: 8px;
+  grid-template-columns: minmax(110px, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid rgba(219, 234, 254, 0.86);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
 }
 
-.analysis-flow-group {
+.analysis-primary-action,
+.analysis-secondary-actions,
+.analysis-utility-actions,
+.analysis-button-row {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  padding: 7px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.66);
+  gap: 4px;
 }
 
-.analysis-flow-group.primary {
-  background: rgba(219, 234, 254, 0.78);
+.analysis-primary-action {
+  padding-right: 6px;
+  border-right: 1px solid rgba(226, 232, 240, 0.9);
 }
 
-.flow-group-label {
-  flex: 0 0 100%;
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 700;
+.analysis-secondary-actions {
+  flex: 1;
+  overflow: hidden;
+}
+
+.analysis-button-row {
+  flex-wrap: nowrap;
+}
+
+.analysis-utility-actions {
+  justify-content: flex-end;
+  gap: 0;
+  padding-left: 4px;
+  border-left: 1px solid rgba(226, 232, 240, 0.9);
+  flex-wrap: nowrap;
+}
+
+.analysis-main-button {
+  min-width: 104px;
+}
+
+.analysis-button-row :deep(.el-button) {
+  max-width: 150px;
+  padding: 4px 8px;
+}
+
+.analysis-button-row :deep(.el-button > span) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analysis-utility-actions :deep(.el-button) {
+  padding: 2px 4px;
 }
 
 .analysis-action-hint {
@@ -2190,13 +2225,16 @@ function openTrace(execution: Record<string, any>) {
     display: none;
   }
 
-  .analysis-flow {
+  .analysis-action-rail {
     grid-template-columns: 1fr;
     gap: 6px;
+    padding: 6px;
   }
 
-  .analysis-flow-group {
-    padding: 6px;
+  .analysis-primary-action,
+  .analysis-utility-actions {
+    padding: 0;
+    border: 0;
   }
 
   .map-context-banner {

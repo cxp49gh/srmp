@@ -45,8 +45,11 @@
             {{ targetLabel(source) }}
           </div>
           <div class="source-actions">
-            <el-button size="small" link :disabled="!canLocateSource(source)" @click="locateSource(source)">地图定位</el-button>
-            <el-button size="small" link @click="askWithSource(source)">围绕来源追问</el-button>
+            <template v-if="canLocateSource(source)">
+              <el-button size="small" link @click="locateSource(source)">地图定位</el-button>
+            </template>
+            <span v-else class="source-unlocated">仅参考资料</span>
+            <el-button size="small" link @click="askWithSource(source)">{{ sourceAskLabel(source) }}</el-button>
             <el-button size="small" link @click="copySource(source)">复制来源</el-button>
           </div>
         </div>
@@ -100,7 +103,7 @@ import { createAiKnowledgeFeedback, type AiFeedbackType } from '../../../api/kno
 import { copyText } from '../../../utils/clipboard'
 import {
   categoryLabel,
-  categoryTagType,
+  classifySource,
   mergeAiSources
 } from '../../../utils/aiSourceDisplay'
 import { hasLocatableTarget, mapTargetLabel, sourceToMapTarget, type GisSourceMapTarget } from '../../../utils/gisUnifiedContext'
@@ -221,11 +224,22 @@ async function submitFeedback() {
 }
 
 function targetLabel(source: any) {
-  return mapTargetLabel(sourceToMapTarget(source))
+  const target = sourceToMapTarget(source)
+  if (!hasLocatableTarget(target)) return referenceTargetLabel(source)
+  return mapTargetLabel(target)
 }
 
 function canLocateSource(source: any) {
   return hasLocatableTarget(sourceToMapTarget(source))
+}
+
+function referenceTargetLabel(source: any) {
+  const kind = categoryLabel(classifySource(source))
+  return `${kind}｜暂无地图位置`
+}
+
+function sourceAskLabel(source: any) {
+  return canLocateSource(source) ? '追问来源' : '追问资料'
 }
 
 function locateSource(source: any) {
@@ -233,7 +247,14 @@ function locateSource(source: any) {
 }
 
 function askWithSource(source: any) {
-  emit('ask-with-source', source)
+  const target = sourceToMapTarget(source)
+  emit('ask-with-source', {
+    ...source,
+    mapTarget: target,
+    sourceTitle: sourceTitle(source),
+    sourceExcerpt: sourceExcerptText(source),
+    hasMapTarget: hasLocatableTarget(target)
+  })
 }
 
 async function copySource(source: any) {
@@ -248,6 +269,19 @@ async function copySource(source: any) {
   } catch (error: any) {
     ElMessage.error(error?.message || '复制失败')
   }
+}
+
+function sourceExcerptText(source: any) {
+  const value = firstNonEmpty(
+    source?.content,
+    source?.text,
+    source?.contentExcerpt,
+    source?.content_excerpt,
+    source?.excerpt,
+    source?.summary,
+    source?.snippet
+  )
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 260)
 }
 
 function formatScore(value: any) {
@@ -399,9 +433,16 @@ function formatScore(value: any) {
 
 .source-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
   margin-left: 20px;
   flex-wrap: wrap;
+}
+
+.source-unlocated {
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 24px;
 }
 
 .tool-name {

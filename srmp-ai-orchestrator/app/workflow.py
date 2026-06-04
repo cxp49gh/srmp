@@ -9,7 +9,7 @@ from .answer_enhancers import enhance_answer
 from .config import settings
 from .governance import governance_tool_policy_result, normalize_tool_policy, resolve_capability
 from .intent import recognize_intent
-from .java_tools import JavaToolGateway, extract_knowledge_sources
+from .java_tools import JavaToolGateway, extract_business_sources, extract_knowledge_sources, merge_sources
 from .live_trace import LiveTraceStore
 from .llm_client import LlmClient, LlmResult
 from .observability import _business_scope_from_request
@@ -630,7 +630,7 @@ class LangGraphWorkflow:
             fallback_reason = result.errorType or ("DISABLED" if not settings.use_llm else "EMPTY_RESPONSE")
             answer = fallback_answer(request, intent, context_summary, evidence, tool_results)
 
-        sources = extract_knowledge_sources(tool_results)
+        sources = merge_sources(extract_business_sources(tool_results), extract_knowledge_sources(tool_results))
         answer = enhance_answer(answer, request, intent, state.get("intent_detail", {}), tool_results, sources)
         answer_meta = self._answer_meta(result, answer_source, retried, fallback_reason)
 
@@ -695,7 +695,8 @@ class LangGraphWorkflow:
     def _to_response(self, state: AgentState) -> MapAiAgentResponse:
         tool_results = state.get("tool_results", [])
         request = state["request"]
-        sources = extract_knowledge_sources(tool_results)
+        knowledge_sources = extract_knowledge_sources(tool_results)
+        sources = merge_sources(extract_business_sources(tool_results), knowledge_sources)
         context_dump = request.mapContext.model_dump(exclude_none=True) if request.mapContext else None
         has_map_object = bool(request.mapContext and request.mapContext.mapObject)
         has_region = bool(request.mapContext and (request.mapContext.regionSummary or request.mapContext.geometry or str(request.mapContext.mode or "").upper() in {"BOX", "POLYGON", "REGION", "SELECTION"}))
@@ -774,7 +775,7 @@ class LangGraphWorkflow:
             intent=state.get("intent"),
             mapContext=context_dump,
             toolResults=[item.model_dump(exclude_none=True) for item in tool_results],
-            knowledgeSources=sources,
+            knowledgeSources=knowledge_sources,
             sources=sources,
             answerMeta=answer_meta,
             planExecution=plan_execution,

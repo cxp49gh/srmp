@@ -138,7 +138,7 @@ import AgentChatFloat from './components/AgentChatFloat.vue'
 import LegendPanel from './components/LegendPanel.vue'
 import SolutionPreviewDialog from './components/SolutionPreviewDialog.vue'
 import AiTraceDrawer from '../agent/components/AiTraceDrawer.vue'
-import { buildRegionUnifiedContext, buildUnifiedAnalysisTargets, sourceToMapTarget, type GisSourceMapTarget } from '../../utils/gisUnifiedContext'
+import { buildRegionUnifiedContext, buildUnifiedAnalysisTargets, hasLocatableTarget, sourceToMapTarget, type GisSourceMapTarget } from '../../utils/gisUnifiedContext'
 import { createLatestRequestGuard } from '../../utils/latestRequestGuard'
 import { createWebTraceId, normalizeLiveTraceSnapshot, shouldPauseLiveTracePolling, type LiveTraceSnapshot } from '../../utils/liveTrace'
 
@@ -312,7 +312,7 @@ const selectedMapObjectBase = computed(() => {
   }
 })
 
-function selectedRouteRelatedCounts(stats: Record<string, any> | null) {
+function selectedObjectRelatedCounts(stats: Record<string, any> | null) {
   if (!stats || typeof stats !== 'object') return {}
   return {
     relatedSectionCount: firstValue(stats.sectionCount, stats.section_count, stats.roadSectionCount, stats.road_section_count),
@@ -322,19 +322,25 @@ function selectedRouteRelatedCounts(stats: Record<string, any> | null) {
   }
 }
 
+function selectedRouteRelatedCounts(stats: Record<string, any> | null) {
+  return selectedObjectRelatedCounts(stats)
+}
+
 const selectedMapObject = computed(() => {
   const base = selectedMapObjectBase.value
   if (!base) return null
-  if (normalizeObjectType(base.objectType) !== 'ROAD_ROUTE') return base
+  const objectType = normalizeObjectType(base.objectType)
+  if (!selectedObjectStatisticsSupported(objectType)) return base
 
-  const relatedCounts = selectedRouteRelatedCounts(selectedObjectStatistics.value)
+  const relatedCounts = selectedObjectRelatedCounts(selectedObjectStatistics.value)
   const hasRelatedCounts = Object.values(relatedCounts).some((it) => it !== undefined && it !== null && it !== '')
   if (!hasRelatedCounts) return base
 
   return {
     ...base,
     ...relatedCounts,
-    routeStatistics: selectedObjectStatistics.value
+    routeStatistics: objectType === 'ROAD_ROUTE' ? selectedObjectStatistics.value : undefined,
+    selectedObjectStatistics: selectedObjectStatistics.value
   }
 })
 
@@ -346,6 +352,9 @@ type SelectedObjectStatisticsTarget = {
   indexCode?: string
   grade?: string
   sectionTier?: string
+  direction?: string
+  startStake?: number | string
+  endStake?: number | string
 }
 
 watch(
@@ -358,7 +367,10 @@ watch(
       year: query.year || '',
       indexCode: query.indexCode || '',
       grade: query.grade || '',
-      sectionTier: query.sectionTier || ''
+      sectionTier: query.sectionTier || '',
+      direction: String(firstValue(base.direction, base.raw?.direction, '') || ''),
+      startStake: firstValue(base.startStake, base.start_stake, base.raw?.startStake, base.raw?.start_stake),
+      endStake: firstValue(base.endStake, base.end_stake, base.raw?.endStake, base.raw?.end_stake)
     }
   },
   (target) => {
@@ -553,7 +565,11 @@ async function loadSelectedObjectStatistics(target: SelectedObjectStatisticsTarg
 
   const objectType = normalizeObjectType(target.objectType)
   const routeCode = String(target.routeCode || '').trim()
-  if (objectType !== 'ROAD_ROUTE' || !routeCode || !hasProjectSelected()) {
+  if (objectType !== 'ROAD_ROUTE' && objectType !== 'ROAD_SECTION' && objectType !== 'EVALUATION_UNIT' && objectType !== 'DISEASE' && objectType !== 'ASSESSMENT_RESULT') {
+    selectedObjectStatisticsRequestGuard.invalidate()
+    return
+  }
+  if (!routeCode || !hasProjectSelected()) {
     selectedObjectStatisticsRequestGuard.invalidate()
     return
   }
@@ -562,9 +578,12 @@ async function loadSelectedObjectStatistics(target: SelectedObjectStatisticsTarg
   selectedObjectStatisticsLoading.value = true
   try {
     const selectedLayers = activeLayerNames()
+    const stakeRange = selectedObjectStakeRange(target)
     const nextStatistics = await getMapStatistics({
       ...layerQuery(),
       routeCode: routeCode,
+      stakeStart: stakeRange.stakeStart,
+      stakeEnd: stakeRange.stakeEnd,
       layers: selectedLayers,
       enabledLayers: selectedLayers
     } as any)
@@ -579,6 +598,27 @@ async function loadSelectedObjectStatistics(target: SelectedObjectStatisticsTarg
     if (selectedObjectStatisticsRequestGuard.isCurrent(requestToken)) {
       selectedObjectStatisticsLoading.value = false
     }
+  }
+}
+
+function selectedObjectStatisticsSupported(objectType: string) {
+  return [
+    'ROAD_ROUTE',
+    'ROAD_SECTION',
+    'EVALUATION_UNIT',
+    'DISEASE',
+    'ASSESSMENT_RESULT'
+  ].includes(normalizeObjectType(objectType))
+}
+
+function selectedObjectStakeRange(target: SelectedObjectStatisticsTarget) {
+  const objectType = normalizeObjectType(target.objectType)
+  if (objectType === 'ROAD_ROUTE') return { stakeStart: undefined, stakeEnd: undefined }
+  const startStake = firstValue(target.startStake, (target as any).stakeStart)
+  const endStake = firstValue(target.endStake, (target as any).stakeEnd, startStake)
+  return {
+    stakeStart: startStake,
+    stakeEnd: endStake
   }
 }
 
@@ -1379,8 +1419,32 @@ function askAiForRegion() {
 function handleAskAiSource(source: Record<string, any>) {
   agentVisible.value = true
   const target = sourceToMapTarget(source)
-  const label = [target.title, target.objectType, target.routeCode].filter(Boolean).join('｜') || '当前参考来源'
-  pendingAiQuestion.value = `结合参考来源「${label}」，继续分析其与当前地图范围、线路、路段、病害和评定结果的关系，并给出下一步处置建议`
+  const title = source.sourceTitle || source.title || source.docTitle || source.documentTitle || target.title
+  const label = [title, target.objectType, target.routeCode].filter(Boolean).join('｜') || '当前参考来源'
+  const excerpt = sourceExcerptText(source)
+  const mapNote = hasLocatableTarget(target)
+    ? '该来源已携带地图定位信息，可结合当前地图对象或线路范围分析。'
+    : '该来源暂无地图定位信息，请先围绕资料内容解释，再说明如需地图定位应补充的路线、桩号、对象编号或几何范围。'
+  pendingAiQuestion.value = `结合参考来源「${label}」继续分析。${mapNote}${excerpt ? ` 资料摘要：${excerpt}` : ''}`
+}
+
+function sourceExcerptText(source: Record<string, any>) {
+  const meta = source.metadata || source.meta || {}
+  const value = [
+    source.sourceExcerpt,
+    source.content,
+    source.text,
+    source.contentExcerpt,
+    source.content_excerpt,
+    source.excerpt,
+    source.summary,
+    source.snippet,
+    meta.content,
+    meta.text,
+    meta.excerpt,
+    meta.summary
+  ].find((it) => String(it ?? '').trim())
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 260)
 }
 
 function handleLocateAiSource(source: Record<string, any> | GisSourceMapTarget) {
@@ -2116,13 +2180,13 @@ function fitViewportToQueryRoadRoutes() {
 
 .left-map-stack {
   position: absolute;
-  top: 126px;
+  top: 64px;
   left: 18px;
   bottom: 32px;
   z-index: 920;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   width: 292px;
   min-height: 0;
 }
@@ -2539,7 +2603,7 @@ function fitViewportToQueryRoadRoutes() {
 
 @media (max-width: 1280px) {
   .left-map-stack {
-    top: 128px;
+    top: 64px;
     bottom: 24px;
   }
 
@@ -2562,7 +2626,7 @@ function fitViewportToQueryRoadRoutes() {
   }
 
   .left-map-stack {
-    top: 132px;
+    top: 64px;
     left: 10px;
     bottom: 24px;
     width: min(292px, calc(100vw - 20px));

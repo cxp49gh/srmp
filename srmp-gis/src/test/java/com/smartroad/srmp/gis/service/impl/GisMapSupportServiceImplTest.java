@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 public class GisMapSupportServiceImplTest {
@@ -41,6 +42,35 @@ public class GisMapSupportServiceImplTest {
         assertTrue(totalLengthSql.contains("from road_section_line"));
         assertTrue(totalLengthSql.contains("sum(coalesce(length_km"));
         assertFalse(totalLengthSql.contains("from road_route"));
+    }
+
+    @Test
+    public void mapStatisticsAppliesStakeRangeToObjectScopedCounts() throws Exception {
+        GisMapSupportServiceImpl service = new GisMapSupportServiceImpl();
+        CapturingJdbcTemplate jdbcTemplate = new CapturingJdbcTemplate();
+        setField(service, "namedParameterJdbcTemplate", jdbcTemplate);
+        TenantContextHolder.setTenantId("tenant-a");
+
+        try {
+            service.mapStatistics(mapOf(
+                    "routeCode", "Y016140727",
+                    "projectId", "project-a",
+                    "sectionTier", "LINE",
+                    "year", 2026,
+                    "stakeStart", 10.0,
+                    "stakeEnd", 12.5
+            ));
+        } finally {
+            TenantContextHolder.clear();
+        }
+
+        assertStakeOverlapSql(jdbcTemplate.sqlAt(0), "road_section_line");
+        assertStakeOverlapSql(jdbcTemplate.sqlAt(2), "road_section_line");
+        assertStakeOverlapSql(jdbcTemplate.sqlAt(3), "road_section_ledger");
+        assertStakeOverlapSql(jdbcTemplate.sqlAt(4), "disease_record");
+        assertStakeOverlapSql(jdbcTemplate.sqlAt(6), "assessment_result");
+        assertNotNull(jdbcTemplate.paramAt(0).getValue("stakeStart"));
+        assertNotNull(jdbcTemplate.paramAt(0).getValue("stakeEnd"));
     }
 
     @Test
@@ -101,8 +131,17 @@ public class GisMapSupportServiceImplTest {
         return map;
     }
 
+    private static void assertStakeOverlapSql(String sql, String tableName) {
+        assertTrue(sql.contains("from " + tableName));
+        assertTrue(sql.contains(":stakeStart"));
+        assertTrue(sql.contains(":stakeEnd"));
+        assertTrue(sql.contains("start_stake"));
+        assertTrue(sql.contains("end_stake"));
+    }
+
     private static class CapturingJdbcTemplate extends NamedParameterJdbcTemplate {
         private final List<String> sqlList = new ArrayList<>();
+        private final List<SqlParameterSource> paramsList = new ArrayList<>();
 
         CapturingJdbcTemplate() {
             super(new DriverManagerDataSource());
@@ -111,6 +150,7 @@ public class GisMapSupportServiceImplTest {
         @Override
         public <T> T queryForObject(String sql, SqlParameterSource paramSource, Class<T> requiredType) {
             sqlList.add(sql);
+            paramsList.add(paramSource);
             Object value = 1;
             return requiredType.cast(value);
         }
@@ -118,11 +158,16 @@ public class GisMapSupportServiceImplTest {
         @Override
         public List<Map<String, Object>> queryForList(String sql, SqlParameterSource paramSource) {
             sqlList.add(sql);
+            paramsList.add(paramSource);
             return new ArrayList<Map<String, Object>>();
         }
 
         String sqlAt(int index) {
             return sqlList.get(index);
+        }
+
+        SqlParameterSource paramAt(int index) {
+            return paramsList.get(index);
         }
     }
 }

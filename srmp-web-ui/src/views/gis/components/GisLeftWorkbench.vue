@@ -38,7 +38,7 @@
             {{ layerStatusText(item.key) }}
           </span>
         </label>
-        <p class="tier-hint">「评定」用于开关地图上的指标专题图层；路段粒度仍由顶部工具栏「路段专题」与「查询」决定。</p>
+        <p class="tier-hint">「评定」用于开关地图上的指标专题图层；路段粒度仍由顶部工具栏「评定」与「查询」决定。</p>
         <p class="disease-zoom-hint">
           病害图层在 {{ ZOOM_DISEASE_SUMMARY }} 级显示总和；15-{{ ZOOM_DISEASE_SUMMARY_FREEZE_MAX }} 级沿用该结果；{{ ZOOM_DISEASE_DETAIL_MIN }} 级起显示明细。
         </p>

@@ -1,7 +1,7 @@
 import time
 from typing import Any, Dict, List, Optional
 
-from .java_tools import JavaToolGateway, extract_knowledge_sources
+from .java_tools import JavaToolGateway, extract_business_sources, extract_knowledge_sources, merge_sources
 from .governance import governance_tool_policy_result, normalize_tool_policy, resolve_capability
 from .live_trace import LiveTraceStore
 from .observability import _business_scope_from_request
@@ -168,8 +168,9 @@ class MapAgentRunWorkflow:
             "policyChecks": tool_policy.get("policyChecks") or [],
         })
         source_summaries = data.get("sourceSummaries") if isinstance(data.get("sourceSummaries"), list) else []
+        business_sources = extract_business_sources(evidence_results)
         knowledge_sources = extract_knowledge_sources(evidence_results)
-        merged_sources = list(source_summaries) + [item for item in knowledge_sources if item not in source_summaries]
+        merged_sources = merge_sources(list(source_summaries), business_sources, knowledge_sources)
         tool_success_count = sum(1 for item in tool_results if item.success)
         tool_failed_count = sum(1 for item in tool_results if not item.success)
         response = MapAgentRunResponse(

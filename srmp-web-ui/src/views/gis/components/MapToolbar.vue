@@ -17,11 +17,11 @@
               </el-select>
             </el-form-item>
 
-            <el-form-item label="路网编码" class="uniform-item">
+            <el-form-item label="路网" class="uniform-item">
               <el-input v-model="localQuery.routeCode" placeholder="如 G210" clearable />
             </el-form-item>
 
-            <el-form-item label="路段专题" class="uniform-item">
+            <el-form-item label="评定" class="uniform-item">
               <el-select v-model="localTier" placeholder="路线级">
                 <el-option label="路线级" value="LINE" />
                 <el-option label="台账级" value="LEDGER" />
@@ -157,8 +157,8 @@ const emitClearRegion = () => emit('clear-region')
 .map-toolbar {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(8px);
-  padding: 10px 16px;
-  border-radius: 8px;
+  padding: 6px 10px;
+  border-radius: 9px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   border: 1px solid #e2e8f0;
 }
@@ -169,19 +169,18 @@ const emitClearRegion = () => emit('clear-region')
 }
 
 .query-primary-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 1px auto;
   align-items: center;
-  flex-wrap: nowrap;
-  gap: 12px;
+  gap: 5px;
   overflow: visible;
-  padding-bottom: 1px;
 }
 
 .fields-grid {
   display: grid;
-  flex: 1 1 0;
-  grid-template-columns: minmax(180px, 1.2fr) minmax(130px, 0.9fr) minmax(132px, 0.92fr) minmax(118px, 0.78fr) minmax(92px, 0.58fr);
-  gap: 8px;
+  width: 100%;
+  grid-template-columns: minmax(190px, 1fr) minmax(126px, 0.72fr) minmax(126px, 0.72fr) minmax(156px, 0.8fr) minmax(96px, 0.5fr);
+  gap: 3px;
   min-width: 0;
   overflow: visible;
 }
@@ -194,13 +193,14 @@ const emitClearRegion = () => emit('clear-region')
 }
 
 :deep(.uniform-item .el-form-item__label) {
-  width: 64px !important;
+  width: 52px !important;
   display: inline-flex !important;
   justify-content: flex-end !important;
   align-items: center;
   font-weight: 600;
   color: #475569;
-  padding-right: 8px !important;
+  padding-right: 5px !important;
+  white-space: nowrap;
 }
 
 :deep(.uniform-item .el-form-item__content) {
@@ -244,14 +244,26 @@ const emitClearRegion = () => emit('clear-region')
 .action-group {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   flex-shrink: 0;
+  min-width: 104px;
+  white-space: nowrap;
+}
+
+.action-group :deep(.el-button) {
+  padding: 4px 8px;
+  min-width: 48px;
+  flex-shrink: 0;
+}
+
+.action-group :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 
 .v-divider {
   flex-shrink: 0;
   width: 1px;
-  height: 24px;
+  height: 22px;
   background: #e2e8f0;
 }
 
@@ -259,7 +271,7 @@ const emitClearRegion = () => emit('clear-region')
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  gap: 6px;
+  gap: 4px;
 }
 
 .draw-section-label {
@@ -273,7 +285,7 @@ const emitClearRegion = () => emit('clear-region')
 .draw-btn-group {
   display: flex;
   background: #f1f5f9;
-  padding: 2px;
+  padding: 1px;
   border-radius: 6px;
 }
 
@@ -281,9 +293,9 @@ const emitClearRegion = () => emit('clear-region')
   border: none;
   background: transparent;
   color: #334155;
-  padding: 6px;
-  width: 32px;
-  height: 32px;
+  padding: 4px;
+  width: 28px;
+  height: 28px;
   margin: 0;
 }
 
@@ -314,57 +326,60 @@ const emitClearRegion = () => emit('clear-region')
   stroke-linejoin: round;
 }
 
-@media (max-width: 1320px) {
+@media (max-width: 1560px) {
   .map-toolbar {
-    padding: 8px 10px;
+    padding: 5px 7px;
   }
 
   .query-primary-row {
-    gap: 8px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto 1px auto;
+    gap: 3px;
+    align-items: center;
   }
 
   .fields-grid {
     min-width: 0;
-    grid-template-columns: minmax(98px, 1.1fr) minmax(62px, 0.72fr) minmax(66px, 0.78fr) minmax(58px, 0.68fr) minmax(48px, 0.56fr);
-    gap: 4px;
+    width: 100%;
+    grid-template-columns: minmax(132px, 0.9fr) minmax(92px, 0.62fr) minmax(94px, 0.62fr) minmax(104px, 0.68fr) minmax(78px, 0.45fr);
+    gap: 2px;
   }
 
   :deep(.uniform-item .el-form-item__label) {
-    position: absolute !important;
-    width: 1px !important;
-    height: 1px !important;
-    padding-right: 0 !important;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
+    width: 34px !important;
+    padding-right: 2px !important;
+    font-size: 12px;
     white-space: nowrap;
   }
 
   :deep(.uniform-item .el-input__wrapper),
   :deep(.uniform-item .el-select__wrapper) {
-    min-height: 28px;
-    padding: 0 6px;
+    min-height: 25px;
+    padding: 0 5px;
   }
 
   .action-group {
-    gap: 6px;
+    gap: 3px;
+    min-width: 83px;
   }
 
   .action-group :deep(.el-button) {
-    padding: 5px 9px;
+    padding: 3px 6px;
+    min-width: 40px;
   }
 
   .draw-section {
-    gap: 4px;
+    gap: 2px;
   }
 
   .draw-section-label {
-    font-size: 11px;
+    display: none;
   }
 
   .draw-btn-group :deep(.draw-tool-button) {
-    width: 28px;
-    height: 28px;
-    padding: 5px;
+    width: 22px;
+    height: 24px;
+    padding: 3px;
   }
 }
 </style>

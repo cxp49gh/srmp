@@ -36,7 +36,7 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("totalLengthKm", firstValue(
-                "select round(coalesce(sum(coalesce(length_km, abs(end_stake - start_stake))),0),3) from road_section_line where tenant_id=:tenantId and deleted=false " + optionalRoute() + optionalProjectIdRow(),
+                "select round(coalesce(sum(coalesce(length_km, abs(end_stake - start_stake))),0),3) from road_section_line where tenant_id=:tenantId and deleted=false " + optionalRoute() + optionalProjectIdRow() + optionalStakeOverlap(),
                 params
         ));
         result.put("routeCount", firstValue(
@@ -44,19 +44,19 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
                 params
         ));
         result.put("sectionCount", firstValue(
-                "select count(*) from road_section_line where tenant_id=:tenantId and deleted=false " + optionalRoute() + optionalProjectIdRow(),
+                "select count(*) from road_section_line where tenant_id=:tenantId and deleted=false " + optionalRoute() + optionalProjectIdRow() + optionalStakeOverlap(),
                 params
         ));
         result.put("unitCount", firstValue(
-                "select count(*) from road_section_ledger where tenant_id=:tenantId and deleted=false " + optionalRoute() + optionalProjectIdEvalUnit(),
+                "select count(*) from road_section_ledger where tenant_id=:tenantId and deleted=false " + optionalRoute() + optionalProjectIdEvalUnit() + optionalStakeOverlap(),
                 params
         ));
         result.put("diseaseCount", firstValue(
-                "select count(*) from disease_record where tenant_id=:tenantId and deleted=false " + optionalRoute() + optionalProjectIdRow(),
+                "select count(*) from disease_record where tenant_id=:tenantId and deleted=false " + optionalRoute() + optionalProjectIdRow() + optionalStakeOverlap(),
                 params
         ));
         result.put("heavyDiseaseCount", firstValue(
-                "select count(*) from disease_record where tenant_id=:tenantId and deleted=false and severity='HEAVY' " + optionalRoute() + optionalProjectIdRow(),
+                "select count(*) from disease_record where tenant_id=:tenantId and deleted=false and severity='HEAVY' " + optionalRoute() + optionalProjectIdRow() + optionalStakeOverlap(),
                 params
         ));
 
@@ -67,7 +67,7 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
                         "round(avg(pci),3) as avg_pci, " +
                         "sum(case when grade in ('EXCELLENT','GOOD') then 1 else 0 end) as good_count, " +
                         "sum(case when grade in ('POOR','BAD') then 1 else 0 end) as poor_count " +
-                        "from assessment_result where tenant_id=:tenantId and deleted=false " + optionalRoute() + optionalYear() + optionalProjectIdAssessment()
+                        "from assessment_result where tenant_id=:tenantId and deleted=false " + optionalRoute() + optionalYear() + optionalProjectIdAssessment() + optionalStakeOverlap()
                         + optionalSectionTier(""),
                 params
         );
@@ -208,6 +208,21 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
         params.addValue("projectId", getString(request, "projectId") == null ? "" : getString(request, "projectId"));
         String tier = normalizeSectionTierToken(getString(request, "sectionTier"));
         params.addValue("sectionTier", tier == null ? "" : tier);
+        BigDecimal startStake = toBigDecimal(firstNonEmpty(request, "stakeStart", "startStake", "start_stake"));
+        BigDecimal endStake = toBigDecimal(firstNonEmpty(request, "stakeEnd", "endStake", "end_stake"));
+        if (startStake == null && endStake != null) {
+            startStake = endStake;
+        }
+        if (endStake == null && startStake != null) {
+            endStake = startStake;
+        }
+        if (startStake != null && endStake != null && startStake.compareTo(endStake) > 0) {
+            BigDecimal tmp = startStake;
+            startStake = endStake;
+            endStake = tmp;
+        }
+        params.addValue("stakeStart", startStake);
+        params.addValue("stakeEnd", endStake);
         return params;
     }
 
@@ -294,6 +309,16 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
 
     private String optionalSeverity() {
         return " and (nullif(:severity, '') is null or severity = nullif(:severity, '')) ";
+    }
+
+    private String optionalStakeOverlap() {
+        return optionalStakeOverlap("");
+    }
+
+    private String optionalStakeOverlap(String alias) {
+        String prefix = alias == null || alias.trim().isEmpty() ? "" : alias.trim() + ".";
+        return " and (:stakeStart is null or :stakeEnd is null or (coalesce(" + prefix + "start_stake," + prefix + "end_stake) <= :stakeEnd "
+                + "and coalesce(" + prefix + "end_stake," + prefix + "start_stake) >= :stakeStart)) ";
     }
 
     private String routeLengthExpression() {
@@ -457,6 +482,19 @@ public class GisMapSupportServiceImpl implements GisMapSupportService {
             return null;
         }
         return String.valueOf(request.get(key));
+    }
+
+    private Object firstNonEmpty(Map<String, Object> request, String... keys) {
+        if (request == null) {
+            return null;
+        }
+        for (String key : keys) {
+            Object value = request.get(key);
+            if (value != null && String.valueOf(value).trim().length() > 0) {
+                return value;
+            }
+        }
+        return null;
     }
 
     /** spatial-query 请求体可能在根上带 projectId，与 query 子对象合并供 baseParams 使用 */

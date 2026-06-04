@@ -123,6 +123,34 @@ export function buildUnifiedAnalysisTargets(args: {
         { type: 'ASSESSMENT_RESULT', label: '路线相关评定结果', count: pickValue(args.mapObject, 'relatedAssessmentCount', 'related_assessment_count', 'assessmentCount', 'assessment_count'), routeCode }
       ].filter((it) => it.count !== undefined || it.type === 'ROAD_ROUTE')
     }
+    if (type === 'ROAD_SECTION') {
+      return [
+        { type, label: gisContextTypeLabel(type), routeCode, raw: args.mapObject },
+        { type: 'EVALUATION_UNIT', label: '路段相关评定单元', count: pickValue(args.mapObject, 'relatedEvaluationUnitCount', 'related_evaluation_unit_count', 'unitCount', 'unit_count'), routeCode },
+        { type: 'DISEASE', label: '路段相关病害', count: pickValue(args.mapObject, 'relatedDiseaseCount', 'related_disease_count', 'diseaseCount', 'disease_count'), routeCode },
+        { type: 'ASSESSMENT_RESULT', label: '路段相关评定结果', count: pickValue(args.mapObject, 'relatedAssessmentCount', 'related_assessment_count', 'assessmentCount', 'assessment_count'), routeCode }
+      ].filter((it) => it.count !== undefined || it.type === 'ROAD_SECTION')
+    }
+    if (type === 'EVALUATION_UNIT') {
+      return [
+        { type, label: gisContextTypeLabel(type), routeCode, raw: args.mapObject },
+        { type: 'DISEASE', label: '单元相关病害', count: pickValue(args.mapObject, 'relatedDiseaseCount', 'related_disease_count', 'diseaseCount', 'disease_count'), routeCode },
+        { type: 'ASSESSMENT_RESULT', label: '单元相关评定结果', count: pickValue(args.mapObject, 'relatedAssessmentCount', 'related_assessment_count', 'assessmentCount', 'assessment_count'), routeCode }
+      ].filter((it) => it.count !== undefined || it.type === 'EVALUATION_UNIT')
+    }
+    if (type === 'DISEASE') {
+      return [
+        { type, label: gisContextTypeLabel(type), routeCode, raw: args.mapObject },
+        { type: 'DISEASE', label: '同桩号范围病害', count: pickValue(args.mapObject, 'relatedDiseaseCount', 'related_disease_count', 'diseaseCount', 'disease_count'), routeCode },
+        { type: 'ASSESSMENT_RESULT', label: '同桩号范围评定结果', count: pickValue(args.mapObject, 'relatedAssessmentCount', 'related_assessment_count', 'assessmentCount', 'assessment_count'), routeCode }
+      ].filter((it) => it.count !== undefined || it.raw)
+    }
+    if (type === 'ASSESSMENT_RESULT') {
+      return [
+        { type, label: gisContextTypeLabel(type), routeCode, raw: args.mapObject },
+        { type: 'DISEASE', label: '评定范围相关病害', count: pickValue(args.mapObject, 'relatedDiseaseCount', 'related_disease_count', 'diseaseCount', 'disease_count'), routeCode }
+      ].filter((it) => it.count !== undefined || it.raw)
+    }
     return [{ type, label: gisContextTypeLabel(type), routeCode, raw: args.mapObject }]
   }
   return [{ type: 'ROUTE', label: args.query?.routeCode ? `线路筛选｜${args.query.routeCode}` : '全图筛选', routeCode: args.query?.routeCode, raw: args.query || {} }]
