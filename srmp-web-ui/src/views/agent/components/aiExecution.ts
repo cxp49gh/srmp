@@ -584,6 +584,27 @@ function buildDiagnosis(input: {
     }
   }
 
+  if (hasLlmFailure(input.answerMeta)) {
+    return {
+      severity: 'warning',
+      title: '大模型生成失败',
+      summary: '业务工具和证据已返回，但大模型生成未成功，当前回答来自兜底回答或模板结果。',
+      cause: stringValue(
+        input.answerMeta.errorMessage,
+        input.answerMeta.error_message,
+        input.answerMeta.fallbackReason,
+        input.answerMeta.fallback_reason,
+        input.answerMeta.errorType,
+        input.answerMeta.error_type,
+        input.answerMeta.llmStatus,
+        input.answerMeta.llm_status,
+        'LLM failed'
+      ) || 'LLM failed',
+      actions: input.repairActions,
+      tags
+    }
+  }
+
   const knowledge = knowledgeDiagnosis(input.tools, input.answerMeta, input.repairActions, tags)
   if (knowledge) return knowledge
 
@@ -641,12 +662,25 @@ function buildDiagnosisTags(
   const llmUsed = answerMeta.llmSuccess === true || String(answerMeta.answerSource || answerMeta.answer_source || '').toUpperCase() === 'LLM'
   const toolFailed = Boolean(summary.toolFailedCount) || tools.some((tool) => !tool.success)
   const evidenceCount = evidence.sourceCount || evidence.sources.length || 0
+  const fallbackUsed = Boolean(summary.fallback) || hasLlmFallback(answerMeta)
   return [
     { label: '模型', value: llmUsed ? '已使用' : (Object.keys(answerMeta).length ? '未成功' : '未知'), type: llmUsed ? 'success' : 'info' },
-    { label: '降级', value: summary.fallback ? '是' : '否', type: summary.fallback ? 'warning' : 'success' },
+    { label: '降级', value: fallbackUsed ? '是' : '否', type: fallbackUsed ? 'warning' : 'success' },
     { label: '工具', value: `${summary.toolSuccessCount || 0}/${summary.toolTotalCount || tools.length || 0}`, type: toolFailed ? 'danger' : 'success' },
     { label: '证据', value: String(evidenceCount), type: evidenceCount ? 'success' : 'warning' }
   ]
+}
+
+function hasLlmFailure(answerMeta: Record<string, any>): boolean {
+  const llmStatus = String(answerMeta.llmStatus || answerMeta.llm_status || '').toUpperCase()
+  if (answerMeta.llmSuccess === false || answerMeta.llm_success === false) return true
+  if (['FAILED', 'ERROR', 'TIMEOUT'].includes(llmStatus)) return true
+  return hasLlmFallback(answerMeta)
+}
+
+function hasLlmFallback(answerMeta: Record<string, any>): boolean {
+  const answerSource = String(answerMeta.answerSource || answerMeta.answer_source || '').toUpperCase()
+  return answerSource === 'FALLBACK' || Boolean(answerMeta.fallbackReason || answerMeta.fallback_reason)
 }
 
 function knowledgeDiagnosis(

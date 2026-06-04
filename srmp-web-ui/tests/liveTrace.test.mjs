@@ -556,6 +556,46 @@ test('AiTrace diagnosis prioritizes failed tools over generic evidence warnings'
   assert.match(snapshot.diagnosis.cause, /database timeout/)
 })
 
+test('AiTrace diagnosis surfaces LLM failure before healthy evidence conclusion', () => {
+  const snapshot = toAiExecutionSnapshot({
+    record: {
+      traceId: 'trace-diag-llm-failed',
+      status: 'SUCCESS',
+      toolResults: [
+        { toolName: 'gis.queryRegionSummary', success: true, count: 4 },
+        { toolName: 'gis.queryAssessmentResults', success: true, count: 1 },
+        { toolName: 'gis.queryDiseases', success: true, count: 50 },
+        { toolName: 'knowledge.retrieve', success: true, count: 5 }
+      ],
+      sources: [
+        { sourceType: 'BUSINESS_DATA', title: '路线统计' },
+        { sourceType: 'KNOWLEDGE', title: '养护规范' }
+      ],
+      sourceCount: 2
+    },
+    answerMeta: {
+      llmModel: 'qwen3.6-flash',
+      llmStatus: 'FAILED',
+      llmSuccess: false,
+      answerSource: 'FALLBACK',
+      fallbackReason: 'HTTP_ERROR',
+      errorType: 'HTTP_ERROR',
+      errorMessage: 'LLM HTTP 状态异常：400'
+    }
+  })
+
+  assert.equal(snapshot.diagnosis.severity, 'warning')
+  assert.equal(snapshot.diagnosis.title, '大模型生成失败')
+  assert.match(snapshot.diagnosis.summary, /兜底回答/)
+  assert.match(snapshot.diagnosis.cause, /LLM HTTP 状态异常/)
+  assert.deepEqual(snapshot.diagnosis.tags.map((item) => [item.label, item.value]), [
+    ['模型', '未成功'],
+    ['降级', '是'],
+    ['工具', '4/4'],
+    ['证据', '2']
+  ])
+})
+
 test('AiTrace diagnosis surfaces business evidence gaps', () => {
   const snapshot = toAiExecutionSnapshot({
     record: {
