@@ -437,7 +437,7 @@ const analysisScopeDescription = computed(() => {
     return `${route} 区域范围，已统一关联 ${targets}`
   }
   const query = props.context?.query || {}
-  return `${query.routeCode || '全部路线'} / ${query.year || '全部年度'}，可选择对象或框选区域后继续分析`
+  return `${query.routeCode || '全部路线'}，可选择对象或框选区域后继续分析`
 })
 
 const analysisMetricItems = computed(() => {
@@ -558,7 +558,7 @@ const contextChips = computed(() => {
 
   if (!activeMapObject.value) {
     const query = props.context?.query || {}
-    return [query.routeCode || '当前路线', query.year || '当前年度', activeMetricMeta.value.code].filter(Boolean).slice(0, 6)
+    return [query.routeCode || '当前路线', activeMetricMeta.value.code].filter(Boolean).slice(0, 6)
   }
 
   const obj: any = activeMapObject.value || {}
@@ -788,8 +788,7 @@ const contextText = computed(() => {
   if (activeRegionSummary.value) return '框选区域｜区域养护分析'
   const query = props.context?.query || {}
   const route = query.routeCode || '全部路线'
-  const year = query.year || '全部年度'
-  return `${route}｜${year}`
+  return route
 })
 
 watch(
@@ -1156,7 +1155,6 @@ async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
         objectType: normalizeObjectType(obj),
         objectId: String(obj.objectId || obj.object_id || obj.id || obj.featureId || ''),
         routeCode: String(obj.routeCode || obj.route_code || query.routeCode || ''),
-        year: normalizeYear(obj.year || query.year),
         solutionType,
         mapObject: obj
       },
@@ -1233,7 +1231,7 @@ async function saveSolutionDraft() {
       title: solution.title || '方案草稿',
       markdown: solution.markdown,
       routeCode: String(obj.routeCode || obj.route_code || query.routeCode || ''),
-      year: normalizeYear(obj.year || query.year),
+      year: undefined,
       mapObject: obj,
       objectSummary: solution.objectSummary || {},
       qualityCheck: solution.qualityCheck || {},
@@ -1445,11 +1443,6 @@ function firstSolutionRecord(...values: any[]) {
     }
   }
   return null
-}
-
-function normalizeYear(value: any) {
-  const year = Number(value)
-  return Number.isFinite(year) ? year : undefined
 }
 
 function buildSourceSummary(data: Record<string, any>) {

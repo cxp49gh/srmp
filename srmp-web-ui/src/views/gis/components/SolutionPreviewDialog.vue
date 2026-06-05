@@ -132,7 +132,6 @@ const summaryLabels: Record<string, string> = {
   sectionName: '路段',
   sectionCode: '路段编号',
   unitCode: '单元编号',
-  year: '年度',
   stakeRange: '桩号',
   diseaseName: '病害',
   severity: '严重程度',

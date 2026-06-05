@@ -259,6 +259,12 @@ function firstValue(...values: any[]) {
   return values.find((it) => it !== undefined && it !== null && it !== '')
 }
 
+function normalizeOptionalNumber(value: any) {
+  if (value === undefined || value === null || value === '') return undefined
+  const num = Number(value)
+  return Number.isFinite(num) ? num : undefined
+}
+
 const selectedMapObjectBase = computed(() => {
   const raw: any = selectedFeatureProperties.value || {}
   const detail: any = selectedDetail.value || {}
@@ -277,7 +283,7 @@ const selectedMapObjectBase = computed(() => {
     objectId,
     id: objectId,
     routeCode: firstValue(props.routeCode, props.route_code, raw.routeCode, raw.route_code, query.routeCode),
-    year: Number(firstValue(props.year, 2026)),
+    year: normalizeOptionalNumber(firstValue(props.year, raw.year)),
     startStake: firstValue(props.startStake, props.start_stake, raw.startStake, raw.start_stake),
     endStake: firstValue(props.endStake, props.end_stake, raw.endStake, raw.end_stake),
     routeName: firstValue(props.routeName, props.route_name, raw.routeName, raw.route_name),
@@ -364,7 +370,6 @@ watch(
       objectType: normalizeObjectType(base.objectType),
       routeCode: String(base.routeCode || base.route_code || ''),
       projectId: String(query.projectId || ''),
-      year: query.year || '',
       indexCode: query.indexCode || '',
       grade: query.grade || '',
       sectionTier: query.sectionTier || '',
@@ -1220,7 +1225,6 @@ function popupRowsByType(type: string, properties: Record<string, any>): Array<[
     return compactRows([
       ['路线编号', route],
       ['评定单元', firstValue(properties.unitCode, properties.unit_code, properties.unitId, properties.unit_id)],
-      ['年度', firstValue(properties.year)],
       ['方向', direction],
       ['起讫桩号', stake],
       ...metricRows,
@@ -1804,7 +1808,6 @@ async function generateRegionSolution() {
         tenantId: 'default',
         mode: 'REGION',
         routeCode: querySnapshot.routeCode,
-        year: Number(firstValue(querySnapshot.year, 2026)),
         geometry: geometrySnapshot,
         regionSummary: summarySnapshot,
         selectedLayers: layerSnapshot,
@@ -1900,7 +1903,7 @@ async function saveRegionDraft() {
       title: regionSolution.value.title,
       markdown: regionSolution.value.markdown,
       routeCode: String(query.routeCode || ''),
-      year: Number(query.year) || undefined,
+      year: undefined,
       mapObject: {
         objectType: 'MAP_REGION',
         geometry: regionGeometry.value,

@@ -62,7 +62,6 @@ public class MapObjectContext implements Serializable {
         append(sb, "名称", firstString(map, "routeName", "route_name", "sectionName", "section_name", "unitCode", "unit_code"));
         append(sb, "起点桩号", firstObject(map, "startStake", "start_stake"));
         append(sb, "终点桩号", firstObject(map, "endStake", "end_stake"));
-        append(sb, "年度", firstObject(map, "year"));
         append(sb, "MQI", firstObject(map, "mqi"));
         append(sb, "PQI", firstObject(map, "pqi"));
         append(sb, "PCI", firstObject(map, "pci"));

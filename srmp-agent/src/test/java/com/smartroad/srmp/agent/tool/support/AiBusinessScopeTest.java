@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class AiBusinessScopeTest {
@@ -114,6 +115,27 @@ public class AiBusinessScopeTest {
         ));
 
         assertEquals("Y016140727", scope.getRouteCode());
+    }
+
+    @Test
+    public void objectYearDoesNotBecomeBusinessQueryScope() {
+        AiToolContext context = new AiToolContext();
+        context.setTenantId("tenant-a");
+
+        MapAiContext mapContext = new MapAiContext();
+        mapContext.setMode("OBJECT");
+        mapContext.setMapObject(mapOf(
+                "objectType", "ASSESSMENT_RESULT",
+                "objectId", "assessment-1",
+                "routeCode", "Y016140727",
+                "year", 2026,
+                "raw", mapOf("year", 2026)
+        ));
+        context.setMapContext(mapContext);
+
+        AiBusinessScope scope = AiBusinessScope.from(context, new LinkedHashMap<String, Object>());
+
+        assertNull(scope.getYear());
     }
 
     private Map<String, Object> mapOf(Object... values) {

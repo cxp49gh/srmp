@@ -73,7 +73,6 @@ public class MapObjectContextServiceImpl implements MapObjectContextService {
         String type = normalizeType(objectType);
         String id = objectId == null ? "" : objectId.trim();
         String rc = routeCode == null ? "" : routeCode.trim();
-        Integer y = year == null ? 2026 : year;
 
         if ((type == null || type.isEmpty()) && !rc.isEmpty()) {
             type = "ROAD_ROUTE";
@@ -83,7 +82,7 @@ public class MapObjectContextServiceImpl implements MapObjectContextService {
                 .addValue("tenantId", tenantId)
                 .addValue("id", id)
                 .addValue("routeCode", rc)
-                .addValue("year", y);
+                .addValue("year", year == null ? "" : String.valueOf(year));
 
         if ("ROAD_ROUTE".equals(type) || "ROUTE".equals(type)) {
             return one("select 'ROAD_ROUTE' object_type,r.id,r.route_code,r.route_name,r.route_type,r.admin_grade,r.technical_grade,r.start_stake,r.end_stake,"

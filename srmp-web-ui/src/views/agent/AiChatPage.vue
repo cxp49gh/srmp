@@ -11,9 +11,6 @@
           <el-form-item label="路线编号">
             <el-input v-model="context.routeCode" placeholder="G210" />
           </el-form-item>
-          <el-form-item label="年度">
-            <el-input v-model="context.year" placeholder="2026" />
-          </el-form-item>
           <el-form-item label="指标">
             <el-select v-model="context.indexCode" clearable placeholder="选择指标">
               <el-option label="MQI" value="MQI" />
@@ -36,10 +33,10 @@
         </el-form>
 
         <div class="quick-list">
-          <el-button size="small" @click="quickAsk('分析 G210 2026 年整体路况')">分析路线</el-button>
+          <el-button size="small" @click="quickAsk('分析当前项目 G210 整体路况')">分析路线</el-button>
           <el-button size="small" @click="quickAsk('PCI 指标是什么意思？')">解释 PCI</el-button>
           <el-button size="small" @click="quickAsk('数据导入模板怎么使用？')">导入模板</el-button>
-          <el-button size="small" @click="quickAsk('根据知识库解释 PCI 指标，并结合 G210 2026 年情况给出建议')">混合问答</el-button>
+          <el-button size="small" @click="quickAsk('根据知识库解释 PCI 指标，并结合当前项目 G210 情况给出建议')">混合问答</el-button>
         </div>
       </el-card>
 
@@ -112,7 +109,6 @@ interface ChatMessage {
 
 const context = ref<Record<string, any>>({
   routeCode: 'G210',
-  year: 2026,
   indexCode: 'PCI'
 })
 
@@ -135,7 +131,6 @@ const activeExecution = ref<Record<string, any> | null>(null)
 
 const businessContext = computed(() => ({
   routeCode: context.value.routeCode,
-  year: context.value.year,
   indexCode: context.value.indexCode,
   scope: 'AI_CHAT'
 }))
@@ -161,7 +156,6 @@ async function send() {
       mapContext: {
         mode: 'ROUTE',
         routeCode: context.value.routeCode,
-        year: Number(context.value.year),
         extra: {
           indexCode: context.value.indexCode
         }

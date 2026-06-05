@@ -945,7 +945,7 @@ VALUES
     'default',
     'tpl-road-assessment-report-default',
     'v1',
-    '# {{routeCode}} {{year}} 路线技术状况报告草稿
+    '# {{routeCode}} 路线技术状况报告草稿
 
 ## 一、路线概况
 {{routeSummary}}
@@ -969,7 +969,7 @@ VALUES
 {{riskNotice}}
 ',
     'phase20-default-road-assessment-template-v1',
-    '["routeCode","year","routeSummary","assessmentSummary","diseaseSummary","lowScoreSections","problemAnalysis","maintenanceSuggestion","riskNotice"]'::jsonb,
+    '["routeCode","routeSummary","assessmentSummary","diseaseSummary","lowScoreSections","problemAnalysis","maintenanceSuggestion","riskNotice"]'::jsonb,
     NULL,
     now(),
     now()
@@ -1296,7 +1296,7 @@ WITH seed_templates(
         'ROUTE_REPORT',
         'ROAD_ROUTE',
         30,
-        $tpl$# {{routeCode}} {{year}} 路线技术状况报告草稿
+        $tpl$# {{routeCode}} 路线技术状况报告草稿
 
 ## 一、路线概况
 {{routeSummary}}
@@ -1319,7 +1319,7 @@ WITH seed_templates(
 ## 七、风险提示
 {{riskNotice}}
 $tpl$,
-        '["routeCode","year","routeSummary","assessmentSummary","diseaseSummary","lowScoreSections","problemAnalysis","maintenanceSuggestion","riskNotice"]'::jsonb
+        '["routeCode","routeSummary","assessmentSummary","diseaseSummary","lowScoreSections","problemAnalysis","maintenanceSuggestion","riskNotice"]'::jsonb
     ),
     (
         'tpl-phase35-disease-treatment-default',
@@ -1330,7 +1330,7 @@ $tpl$,
         'MAP_OBJECT',
         'DISEASE',
         30,
-        $tpl$# {{routeCode}} {{year}} 病害处置建议
+        $tpl$# {{routeCode}} 病害处置建议
 
 ## 一、病害概况
 - 对象编号：{{objectId}}
@@ -1348,7 +1348,7 @@ $tpl$,
 ## 四、风险提示
 {{riskNotice}}
 $tpl$,
-        '["routeCode","year","objectId","diseaseName","severity","stakeRange","quantity","measureUnit","treatmentAdvice","maintenanceSuggestion","riskNotice"]'::jsonb
+        '["routeCode","objectId","diseaseName","severity","stakeRange","quantity","measureUnit","treatmentAdvice","maintenanceSuggestion","riskNotice"]'::jsonb
     ),
     (
         'tpl-phase35-assessment-low-score-default',
@@ -1359,7 +1359,7 @@ $tpl$,
         'MAP_OBJECT',
         'ASSESSMENT_RESULT',
         45,
-        $tpl$# {{routeCode}} {{year}} 低分评定处置建议
+        $tpl$# {{routeCode}} 低分评定处置建议
 
 ## 一、低分对象
 - 桩号：{{stakeRange}}
@@ -1387,7 +1387,7 @@ $tpl$,
 ## 七、风险提示
 {{riskNotice}}
 $tpl$,
-        '["routeCode","year","stakeRange","unitCode","mqi","pqi","pci","grade","problemAnalysis","diseaseSummary","maintenanceSuggestion","lowScoreSections","businessEvidenceSummary","riskNotice"]'::jsonb
+        '["routeCode","stakeRange","unitCode","mqi","pqi","pci","grade","problemAnalysis","diseaseSummary","maintenanceSuggestion","lowScoreSections","businessEvidenceSummary","riskNotice"]'::jsonb
     ),
     (
         'tpl-phase35-assessment-advice-default',
@@ -1398,7 +1398,7 @@ $tpl$,
         'MAP_OBJECT',
         'ASSESSMENT_RESULT',
         40,
-        $tpl$# {{routeCode}} {{year}} 评定结果养护建议
+        $tpl$# {{routeCode}} 评定结果养护建议
 
 ## 一、评定对象
 - 桩号：{{stakeRange}}
@@ -1426,7 +1426,7 @@ $tpl$,
 ## 七、风险提示
 {{riskNotice}}
 $tpl$,
-        '["routeCode","year","stakeRange","unitCode","mqi","pqi","pci","grade","assessmentSummary","diseaseSummary","problemAnalysis","maintenanceSuggestion","businessEvidenceSummary","riskNotice"]'::jsonb
+        '["routeCode","stakeRange","unitCode","mqi","pqi","pci","grade","assessmentSummary","diseaseSummary","problemAnalysis","maintenanceSuggestion","businessEvidenceSummary","riskNotice"]'::jsonb
     ),
     (
         'tpl-phase35-road-section-maintenance-default',
@@ -1437,7 +1437,7 @@ $tpl$,
         'MAP_OBJECT',
         'ROAD_SECTION',
         40,
-        $tpl$# {{routeCode}} {{year}} 路段养护计划
+        $tpl$# {{routeCode}} 路段养护计划
 
 ## 一、路段概况
 {{routeSummary}}
@@ -1460,7 +1460,7 @@ $tpl$,
 ## 七、风险提示
 {{riskNotice}}
 $tpl$,
-        '["routeCode","year","routeSummary","assessmentSummary","diseaseSummary","problemAnalysis","maintenanceSuggestion","businessEvidenceSummary","riskNotice"]'::jsonb
+        '["routeCode","routeSummary","assessmentSummary","diseaseSummary","problemAnalysis","maintenanceSuggestion","businessEvidenceSummary","riskNotice"]'::jsonb
     ),
     (
         'tpl-phase35-map-region-maintenance-default',
@@ -1471,7 +1471,7 @@ $tpl$,
         'MAP_REGION',
         'MAP_REGION',
         30,
-        $tpl$# {{routeCode}} {{year}} 框选区域养护建议
+        $tpl$# {{routeCode}} 框选区域养护建议
 
 ## 一、区域统计摘要
 - 区域面积：{{areaKm2}} km2
@@ -1493,7 +1493,7 @@ $tpl$,
 ## 五、风险提示
 {{riskNotice}}
 $tpl$,
-        '["routeCode","year","areaKm2","routeCount","sectionCount","unitCount","diseaseCount","heavyDiseaseCount","mediumDiseaseCount","avgMqi","avgPqi","avgPci","hotspotSummary","regionSummary","maintenanceSuggestion","riskNotice"]'::jsonb
+        '["routeCode","areaKm2","routeCount","sectionCount","unitCount","diseaseCount","heavyDiseaseCount","mediumDiseaseCount","avgMqi","avgPqi","avgPci","hotspotSummary","regionSummary","maintenanceSuggestion","riskNotice"]'::jsonb
     )
 ),
 seed_with_default AS (
@@ -1581,7 +1581,7 @@ WITH seed_versions(
         'default',
         'tpl-road-assessment-report-default',
         'v1',
-        $tpl$# {{routeCode}} {{year}} 路线技术状况报告草稿
+        $tpl$# {{routeCode}} 路线技术状况报告草稿
 
 ## 一、路线概况
 {{routeSummary}}
@@ -1605,14 +1605,14 @@ WITH seed_versions(
 {{riskNotice}}
 $tpl$,
         'phase35-sample-road-assessment-template-v1',
-        '["routeCode","year","routeSummary","assessmentSummary","diseaseSummary","lowScoreSections","problemAnalysis","maintenanceSuggestion","riskNotice"]'::jsonb
+        '["routeCode","routeSummary","assessmentSummary","diseaseSummary","lowScoreSections","problemAnalysis","maintenanceSuggestion","riskNotice"]'::jsonb
     ),
     (
         'tplv-phase35-disease-treatment-default-v1',
         'default',
         'tpl-phase35-disease-treatment-default',
         'v1',
-        $tpl$# {{routeCode}} {{year}} 病害处置建议
+        $tpl$# {{routeCode}} 病害处置建议
 
 ## 一、病害概况
 - 对象编号：{{objectId}}
@@ -1631,14 +1631,14 @@ $tpl$,
 {{riskNotice}}
 $tpl$,
         'phase35-sample-disease-treatment-template-v1',
-        '["routeCode","year","objectId","diseaseName","severity","stakeRange","quantity","measureUnit","treatmentAdvice","maintenanceSuggestion","riskNotice"]'::jsonb
+        '["routeCode","objectId","diseaseName","severity","stakeRange","quantity","measureUnit","treatmentAdvice","maintenanceSuggestion","riskNotice"]'::jsonb
     ),
     (
         'tplv-phase35-assessment-low-score-default-v1',
         'default',
         'tpl-phase35-assessment-low-score-default',
         'v1',
-        $tpl$# {{routeCode}} {{year}} 低分评定处置建议
+        $tpl$# {{routeCode}} 低分评定处置建议
 
 ## 一、低分对象
 - 桩号：{{stakeRange}}
@@ -1667,14 +1667,14 @@ $tpl$,
 {{riskNotice}}
 $tpl$,
         'phase35-sample-low-score-template-v1',
-        '["routeCode","year","stakeRange","unitCode","mqi","pqi","pci","grade","problemAnalysis","diseaseSummary","maintenanceSuggestion","lowScoreSections","businessEvidenceSummary","riskNotice"]'::jsonb
+        '["routeCode","stakeRange","unitCode","mqi","pqi","pci","grade","problemAnalysis","diseaseSummary","maintenanceSuggestion","lowScoreSections","businessEvidenceSummary","riskNotice"]'::jsonb
     ),
     (
         'tplv-phase35-assessment-advice-default-v1',
         'default',
         'tpl-phase35-assessment-advice-default',
         'v1',
-        $tpl$# {{routeCode}} {{year}} 评定结果养护建议
+        $tpl$# {{routeCode}} 评定结果养护建议
 
 ## 一、评定对象
 - 桩号：{{stakeRange}}
@@ -1703,14 +1703,14 @@ $tpl$,
 {{riskNotice}}
 $tpl$,
         'phase35-sample-assessment-advice-template-v1',
-        '["routeCode","year","stakeRange","unitCode","mqi","pqi","pci","grade","assessmentSummary","diseaseSummary","problemAnalysis","maintenanceSuggestion","businessEvidenceSummary","riskNotice"]'::jsonb
+        '["routeCode","stakeRange","unitCode","mqi","pqi","pci","grade","assessmentSummary","diseaseSummary","problemAnalysis","maintenanceSuggestion","businessEvidenceSummary","riskNotice"]'::jsonb
     ),
     (
         'tplv-phase35-road-section-maintenance-default-v1',
         'default',
         'tpl-phase35-road-section-maintenance-default',
         'v1',
-        $tpl$# {{routeCode}} {{year}} 路段养护计划
+        $tpl$# {{routeCode}} 路段养护计划
 
 ## 一、路段概况
 {{routeSummary}}
@@ -1734,14 +1734,14 @@ $tpl$,
 {{riskNotice}}
 $tpl$,
         'phase35-sample-road-section-maintenance-template-v1',
-        '["routeCode","year","routeSummary","assessmentSummary","diseaseSummary","problemAnalysis","maintenanceSuggestion","businessEvidenceSummary","riskNotice"]'::jsonb
+        '["routeCode","routeSummary","assessmentSummary","diseaseSummary","problemAnalysis","maintenanceSuggestion","businessEvidenceSummary","riskNotice"]'::jsonb
     ),
     (
         'tplv-phase35-map-region-maintenance-default-v1',
         'default',
         'tpl-phase35-map-region-maintenance-default',
         'v1',
-        $tpl$# {{routeCode}} {{year}} 框选区域养护建议
+        $tpl$# {{routeCode}} 框选区域养护建议
 
 ## 一、区域统计摘要
 - 区域面积：{{areaKm2}} km2
@@ -1764,7 +1764,7 @@ $tpl$,
 {{riskNotice}}
 $tpl$,
         'phase35-sample-map-region-maintenance-template-v1',
-        '["routeCode","year","areaKm2","routeCount","sectionCount","unitCount","diseaseCount","heavyDiseaseCount","mediumDiseaseCount","avgMqi","avgPqi","avgPci","hotspotSummary","regionSummary","maintenanceSuggestion","riskNotice"]'::jsonb
+        '["routeCode","areaKm2","routeCount","sectionCount","unitCount","diseaseCount","heavyDiseaseCount","mediumDiseaseCount","avgMqi","avgPqi","avgPci","hotspotSummary","regionSummary","maintenanceSuggestion","riskNotice"]'::jsonb
     )
 )
 INSERT INTO ai_solution_template_version(

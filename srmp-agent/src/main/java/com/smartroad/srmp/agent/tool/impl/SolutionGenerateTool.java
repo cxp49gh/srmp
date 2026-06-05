@@ -75,9 +75,7 @@ public class SolutionGenerateTool implements AiTool {
         String routeCode = objectMode
                 ? firstNonBlank(objectRouteCode, stringValue(args.get("routeCode")), stringValue(mapContext.get("routeCode")), stringValue(mapContext.get("route_code")))
                 : firstNonBlank(stringValue(args.get("routeCode")), stringValue(mapContext.get("routeCode")), stringValue(mapContext.get("route_code")), objectRouteCode);
-        Integer year = objectMode
-                ? intValue(firstNonNull(mapObject.get("year"), args.get("year"), mapContext.get("year")))
-                : intValue(firstNonNull(args.get("year"), mapContext.get("year"), mapObject.get("year")));
+        Integer year = intValue(firstNonNull(args.get("year"), mapContext.get("year")));
         if (mapObject.isEmpty() && "ROAD_ROUTE".equals(objectType)) {
             putIfPresent(mapObject, "objectType", objectType);
             putIfPresent(mapObject, "routeCode", routeCode);

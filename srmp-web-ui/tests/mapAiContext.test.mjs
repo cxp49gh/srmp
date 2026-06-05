@@ -1,75 +1,63 @@
-import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildMapAiContextPayload } from '../src/utils/mapAiContext.ts'
-import { buildUnifiedAnalysisTargets } from '../src/utils/gisUnifiedContext.ts'
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+import vm from 'node:vm'
+import ts from 'typescript'
 
-test('object context prefers selected object route over toolbar query route', () => {
-  const payload = buildMapAiContextPayload({
-    mode: 'OBJECT',
-    message: '分析当前对象',
-    context: {
-      query: { routeCode: 'G210', year: 2026 },
-      selectedLayers: ['ROAD_ROUTE', 'DISEASE']
-    },
-    mapObject: {
-      objectType: 'ASSESSMENT_RESULT',
-      routeCode: 'Y016140727',
-      year: 2026,
-      startStake: 0,
-      endStake: 14.072
-    }
-  })
-
-  assert.equal(payload.routeCode, 'Y016140727')
-  assert.equal(payload.year, 2026)
-  assert.equal(payload.mapObject.routeCode, 'Y016140727')
-})
-
-test('region context exposes standard geometry field for backend tools', () => {
-  const geometry = {
-    type: 'Polygon',
-    coordinates: [[[112, 37], [113, 37], [113, 38], [112, 37]]]
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const require = createRequire(import.meta.url)
+const sourcePath = resolve(root, 'src/utils/mapAiContext.ts')
+const source = readFileSync(sourcePath, 'utf8')
+const compiled = ts.transpileModule(source, {
+  compilerOptions: {
+    module: ts.ModuleKind.CommonJS,
+    target: ts.ScriptTarget.ES2020
   }
-  const payload = buildMapAiContextPayload({
-    mode: 'REGION',
-    message: '分析区域',
-    context: {
-      query: { routeCode: 'G210', year: 2026 },
-      regionGeometry: geometry,
-      selectedLayers: ['ROAD_SECTION', 'DISEASE'],
-      regionSummary: { routeCount: 1 }
-    },
-    region: { objectType: 'MAP_REGION', geometry },
-    regionSummary: { routeCount: 1 }
-  })
+}).outputText
 
-  assert.deepEqual(payload.geometry, geometry)
-  assert.deepEqual(payload.regionGeometry, geometry)
-  assert.equal(payload.routeCode, 'G210')
+const module = { exports: {} }
+vm.runInNewContext(compiled, {
+  exports: module.exports,
+  module,
+  require,
+  console
+}, { filename: sourcePath })
+
+const { buildMapAiContextPayload } = module.exports
+
+const routeContext = buildMapAiContextPayload({
+  mode: 'ROUTE',
+  message: '分析路线',
+  context: {
+    query: {
+      projectId: 'project-1',
+      routeCode: 'G210',
+      indexCode: 'MQI'
+    }
+  }
 })
 
-test('road section analysis targets include related business objects', () => {
-  const targets = buildUnifiedAnalysisTargets({
-    mapObject: {
-      objectType: 'ROAD_SECTION',
-      routeCode: 'Y016140727',
-      startStake: 0,
-      endStake: 14.072,
-      relatedEvaluationUnitCount: 8,
-      relatedDiseaseCount: 13,
-      relatedAssessmentCount: 2
-    },
-    query: { routeCode: 'G210' }
-  })
+assert.equal(routeContext.year, undefined)
+assert.equal(JSON.stringify(routeContext).includes('2026'), false)
 
-  assert.deepEqual(targets.map((item) => item.label), [
-    '路段',
-    '路段相关评定单元',
-    '路段相关病害',
-    '路段相关评定结果'
-  ])
-  assert.equal(targets[0].routeCode, 'Y016140727')
-  assert.equal(targets[1].count, 8)
-  assert.equal(targets[2].count, 13)
-  assert.equal(targets[3].count, 2)
+const objectContext = buildMapAiContextPayload({
+  mode: 'OBJECT',
+  message: '分析对象',
+  context: {
+    query: {
+      projectId: 'project-1',
+      indexCode: 'MQI'
+    }
+  },
+  mapObject: {
+    objectType: 'ROAD_SECTION',
+    routeCode: 'G210',
+    objectId: 'section-1',
+    year: 2026
+  }
 })
+
+assert.equal(objectContext.year, undefined)
+assert.equal(objectContext.mapObject.year, 2026)

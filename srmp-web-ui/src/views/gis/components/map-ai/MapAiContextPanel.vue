@@ -21,8 +21,8 @@ const title = computed(() => {
 })
 
 const subtitle = computed(() => {
-  const year = props.context?.year || props.context?.detectYear || props.context?.query?.year
-  return [props.context?.indexCode || props.context?.query?.indexCode, year].filter(Boolean).join(' / ') || '一张图上下文'
+  const project = props.context?.projectName || props.context?.query?.projectName
+  return [props.context?.indexCode || props.context?.query?.indexCode, project].filter(Boolean).join(' / ') || '一张图上下文'
 })
 </script>
 

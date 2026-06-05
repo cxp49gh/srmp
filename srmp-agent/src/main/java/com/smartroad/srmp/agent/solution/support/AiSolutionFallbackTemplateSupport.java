@@ -100,7 +100,6 @@ public final class AiSolutionFallbackTemplateSupport {
         }
         String text = content;
         return text.contains("| 路线编号 | - |")
-                || text.contains("| 年度 | - |")
                 || text.contains("| 对象类型 | - |")
                 || text.contains("| 方案类型 | - |")
                 || text.contains("| 桩号范围 | - |")
@@ -237,7 +236,6 @@ public final class AiSolutionFallbackTemplateSupport {
         md.append("|---|---|\n");
         md.append("| 方案类型 | ").append(safe(solutionType, "-")).append(" |\n");
         md.append("| 路线编号 | ").append(safe(routeCode, "-")).append(" |\n");
-        md.append("| 年度 | ").append(year == null || isBlank(String.valueOf(year)) ? "-" : String.valueOf(year)).append(" |\n");
         md.append("| 对象类型 | ").append(safe(objectType, "-")).append(" |\n");
 
         if (!isBlank(startStake) || !isBlank(endStake)) {

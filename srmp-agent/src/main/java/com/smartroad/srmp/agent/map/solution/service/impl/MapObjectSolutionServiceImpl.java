@@ -196,7 +196,6 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
         sb.append("【业务对象摘要】\n");
         appendPromptLine(sb, "对象编号", summary.get("objectId"));
         appendPromptLine(sb, "路线", summary.get("routeCode"));
-        appendPromptLine(sb, "年度", summary.get("year"));
         appendPromptLine(sb, "桩号", summary.get("stakeRange"));
         appendPromptLine(sb, "病害", summary.get("diseaseName"));
         appendPromptLine(sb, "严重程度", summary.get("severity"));
@@ -818,7 +817,6 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
     private void appendObjectLines(StringBuilder sb, Map<String, Object> s) {
         appendLine(sb, "对象类型", s.get("objectType"));
         appendLine(sb, "路线", s.get("routeCode"));
-        appendLine(sb, "年度", s.get("year"));
         appendLine(sb, "桩号", s.get("stakeRange"));
         appendLine(sb, "路段", firstPresent(s.get("sectionName"), s.get("sectionCode")));
         appendLine(sb, "评定单元", s.get("unitCode"));

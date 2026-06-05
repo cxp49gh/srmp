@@ -181,7 +181,7 @@ public class AgentAnalysisServiceImpl implements AgentAnalysisService {
     }
 
     private String traceMessage(String label, AgentAnalysisRequest request) {
-        return label + " " + nvl(request == null ? null : request.getRouteCode(), "全部路线") + " " + nvl(request == null ? null : request.getYear(), "全部年度");
+        return label + " " + nvl(request == null ? null : request.getRouteCode(), "全部路线");
     }
 
     private AgentAnalysisResponse response(String title, String llm, String fallback, Map<String, Object> data) {
@@ -197,7 +197,6 @@ public class AgentAnalysisServiceImpl implements AgentAnalysisService {
     private String buildRouteSummary(AgentAnalysisRequest request, Map<String, Object> route, Map<String, Object> disease,
                                      Map<String, Object> assessment, List<Map<String, Object>> poor) {
         return "路线：" + nvl(request.getRouteCode(), "全部") + "\n" +
-                "年度：" + nvl(request.getYear(), "全部") + "\n" +
                 "路线数量：" + route.get("route_count") + "，总里程：" + route.get("route_length_km") + " km。\n" +
                 "病害总数：" + disease.get("disease_count") + "，重度病害：" + disease.get("heavy_count") + "。\n" +
                 "平均 MQI：" + assessment.get("avg_mqi") + "，平均 PQI：" + assessment.get("avg_pqi") + "，平均 PCI：" + assessment.get("avg_pci") + "。\n" +

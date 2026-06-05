@@ -14,7 +14,7 @@
       <div v-for="(m,i) in messages" :key="i" :class="['msg',m.role]"><b>{{ m.role==='user'?'我':'AI' }}：</b><span>{{ m.content }}</span></div>
     </div>
     <div class="input">
-      <el-input v-model="input" type="textarea" :rows="2" placeholder="分析 G210 2026 年整体路况" /><el-button type="primary" :loading="loading" @click="send">发送</el-button>
+      <el-input v-model="input" type="textarea" :rows="2" placeholder="分析当前项目 G210 整体路况" /><el-button type="primary" :loading="loading" @click="send">发送</el-button>
     </div>
   </div>
 </template>

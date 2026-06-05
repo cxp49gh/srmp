@@ -5,6 +5,7 @@
   "description": "SmartRoad Maintenance Platform GIS Web UI",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "test:map-ai-context": "node tests/mapAiContext.test.mjs",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0"
   },

@@ -28,7 +28,7 @@ public class AiSolutionTemplatePipelineServiceImplTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> variables = (Map<String, Object>) method.invoke(service, null, context);
 
-        String template = "# {{routeCode}} {{year}} 框选区域养护建议\n\n" +
+        String template = "# {{routeCode}} 框选区域养护建议\n\n" +
                 "## 二、热点识别\n{{hotspotSummary}}\n\n" +
                 "## 三、区域综合判断\n{{regionSummary}}\n\n" +
                 "## 四、养护建议\n{{maintenanceSuggestion}}\n\n" +
@@ -55,12 +55,12 @@ public class AiSolutionTemplatePipelineServiceImplTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> variables = (Map<String, Object>) method.invoke(service, null, context);
 
-        String template = "# {{routeCode}} {{year}} 框选区域养护建议\n\n{{regionSummary}}\n";
+        String template = "# {{routeCode}} 框选区域养护建议\n\n{{regionSummary}}\n";
         MarkdownTemplateRenderer.RenderResult rendered = new MarkdownTemplateRenderer().renderWithCheck(template, variables);
 
         assertTrue(rendered.getMissingVariables().isEmpty());
         assertFalse(rendered.getRenderedMarkdown().contains("{{routeCode}}"));
-        assertTrue(rendered.getRenderedMarkdown().contains("G210 2026 框选区域养护建议"));
+        assertTrue(rendered.getRenderedMarkdown().contains("G210 框选区域养护建议"));
     }
 
     @Test
@@ -83,11 +83,11 @@ public class AiSolutionTemplatePipelineServiceImplTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> variables = (Map<String, Object>) method.invoke(service, null, context);
 
-        String template = "# {{routeCode}} {{year}} 框选区域养护建议\n";
+        String template = "# {{routeCode}} 框选区域养护建议\n";
         MarkdownTemplateRenderer.RenderResult rendered = new MarkdownTemplateRenderer().renderWithCheck(template, variables);
 
         assertTrue(rendered.getMissingVariables().isEmpty());
-        assertTrue(rendered.getRenderedMarkdown().contains("G310 2026 框选区域养护建议"));
+        assertTrue(rendered.getRenderedMarkdown().contains("G310 框选区域养护建议"));
     }
 
     @Test
@@ -103,7 +103,7 @@ public class AiSolutionTemplatePipelineServiceImplTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> variables = (Map<String, Object>) method.invoke(service, null, context);
 
-        String template = "# {{routeCode}} {{year}} 路段养护计划\n\n" +
+        String template = "# {{routeCode}} 路段养护计划\n\n" +
                 "## 一、路段概况\n{{routeSummary}}\n\n" +
                 "## 二、技术状况\n{{assessmentSummary}}\n\n" +
                 "## 三、主要病害\n{{diseaseSummary}}\n\n" +
@@ -137,7 +137,7 @@ public class AiSolutionTemplatePipelineServiceImplTest {
             @SuppressWarnings("unchecked")
             Map<String, Object> variables = (Map<String, Object>) method.invoke(service, null, context);
 
-            String template = "# {{routeCode}} {{year}} 评定结果处置建议\n\n" +
+            String template = "# {{routeCode}} 评定结果处置建议\n\n" +
                     "- 桩号：{{stakeRange}}\n" +
                     "- MQI：{{mqi}}\n" +
                     "- PQI：{{pqi}}\n" +

@@ -18,16 +18,13 @@ export function buildMapAiContextPayload(options: BuildMapAiContextPayloadOption
   const mode = String(firstPresent(options.mode, context.contextScope, context.mode, 'FREE')).toUpperCase()
   const geometry = firstPresent(context.geometry, context.regionGeometry, region.geometry, regionSummary.geometry, null)
   const selectedRouteCode = pickValue(mapObject, 'routeCode', 'route_code', 'route', 'routeNo', 'route_no')
-  const selectedYear = pickValue(mapObject, 'year')
   const queryRouteCode = firstPresent(query.routeCode, query.route_code, context.routeCode, context.route_code)
   const queryYear = firstPresent(query.year, context.year)
 
   const routeCode = mode === 'OBJECT'
     ? firstPresent(selectedRouteCode, queryRouteCode, pickValue(region, 'routeCode', 'route_code'))
     : firstPresent(queryRouteCode, pickValue(region, 'routeCode', 'route_code'), selectedRouteCode)
-  const year = normalizeYear(mode === 'OBJECT'
-    ? firstPresent(selectedYear, queryYear, 2026)
-    : firstPresent(queryYear, selectedYear, 2026))
+  const year = normalizeYear(queryYear)
 
   return {
     tenantId: firstPresent(context.tenantId, context.tenant_id),

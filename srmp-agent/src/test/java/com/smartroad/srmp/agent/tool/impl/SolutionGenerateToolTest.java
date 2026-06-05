@@ -85,6 +85,32 @@ public class SolutionGenerateToolTest {
         assertEquals("Y016140727", service.lastRequest.getMapObject().get("routeCode"));
     }
 
+    @Test
+    public void objectSolutionDoesNotUseMapObjectYearAsRequestYear() throws Exception {
+        SolutionGenerateTool tool = new SolutionGenerateTool();
+        CapturingMapObjectSolutionService service = new CapturingMapObjectSolutionService();
+        setField(tool, "mapObjectSolutionService", service);
+
+        MapAiContext mapContext = new MapAiContext();
+        mapContext.setMode("OBJECT");
+        mapContext.setMapObject(mapOf(
+                "objectType", "ASSESSMENT_RESULT",
+                "objectId", "assessment-good",
+                "routeCode", "Y016140727",
+                "year", 2026
+        ));
+
+        AiToolContext context = new AiToolContext();
+        context.setTenantId("default");
+        context.setMapContext(mapContext);
+        context.setOptions(new LinkedHashMap<String, Object>());
+
+        AiToolResult result = tool.execute(context, mapOf("action", "GENERATE_OBJECT_SOLUTION"));
+
+        assertTrue(result.isSuccess());
+        assertNull(service.lastRequest.getYear());
+    }
+
     private void setField(Object target, String fieldName, Object value) throws Exception {
         Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);

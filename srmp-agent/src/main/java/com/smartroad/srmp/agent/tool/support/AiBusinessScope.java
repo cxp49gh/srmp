@@ -65,9 +65,7 @@ public class AiBusinessScope {
         scope.year = integerValue(
                 first(safeArgs, "year"),
                 mapContext == null ? null : mapContext.getYear(),
-                first(query, "year"),
-                first(mapObject, "year"),
-                first(rawObject, "year")
+                first(query, "year")
         );
         scope.sectionTier = upperValue(
                 first(safeArgs, "sectionTier", "section_tier"),

@@ -134,7 +134,6 @@ public class AiSolutionQualityServiceImpl implements AiSolutionQualityService {
         md.append("| 任务ID | ").append(asString(task.get("id"))).append(" |\n");
         md.append("| 方案类型 | ").append(asString(task.get("solution_type"))).append(" |\n");
         md.append("| 路线编号 | ").append(asString(task.get("route_code"))).append(" |\n");
-        md.append("| 年度 | ").append(asString(task.get("year"))).append(" |\n");
         md.append("| 模板版本 | ").append(asString(task.get("template_version"))).append(" |\n");
         if ("MAP_OBJECT".equals(asString(task.get("origin_type")))) {
             md.append("| 来源类型 | 地图对象 |\n");

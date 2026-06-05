@@ -318,7 +318,7 @@ function fillSectionPlanDemo() {
     objectType: 'ROAD_SECTION',
     priority: 40,
     changeNote: '一张图路段对象方案模板',
-    content: `# {{routeCode}} {{year}} 路段养护计划
+    content: `# {{routeCode}} 路段养护计划
 
 ## 一、路段概况
 {{routeSummary}}
@@ -352,7 +352,7 @@ function fillEvaluationAdviceDemo() {
     objectType: 'ASSESSMENT_RESULT',
     priority: 40,
     changeNote: '一张图评定结果对象方案模板',
-    content: `# {{routeCode}} {{year}} 评定结果养护建议
+    content: `# {{routeCode}} 评定结果养护建议
 
 ## 一、评定对象
 - 桩号：{{stakeRange}}
@@ -391,7 +391,7 @@ function fillLowScoreTreatmentDemo() {
     objectType: 'ASSESSMENT_RESULT',
     priority: 45,
     changeNote: '一张图低分评定结果处置模板',
-    content: `# {{routeCode}} {{year}} 低分评定处置建议
+    content: `# {{routeCode}} 低分评定处置建议
 
 ## 一、低分对象
 - 桩号：{{stakeRange}}

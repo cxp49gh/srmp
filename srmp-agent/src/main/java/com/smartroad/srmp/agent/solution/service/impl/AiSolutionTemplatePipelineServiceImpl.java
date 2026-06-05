@@ -375,7 +375,6 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
     private String buildMapObjectRouteSummaryText(Map<String, Object> variables) {
         StringBuilder builder = new StringBuilder();
         appendTextLine(builder, "路线", firstNonBlank(safe(variables.get("routeCode")), "当前路线"));
-        appendTextLine(builder, "年度", safe(variables.get("year")));
         appendTextLine(builder, "桩号范围", safe(variables.get("stakeRange")));
         appendTextLine(builder, "路段", firstNonBlank(safe(variables.get("sectionName")), safe(variables.get("sectionCode"))));
         appendTextLine(builder, "里程", appendUnit(safe(variables.get("lengthKm")), "km"));

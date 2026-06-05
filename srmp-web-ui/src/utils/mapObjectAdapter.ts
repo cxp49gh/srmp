@@ -225,7 +225,6 @@ export function buildMapObjectPopupRows(properties: Record<string, any>, options
     return compactRows([
       ['路线编号', route],
       ['评定单元', firstPresent(obj.unitCode, obj.unit_code, obj.unitId, obj.unit_id)],
-      ['年度', firstPresent(obj.year, options.defaultYear)],
       ['方向', direction],
       ['起讫桩号', stake],
       ...metricRows,

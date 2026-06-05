@@ -392,7 +392,8 @@ public class MapRegionSolutionServiceImpl implements MapRegionSolutionService {
 
     private String buildTraceMessage(MapRegionSolutionRequest request) {
         Map<String, Object> query = request == null || request.getQuery() == null ? new LinkedHashMap<>() : request.getQuery();
-        return "区域养护建议 " + safe(query.get("routeCode")) + " " + safe(query.get("year"));
+        String route = safe(query.get("routeCode"));
+        return route.isEmpty() ? "区域养护建议" : "区域养护建议 " + route;
     }
 
     private String buildTitle(MapRegionSolutionRequest request, Map<String, Object> summary) {

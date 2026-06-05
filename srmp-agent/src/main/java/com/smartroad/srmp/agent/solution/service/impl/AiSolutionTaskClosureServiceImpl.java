@@ -163,7 +163,6 @@ public class AiSolutionTaskClosureServiceImpl implements AiSolutionTaskClosureSe
         md.append("| 任务ID | ").append(safe(task.get("id"))).append(" |\n");
         md.append("| 方案类型 | ").append(safe(task.get("solution_type"))).append(" |\n");
         md.append("| 路线编号 | ").append(safe(task.get("route_code"))).append(" |\n");
-        md.append("| 年度 | ").append(safe(task.get("year"))).append(" |\n");
         md.append("| 来源类型 | ").append(safe(task.get("origin_type"))).append(" |\n");
         md.append("| 对象类型 | ").append(safe(task.get("object_type"))).append(" |\n");
         md.append("| 草稿状态 | ").append(safe(task.get("draft_status"))).append(" |\n");
