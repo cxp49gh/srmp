@@ -134,6 +134,7 @@
             <el-button @click="go('/agent/rag-eval')">RAG 质量评测</el-button>
             <el-button @click="go('/agent/outline/auto-sync')">Outline 自动同步</el-button>
             <el-button @click="go('/agent/solution-tasks')">方案任务闭环</el-button>
+            <el-button @click="go('/agent/solution-eval')">方案回归评测</el-button>
           </div>
         </el-card>
       </section>

@@ -22,6 +22,7 @@ import AiKnowledgeFeedbackPage from '../views/agent/AiKnowledgeFeedbackPage.vue'
 import SolutionTemplatesPage from '../views/agent/SolutionTemplatesPage.vue'
 import SolutionGeneratePage from '../views/agent/SolutionGeneratePage.vue'
 import SolutionTasksPage from '../views/agent/SolutionTasksPage.vue'
+import SolutionEvalPage from '../views/agent/SolutionEvalPage.vue'
 import DemoDashboardPage from '../views/demo/DemoDashboardPage.vue'
 import DataManagementProjectsPage from '../views/admin/data-management/DataManagementProjectsPage.vue'
 import DataManagementImportSelectPage from '../views/admin/data-management/DataManagementImportSelectPage.vue'
@@ -72,6 +73,11 @@ const agentChildren: RouteRecordRaw[] = [
     path: 'solution-tasks',
     component: SolutionTasksPage,
     meta: { title: '方案任务' }
+  },
+  {
+    path: 'solution-eval',
+    component: SolutionEvalPage,
+    meta: { title: '方案回归评测' }
   },
   {
     path: 'knowledge-documents',

@@ -106,6 +106,14 @@ public class AiSolutionQualityServiceImpl implements AiSolutionQualityService {
     }
 
     @Override
+    public Map<String, Object> evaluateSnapshot(Map<String, Object> task,
+                                                List<Map<String, Object>> sources,
+                                                String content,
+                                                Map<String, Object> baseResult) {
+        return enrichQualitySnapshot(task, sources, content, baseResult);
+    }
+
+    @Override
     public String exportMarkdown(String taskId) {
         Map<String, Object> task = loadTask(taskId);
         if (task.isEmpty()) {

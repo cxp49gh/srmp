@@ -128,10 +128,11 @@ const menuSections: NavSection[] = [
         type: 'group',
         key: 'ai-governance',
         label: '能力与模板',
-        activePrefixes: ['/agent/ai-governance', '/agent/solution-templates'],
+        activePrefixes: ['/agent/ai-governance', '/agent/solution-templates', '/agent/solution-eval'],
         items: [
           { type: 'link', label: 'AI 能力治理', to: '/agent/ai-governance' },
-          { type: 'link', label: '方案模板', to: '/agent/solution-templates' }
+          { type: 'link', label: '方案模板', to: '/agent/solution-templates' },
+          { type: 'link', label: '方案回归评测', to: '/agent/solution-eval' }
         ]
       }
     ]

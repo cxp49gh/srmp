@@ -53,6 +53,32 @@ export interface AiSolutionTaskQuery {
   limit?: number
 }
 
+export interface AiSolutionEvalCase {
+  id: string
+  name: string
+  solutionType: string
+  originType?: string
+  objectType?: string
+  minScore?: number
+  requiredDimensions?: string[]
+  expectedSourceTypes?: string[]
+}
+
+export interface AiSolutionEvalRequest {
+  cases?: AiSolutionEvalCase[]
+  useLatestTask?: boolean
+}
+
+export interface AiSolutionEvalResponse {
+  total: number
+  passed: number
+  failed: number
+  passRate: number
+  sourceModeSummary?: Record<string, number>
+  failedCaseIds?: string[]
+  results?: Record<string, any>[]
+}
+
 export interface AiSolutionSourceSummaryRequest {
   sourceType?: string
   sourceTitle?: string
@@ -208,4 +234,12 @@ export function restoreSolutionTaskVersion(id: string, versionNo: number, change
 export function getSolutionMarkdownV2ExportUrl(id: string): string {
   const base = import.meta.env.VITE_API_BASE_URL || ''
   return `${base}/api/ai/solution/tasks/${id}/export/markdown-v2`
+}
+
+export function getDefaultSolutionEvalCases(): Promise<AiSolutionEvalCase[]> {
+  return request.get('/api/ai/solution/eval/cases')
+}
+
+export function runSolutionEval(data: AiSolutionEvalRequest): Promise<AiSolutionEvalResponse> {
+  return request.post('/api/ai/solution/eval/run', data)
 }
