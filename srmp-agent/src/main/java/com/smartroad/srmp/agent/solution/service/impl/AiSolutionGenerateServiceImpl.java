@@ -401,6 +401,24 @@ public class AiSolutionGenerateServiceImpl implements AiSolutionGenerateService 
     }
 
     private String readableSolutionType(String solutionType) {
+        if ("ROUTE_REPORT".equals(solutionType)) {
+            return "路线技术状况报告草稿";
+        }
+        if ("SECTION_PLAN".equals(solutionType)) {
+            return "路段养护计划草稿";
+        }
+        if ("EVALUATION_UNIT_ADVICE".equals(solutionType)) {
+            return "评定结果养护建议草稿";
+        }
+        if ("LOW_SCORE_TREATMENT".equals(solutionType)) {
+            return "低分评定处置建议草稿";
+        }
+        if ("DISEASE_TREATMENT".equals(solutionType)) {
+            return "病害处置建议草稿";
+        }
+        if ("REGION_MAINTENANCE_SUGGESTION".equals(solutionType)) {
+            return "区域养护建议草稿";
+        }
         if ("ROAD_ASSESSMENT_REPORT".equals(solutionType)) {
             return "技术状况评定报告草稿";
         }

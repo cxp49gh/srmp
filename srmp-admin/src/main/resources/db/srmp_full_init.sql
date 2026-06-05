@@ -922,9 +922,9 @@ VALUES
 (
     'tpl-road-assessment-report-default',
     'default',
-    'road_assessment_report_default',
-    '技术状况评定报告默认模板',
-    'ROAD_ASSESSMENT_REPORT',
+    'route_report_default',
+    '路线技术状况报告默认模板',
+    'ROUTE_REPORT',
     'SYSTEM',
     NULL,
     'SOLUTION_TEMPLATE',
@@ -945,7 +945,7 @@ VALUES
     'default',
     'tpl-road-assessment-report-default',
     'v1',
-    '# {{routeCode}} {{year}} 年技术状况评定报告草稿
+    '# {{routeCode}} {{year}} 路线技术状况报告草稿
 
 ## 一、路线概况
 {{routeSummary}}
@@ -1262,7 +1262,7 @@ SET origin_type = COALESCE(origin_type, 'ROUTE_REPORT'),
     object_type = COALESCE(object_type, 'ROAD_ROUTE'),
     priority = COALESCE(priority, 0),
     is_default = COALESCE(is_default, false)
-WHERE solution_type = 'ROAD_ASSESSMENT_REPORT'
+WHERE solution_type IN ('ROAD_ASSESSMENT_REPORT', 'ROUTE_REPORT')
   AND deleted = false;
 
 -- <<< END: srmp-admin/src/main/resources/db/phase35_template_effectiveness.sql
@@ -1290,13 +1290,13 @@ WITH seed_templates(
     (
         'tpl-road-assessment-report-default',
         'default',
-        'road_assessment_report_default',
-        '路线技术状况评定报告默认模板',
-        'ROAD_ASSESSMENT_REPORT',
+        'route_report_default',
+        '路线技术状况报告默认模板',
+        'ROUTE_REPORT',
         'ROUTE_REPORT',
         'ROAD_ROUTE',
         30,
-        $tpl$# {{routeCode}} {{year}} 年技术状况评定报告草稿
+        $tpl$# {{routeCode}} {{year}} 路线技术状况报告草稿
 
 ## 一、路线概况
 {{routeSummary}}
@@ -1325,12 +1325,12 @@ $tpl$,
         'tpl-phase35-disease-treatment-default',
         'default',
         'map_object_disease_treatment_default',
-        '地图病害治理方案默认模板',
-        'DISEASE_TREATMENT_PLAN',
+        '地图病害处置建议默认模板',
+        'DISEASE_TREATMENT',
         'MAP_OBJECT',
         'DISEASE',
         30,
-        $tpl$# {{routeCode}} {{year}} 病害治理方案
+        $tpl$# {{routeCode}} {{year}} 病害处置建议
 
 ## 一、病害概况
 - 对象编号：{{objectId}}
@@ -1353,42 +1353,91 @@ $tpl$,
     (
         'tpl-phase35-assessment-low-score-default',
         'default',
-        'map_object_assessment_low_score_default',
-        '低分评定单元分析默认模板',
-        'LOW_SCORE_SECTION_ANALYSIS',
+        'map_object_low_score_treatment_default',
+        '低分评定处置建议默认模板',
+        'LOW_SCORE_TREATMENT',
         'MAP_OBJECT',
         'ASSESSMENT_RESULT',
-        30,
-        $tpl$# {{routeCode}} {{year}} 低分评定单元分析
+        45,
+        $tpl$# {{routeCode}} {{year}} 低分评定处置建议
 
-## 一、单元概况
+## 一、低分对象
+- 桩号：{{stakeRange}}
 - 单元编号：{{unitCode}}
 - MQI：{{mqi}}
 - PQI：{{pqi}}
 - PCI：{{pci}}
 - 等级：{{grade}}
 
-## 二、问题分析
+## 二、低分原因判断
 {{problemAnalysis}}
 
-## 三、养护建议
+## 三、关联病害
+{{diseaseSummary}}
+
+## 四、处置策略
 {{maintenanceSuggestion}}
 
-## 四、风险提示
+## 五、重点范围
+{{lowScoreSections}}
+
+## 六、业务证据
+{{businessEvidenceSummary}}
+
+## 七、风险提示
 {{riskNotice}}
 $tpl$,
-        '["routeCode","year","unitCode","mqi","pqi","pci","grade","problemAnalysis","maintenanceSuggestion","riskNotice"]'::jsonb
+        '["routeCode","year","stakeRange","unitCode","mqi","pqi","pci","grade","problemAnalysis","diseaseSummary","maintenanceSuggestion","lowScoreSections","businessEvidenceSummary","riskNotice"]'::jsonb
+    ),
+    (
+        'tpl-phase35-assessment-advice-default',
+        'default',
+        'map_object_evaluation_unit_advice_default',
+        '评定结果养护建议默认模板',
+        'EVALUATION_UNIT_ADVICE',
+        'MAP_OBJECT',
+        'ASSESSMENT_RESULT',
+        40,
+        $tpl$# {{routeCode}} {{year}} 评定结果养护建议
+
+## 一、评定对象
+- 桩号：{{stakeRange}}
+- 评定单元：{{unitCode}}
+- MQI：{{mqi}}
+- PQI：{{pqi}}
+- PCI：{{pci}}
+- 等级：{{grade}}
+
+## 二、技术状况判断
+{{assessmentSummary}}
+
+## 三、关联病害
+{{diseaseSummary}}
+
+## 四、问题分析
+{{problemAnalysis}}
+
+## 五、养护建议
+{{maintenanceSuggestion}}
+
+## 六、业务证据
+{{businessEvidenceSummary}}
+
+## 七、风险提示
+{{riskNotice}}
+$tpl$,
+        '["routeCode","year","stakeRange","unitCode","mqi","pqi","pci","grade","assessmentSummary","diseaseSummary","problemAnalysis","maintenanceSuggestion","businessEvidenceSummary","riskNotice"]'::jsonb
     ),
     (
         'tpl-phase35-road-section-maintenance-default',
         'default',
-        'map_object_road_section_maintenance_default',
-        '路段养护建议默认模板',
-        'MAINTENANCE_SUGGESTION',
+        'map_object_section_plan_default',
+        '路段养护计划默认模板',
+        'SECTION_PLAN',
         'MAP_OBJECT',
         'ROAD_SECTION',
-        20,
-        $tpl$# {{routeCode}} {{year}} 路段养护建议
+        40,
+        $tpl$# {{routeCode}} {{year}} 路段养护计划
 
 ## 一、路段概况
 {{routeSummary}}
@@ -1405,10 +1454,13 @@ $tpl$,
 ## 五、养护建议
 {{maintenanceSuggestion}}
 
-## 六、风险提示
+## 六、业务证据
+{{businessEvidenceSummary}}
+
+## 七、风险提示
 {{riskNotice}}
 $tpl$,
-        '["routeCode","year","routeSummary","assessmentSummary","diseaseSummary","problemAnalysis","maintenanceSuggestion","riskNotice"]'::jsonb
+        '["routeCode","year","routeSummary","assessmentSummary","diseaseSummary","problemAnalysis","maintenanceSuggestion","businessEvidenceSummary","riskNotice"]'::jsonb
     ),
     (
         'tpl-phase35-map-region-maintenance-default',
@@ -1529,7 +1581,7 @@ WITH seed_versions(
         'default',
         'tpl-road-assessment-report-default',
         'v1',
-        $tpl$# {{routeCode}} {{year}} 年技术状况评定报告草稿
+        $tpl$# {{routeCode}} {{year}} 路线技术状况报告草稿
 
 ## 一、路线概况
 {{routeSummary}}
@@ -1560,7 +1612,7 @@ $tpl$,
         'default',
         'tpl-phase35-disease-treatment-default',
         'v1',
-        $tpl$# {{routeCode}} {{year}} 病害治理方案
+        $tpl$# {{routeCode}} {{year}} 病害处置建议
 
 ## 一、病害概况
 - 对象编号：{{objectId}}
@@ -1586,33 +1638,79 @@ $tpl$,
         'default',
         'tpl-phase35-assessment-low-score-default',
         'v1',
-        $tpl$# {{routeCode}} {{year}} 低分评定单元分析
+        $tpl$# {{routeCode}} {{year}} 低分评定处置建议
 
-## 一、单元概况
+## 一、低分对象
+- 桩号：{{stakeRange}}
 - 单元编号：{{unitCode}}
 - MQI：{{mqi}}
 - PQI：{{pqi}}
 - PCI：{{pci}}
 - 等级：{{grade}}
 
-## 二、问题分析
+## 二、低分原因判断
 {{problemAnalysis}}
 
-## 三、养护建议
+## 三、关联病害
+{{diseaseSummary}}
+
+## 四、处置策略
 {{maintenanceSuggestion}}
 
-## 四、风险提示
+## 五、重点范围
+{{lowScoreSections}}
+
+## 六、业务证据
+{{businessEvidenceSummary}}
+
+## 七、风险提示
 {{riskNotice}}
 $tpl$,
         'phase35-sample-low-score-template-v1',
-        '["routeCode","year","unitCode","mqi","pqi","pci","grade","problemAnalysis","maintenanceSuggestion","riskNotice"]'::jsonb
+        '["routeCode","year","stakeRange","unitCode","mqi","pqi","pci","grade","problemAnalysis","diseaseSummary","maintenanceSuggestion","lowScoreSections","businessEvidenceSummary","riskNotice"]'::jsonb
+    ),
+    (
+        'tplv-phase35-assessment-advice-default-v1',
+        'default',
+        'tpl-phase35-assessment-advice-default',
+        'v1',
+        $tpl$# {{routeCode}} {{year}} 评定结果养护建议
+
+## 一、评定对象
+- 桩号：{{stakeRange}}
+- 评定单元：{{unitCode}}
+- MQI：{{mqi}}
+- PQI：{{pqi}}
+- PCI：{{pci}}
+- 等级：{{grade}}
+
+## 二、技术状况判断
+{{assessmentSummary}}
+
+## 三、关联病害
+{{diseaseSummary}}
+
+## 四、问题分析
+{{problemAnalysis}}
+
+## 五、养护建议
+{{maintenanceSuggestion}}
+
+## 六、业务证据
+{{businessEvidenceSummary}}
+
+## 七、风险提示
+{{riskNotice}}
+$tpl$,
+        'phase35-sample-assessment-advice-template-v1',
+        '["routeCode","year","stakeRange","unitCode","mqi","pqi","pci","grade","assessmentSummary","diseaseSummary","problemAnalysis","maintenanceSuggestion","businessEvidenceSummary","riskNotice"]'::jsonb
     ),
     (
         'tplv-phase35-road-section-maintenance-default-v1',
         'default',
         'tpl-phase35-road-section-maintenance-default',
         'v1',
-        $tpl$# {{routeCode}} {{year}} 路段养护建议
+        $tpl$# {{routeCode}} {{year}} 路段养护计划
 
 ## 一、路段概况
 {{routeSummary}}
@@ -1629,11 +1727,14 @@ $tpl$,
 ## 五、养护建议
 {{maintenanceSuggestion}}
 
-## 六、风险提示
+## 六、业务证据
+{{businessEvidenceSummary}}
+
+## 七、风险提示
 {{riskNotice}}
 $tpl$,
         'phase35-sample-road-section-maintenance-template-v1',
-        '["routeCode","year","routeSummary","assessmentSummary","diseaseSummary","problemAnalysis","maintenanceSuggestion","riskNotice"]'::jsonb
+        '["routeCode","year","routeSummary","assessmentSummary","diseaseSummary","problemAnalysis","maintenanceSuggestion","businessEvidenceSummary","riskNotice"]'::jsonb
     ),
     (
         'tplv-phase35-map-region-maintenance-default-v1',

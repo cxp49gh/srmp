@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -42,6 +43,95 @@ public class AiSolutionTemplatePipelineServiceImplTest {
         assertTrue(rendered.getRenderedMarkdown().contains("人工复核"));
     }
 
+    @Test
+    public void buildVariablesFillsMapObjectSectionPlanTemplateSections() throws Exception {
+        AiSolutionTemplatePipelineServiceImpl service = new AiSolutionTemplatePipelineServiceImpl();
+        SolutionTemplateContext context = mapObjectContext("ROAD_SECTION", "SECTION_PLAN");
+        context.setObjectSummary(sectionSummary());
+        context.setBusinessData(businessEvidenceData());
+
+        Method method = AiSolutionTemplatePipelineServiceImpl.class
+                .getDeclaredMethod("buildVariables", com.smartroad.srmp.agent.trace.AiTraceContext.class, SolutionTemplateContext.class);
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> variables = (Map<String, Object>) method.invoke(service, null, context);
+
+        String template = "# {{routeCode}} {{year}} 路段养护计划\n\n" +
+                "## 一、路段概况\n{{routeSummary}}\n\n" +
+                "## 二、技术状况\n{{assessmentSummary}}\n\n" +
+                "## 三、主要病害\n{{diseaseSummary}}\n\n" +
+                "## 四、问题分析\n{{problemAnalysis}}\n\n" +
+                "## 五、养护建议\n{{maintenanceSuggestion}}\n\n" +
+                "## 六、风险提示\n{{riskNotice}}\n\n" +
+                "## 七、业务证据\n{{businessEvidenceSummary}}\n";
+        MarkdownTemplateRenderer.RenderResult rendered = new MarkdownTemplateRenderer().renderWithCheck(template, variables);
+
+        assertTrue(rendered.getMissingVariables().isEmpty());
+        assertFalse(rendered.getRenderedMarkdown().contains("{{"));
+        assertTrue(rendered.getRenderedMarkdown().contains("Y016140727"));
+        assertTrue(rendered.getRenderedMarkdown().contains("K10-K12.5"));
+        assertTrue(rendered.getRenderedMarkdown().contains("评定结果 2"));
+        assertTrue(rendered.getRenderedMarkdown().contains("病害 5"));
+        assertTrue(rendered.getRenderedMarkdown().contains("gis.queryDiseases"));
+    }
+
+    @Test
+    public void buildVariablesFillsAssessmentAdviceAndLowScoreTemplateSections() throws Exception {
+        AiSolutionTemplatePipelineServiceImpl service = new AiSolutionTemplatePipelineServiceImpl();
+        Method method = AiSolutionTemplatePipelineServiceImpl.class
+                .getDeclaredMethod("buildVariables", com.smartroad.srmp.agent.trace.AiTraceContext.class, SolutionTemplateContext.class);
+        method.setAccessible(true);
+
+        for (String solutionType : new String[]{"EVALUATION_UNIT_ADVICE", "LOW_SCORE_TREATMENT"}) {
+            SolutionTemplateContext context = mapObjectContext("ASSESSMENT_RESULT", solutionType);
+            context.setObjectSummary(assessmentSummary(solutionType));
+            context.setBusinessData(businessEvidenceData());
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> variables = (Map<String, Object>) method.invoke(service, null, context);
+
+            String template = "# {{routeCode}} {{year}} 评定结果处置建议\n\n" +
+                    "- 桩号：{{stakeRange}}\n" +
+                    "- MQI：{{mqi}}\n" +
+                    "- PQI：{{pqi}}\n" +
+                    "- PCI：{{pci}}\n" +
+                    "- 等级：{{grade}}\n\n" +
+                    "## 一、评定判断\n{{assessmentSummary}}\n\n" +
+                    "## 二、关联病害\n{{diseaseSummary}}\n\n" +
+                    "## 三、问题分析\n{{problemAnalysis}}\n\n" +
+                    "## 四、养护建议\n{{maintenanceSuggestion}}\n\n" +
+                    "## 五、风险提示\n{{riskNotice}}\n";
+            MarkdownTemplateRenderer.RenderResult rendered = new MarkdownTemplateRenderer().renderWithCheck(template, variables);
+
+            assertEquals(solutionType, variables.get("solutionType"));
+            assertTrue(rendered.getMissingVariables().isEmpty());
+            assertFalse(rendered.getRenderedMarkdown().contains("{{"));
+            assertTrue(rendered.getRenderedMarkdown().contains("Y016140727"));
+            assertTrue(rendered.getRenderedMarkdown().contains("PCI"));
+            assertTrue(rendered.getRenderedMarkdown().contains("病害 5"));
+        }
+    }
+
+    @Test
+    public void buildVariablesKeepsMapObjectTemplateCompleteWithoutBusinessEvidence() throws Exception {
+        AiSolutionTemplatePipelineServiceImpl service = new AiSolutionTemplatePipelineServiceImpl();
+        SolutionTemplateContext context = mapObjectContext("ROAD_SECTION", "SECTION_PLAN");
+        context.setObjectSummary(sectionSummary());
+
+        Method method = AiSolutionTemplatePipelineServiceImpl.class
+                .getDeclaredMethod("buildVariables", com.smartroad.srmp.agent.trace.AiTraceContext.class, SolutionTemplateContext.class);
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> variables = (Map<String, Object>) method.invoke(service, null, context);
+
+        String template = "## 业务证据\n{{businessEvidenceSummary}}\n";
+        MarkdownTemplateRenderer.RenderResult rendered = new MarkdownTemplateRenderer().renderWithCheck(template, variables);
+
+        assertTrue(rendered.getMissingVariables().isEmpty());
+        assertFalse(rendered.getRenderedMarkdown().contains("{{"));
+        assertTrue(rendered.getRenderedMarkdown().contains("未取得结构化工具取证"));
+    }
+
     private SolutionTemplateContext regionContext() {
         SolutionTemplateContext context = new SolutionTemplateContext();
         context.setOriginType("MAP_REGION");
@@ -57,6 +147,72 @@ public class AiSolutionTemplatePipelineServiceImplTest {
         businessData.put("hotspots", regionSummary().get("hotspots"));
         context.setBusinessData(businessData);
         return context;
+    }
+
+    private SolutionTemplateContext mapObjectContext(String objectType, String solutionType) {
+        SolutionTemplateContext context = new SolutionTemplateContext();
+        context.setOriginType("MAP_OBJECT");
+        context.setObjectType(objectType);
+        context.setSolutionType(solutionType);
+        context.setRouteCode("Y016140727");
+        context.setYear(2026);
+        context.setTitle("Y016140727 对象方案");
+        return context;
+    }
+
+    private Map<String, Object> sectionSummary() {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("objectType", "ROAD_SECTION");
+        summary.put("objectId", "section-1");
+        summary.put("routeCode", "Y016140727");
+        summary.put("year", 2026);
+        summary.put("stakeRange", "K10-K12.5");
+        summary.put("sectionName", "北堡-北六门线");
+        summary.put("lengthKm", "2.5");
+        summary.put("mqi", 82.4);
+        summary.put("pqi", 76.1);
+        summary.put("pci", 72.8);
+        return summary;
+    }
+
+    private Map<String, Object> assessmentSummary(String solutionType) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("objectType", "ASSESSMENT_RESULT");
+        summary.put("objectId", "assessment-1");
+        summary.put("routeCode", "Y016140727");
+        summary.put("year", 2026);
+        summary.put("stakeRange", "K10-K12.5");
+        summary.put("unitCode", "Y016-2026-U010");
+        summary.put("mqi", "LOW_SCORE_TREATMENT".equals(solutionType) ? 58.2 : 85.1);
+        summary.put("pqi", "LOW_SCORE_TREATMENT".equals(solutionType) ? 63.0 : 76.2);
+        summary.put("pci", "LOW_SCORE_TREATMENT".equals(solutionType) ? 59.8 : 77.6);
+        summary.put("grade", "LOW_SCORE_TREATMENT".equals(solutionType) ? "差" : "良");
+        return summary;
+    }
+
+    private Map<String, Object> businessEvidenceData() {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("businessEvidenceSummary", "- 取证概况：成功工具 3 个，业务命中 7\n" +
+                "- gis.queryAssessmentResults：查询到评定结果 2 条（命中 2）\n" +
+                "- gis.queryDiseases：查询到病害 5 条（命中 5）");
+
+        Map<String, Object> evidence = new LinkedHashMap<>();
+        evidence.put("toolSuccessCount", 3);
+        evidence.put("businessHitCount", 7);
+        List<Map<String, Object>> toolSummary = new ArrayList<>();
+        Map<String, Object> assessmentTool = new LinkedHashMap<>();
+        assessmentTool.put("toolName", "gis.queryAssessmentResults");
+        assessmentTool.put("hitCount", 2);
+        assessmentTool.put("summary", "查询到评定结果 2 条");
+        toolSummary.add(assessmentTool);
+        Map<String, Object> diseaseTool = new LinkedHashMap<>();
+        diseaseTool.put("toolName", "gis.queryDiseases");
+        diseaseTool.put("hitCount", 5);
+        diseaseTool.put("summary", "查询到病害 5 条");
+        toolSummary.add(diseaseTool);
+        evidence.put("toolSummary", toolSummary);
+        data.put("businessEvidence", evidence);
+        return data;
     }
 
     private Map<String, Object> regionSummary() {

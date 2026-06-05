@@ -204,15 +204,16 @@ public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService 
         AiSolutionTemplateRequest createRequest = new AiSolutionTemplateRequest();
         createRequest.setTemplateCode(safe(request.getTemplateCode(), codeOf(title)));
         createRequest.setTemplateName(title);
-        createRequest.setSolutionType(safe(request.getSolutionType(), "ROAD_ASSESSMENT_REPORT"));
+        String solutionType = safe(request.getSolutionType(), "SECTION_PLAN");
+        createRequest.setSolutionType(solutionType);
         createRequest.setSourceType(String.valueOf(doc.get("source_type")));
         createRequest.setSourceId(String.valueOf(doc.get("id")));
         createRequest.setCategory("SOLUTION_TEMPLATE");
         createRequest.setVersion("v1");
         createRequest.setContent(content);
         createRequest.setSourceUrl(doc.get("url") == null ? null : String.valueOf(doc.get("url")));
-        createRequest.setOriginType("ROUTE_REPORT");
-        createRequest.setObjectType("ROAD_ROUTE");
+        createRequest.setOriginType(defaultOriginTypeForSolution(solutionType));
+        createRequest.setObjectType(defaultObjectTypeForSolution(solutionType));
         createRequest.setIsDefault(false);
         createRequest.setPriority(0);
 
@@ -236,9 +237,10 @@ public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService 
     public Map<String, Object> matchPreview(AiSolutionTemplateMatchPreviewRequest request) {
         SolutionTemplateContext context = new SolutionTemplateContext();
         context.setTenantId(TenantContextHolder.getTenantId());
-        context.setOriginType(safe(request == null ? null : request.getOriginType(), "ROUTE_REPORT"));
-        context.setObjectType(safe(request == null ? null : request.getObjectType(), "ROAD_ROUTE"));
-        context.setSolutionType(safe(request == null ? null : request.getSolutionType(), "ROAD_ASSESSMENT_REPORT"));
+        String solutionType = safe(request == null ? null : request.getSolutionType(), "SECTION_PLAN");
+        context.setOriginType(safe(request == null ? null : request.getOriginType(), defaultOriginTypeForSolution(solutionType)));
+        context.setObjectType(safe(request == null ? null : request.getObjectType(), defaultObjectTypeForSolution(solutionType)));
+        context.setSolutionType(solutionType);
         context.setTemplateId(safe(request == null ? null : request.getTemplateId(), ""));
         context.setTemplateCode(safe(request == null ? null : request.getTemplateCode(), ""));
         TemplatePipelineResult result = aiSolutionTemplatePipelineService.generate(context);
@@ -377,6 +379,34 @@ public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService 
         if (isBlank(request.getContent())) {
             throw new IllegalArgumentException("模板内容不能为空");
         }
+    }
+
+    private String defaultOriginTypeForSolution(String solutionType) {
+        String type = safe(solutionType, "").toUpperCase(Locale.ROOT);
+        if ("REGION_MAINTENANCE_SUGGESTION".equals(type)) {
+            return "MAP_REGION";
+        }
+        if ("ROUTE_REPORT".equals(type) || "ROAD_ASSESSMENT_REPORT".equals(type)) {
+            return "ROUTE_REPORT";
+        }
+        return "MAP_OBJECT";
+    }
+
+    private String defaultObjectTypeForSolution(String solutionType) {
+        String type = safe(solutionType, "").toUpperCase(Locale.ROOT);
+        if ("SECTION_PLAN".equals(type) || "MAINTENANCE_SUGGESTION".equals(type)) {
+            return "ROAD_SECTION";
+        }
+        if ("EVALUATION_UNIT_ADVICE".equals(type) || "LOW_SCORE_TREATMENT".equals(type) || "LOW_SCORE_SECTION_ANALYSIS".equals(type)) {
+            return "ASSESSMENT_RESULT";
+        }
+        if ("DISEASE_TREATMENT".equals(type) || "DISEASE_TREATMENT_PLAN".equals(type)) {
+            return "DISEASE";
+        }
+        if ("REGION_MAINTENANCE_SUGGESTION".equals(type)) {
+            return "MAP_REGION";
+        }
+        return "ROAD_ROUTE";
     }
 
     private void clearDefaultAndSet(String tenantId,

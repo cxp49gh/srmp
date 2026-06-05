@@ -7,10 +7,12 @@
         <el-form label-width="100px">
           <el-form-item label="方案类型">
             <el-select v-model="form.solutionType" @change="loadTemplates">
-              <el-option label="技术状况评定报告" value="ROAD_ASSESSMENT_REPORT" />
-              <el-option label="养护建议方案" value="MAINTENANCE_SUGGESTION" />
-              <el-option label="病害治理方案" value="DISEASE_TREATMENT_PLAN" />
-              <el-option label="低分路段分析" value="LOW_SCORE_SECTION_ANALYSIS" />
+              <el-option label="路线技术状况报告" value="ROUTE_REPORT" />
+              <el-option label="路段养护计划" value="SECTION_PLAN" />
+              <el-option label="评定结果养护建议" value="EVALUATION_UNIT_ADVICE" />
+              <el-option label="低分评定处置建议" value="LOW_SCORE_TREATMENT" />
+              <el-option label="病害处置建议" value="DISEASE_TREATMENT" />
+              <el-option label="区域养护建议" value="REGION_MAINTENANCE_SUGGESTION" />
             </el-select>
           </el-form-item>
 
@@ -116,7 +118,7 @@ const businessContext = computed(() => ({
 }))
 
 const form = reactive({
-  solutionType: 'ROAD_ASSESSMENT_REPORT',
+  solutionType: 'ROUTE_REPORT',
   routeCode: 'G210',
   year: 2026,
   templateId: '',
@@ -131,7 +133,7 @@ const form = reactive({
 onMounted(loadTemplates)
 
 function fillDemo() {
-  form.solutionType = 'ROAD_ASSESSMENT_REPORT'
+  form.solutionType = 'ROUTE_REPORT'
   form.routeCode = 'G210'
   form.year = 2026
   form.options.useBusinessData = true

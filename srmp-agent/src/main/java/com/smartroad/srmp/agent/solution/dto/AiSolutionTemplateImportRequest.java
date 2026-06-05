@@ -20,7 +20,7 @@ public class AiSolutionTemplateImportRequest {
     private String templateName;
 
     /**
-     * 方案类型，例如 ROAD_ASSESSMENT_REPORT。
+     * 方案类型，例如 SECTION_PLAN、EVALUATION_UNIT_ADVICE、LOW_SCORE_TREATMENT。
      */
     private String solutionType;
 

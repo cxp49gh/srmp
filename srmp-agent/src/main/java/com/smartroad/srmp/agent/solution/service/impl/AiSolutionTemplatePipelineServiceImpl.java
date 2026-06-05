@@ -135,6 +135,7 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
         variables.put("outlineSources", context.getOutlineSources());
         normalizeRegionVariables(variables, context.getRegionSummary());
         normalizeRegionTextVariables(variables, context.getRegionSummary());
+        normalizeMapObjectTextVariables(variables);
         if (timer != null) {
             timer.success(variables.size());
         }
@@ -328,6 +329,213 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
                 extractMarkdownSection(llmMarkdown, "风险提示", "风险提醒", "审核提示"),
                 "本建议由系统基于区域统计和 AI 分析生成，实施前需结合现场复核、交通组织、资金计划和最新检测数据进行人工复核。"
         ));
+    }
+
+    private void normalizeMapObjectTextVariables(Map<String, Object> variables) {
+        if (variables == null || variables.isEmpty()) {
+            return;
+        }
+        String originType = safe(variables.get("originType"));
+        if (!"MAP_OBJECT".equals(originType)) {
+            return;
+        }
+        putIfBlank(variables, "businessEvidenceSummary", buildBusinessEvidenceSummaryText(toMap(variables.get("businessEvidence"))));
+        putIfBlank(variables, "routeSummary", buildMapObjectRouteSummaryText(variables));
+        putIfBlank(variables, "assessmentSummary", buildMapObjectAssessmentSummaryText(variables));
+        putIfBlank(variables, "diseaseSummary", buildMapObjectDiseaseSummaryText(variables));
+        putIfBlank(variables, "problemAnalysis", buildMapObjectProblemAnalysisText(variables));
+        putIfBlank(variables, "maintenanceSuggestion", buildMapObjectMaintenanceSuggestionText(variables));
+        putIfBlank(variables, "treatmentAdvice", buildMapObjectTreatmentAdviceText(variables));
+        putIfBlank(variables, "lowScoreSections", buildMapObjectLowScoreText(variables));
+        putIfBlank(variables, "riskNotice", "本方案草稿由系统基于地图对象、业务查询证据和模板规则生成，实施前需结合现场复核、预算计划、交通组织和最新检测资料进行人工审核。");
+    }
+
+    private String buildMapObjectRouteSummaryText(Map<String, Object> variables) {
+        StringBuilder builder = new StringBuilder();
+        appendTextLine(builder, "路线", firstNonBlank(safe(variables.get("routeCode")), "当前路线"));
+        appendTextLine(builder, "年度", safe(variables.get("year")));
+        appendTextLine(builder, "桩号范围", safe(variables.get("stakeRange")));
+        appendTextLine(builder, "路段", firstNonBlank(safe(variables.get("sectionName")), safe(variables.get("sectionCode"))));
+        appendTextLine(builder, "里程", appendUnit(safe(variables.get("lengthKm")), "km"));
+        appendTextLine(builder, "对象编号", safe(variables.get("objectId")));
+        return builder.length() == 0 ? "当前对象基础信息不足，建议先核对路线、桩号和对象编号。" : builder.toString();
+    }
+
+    private String buildMapObjectAssessmentSummaryText(Map<String, Object> variables) {
+        StringBuilder builder = new StringBuilder();
+        appendTextLine(builder, "评定单元", safe(variables.get("unitCode")));
+        appendTextLine(builder, "MQI", safe(variables.get("mqi")));
+        appendTextLine(builder, "PQI", safe(variables.get("pqi")));
+        appendTextLine(builder, "PCI", safe(variables.get("pci")));
+        appendTextLine(builder, "当前指标", activeMetricText(variables));
+        appendTextLine(builder, "等级", safe(variables.get("grade")));
+        appendTextLine(builder, "评定证据", toolHitText(variables, "gis.queryAssessmentResults", "评定结果"));
+        if (builder.length() == 0) {
+            return "未取得完整评定指标，建议补充当前对象年度评定结果后再确定处置等级。";
+        }
+        return builder.toString();
+    }
+
+    private String buildMapObjectDiseaseSummaryText(Map<String, Object> variables) {
+        StringBuilder builder = new StringBuilder();
+        appendTextLine(builder, "病害类型", safe(variables.get("diseaseName")));
+        appendTextLine(builder, "严重程度", safe(variables.get("severity")));
+        appendTextLine(builder, "工程量", quantityText(variables));
+        appendTextLine(builder, "病害证据", firstNonBlank(
+                toolHitText(variables, "gis.queryDiseasesByStakeRange", "桩号范围病害"),
+                toolHitText(variables, "gis.queryDiseases", "病害")
+        ));
+        if (builder.length() == 0) {
+            return "当前模板未取得明确病害明细，建议结合关联病害图层和现场巡查结果补充病害类型、程度和工程量。";
+        }
+        return builder.toString();
+    }
+
+    private String buildMapObjectProblemAnalysisText(Map<String, Object> variables) {
+        String solutionType = safe(variables.get("solutionType"));
+        String objectType = safe(variables.get("objectType"));
+        String metric = firstNonBlank(activeMetricText(variables), "MQI/PQI/PCI 指标");
+        if ("LOW_SCORE_TREATMENT".equals(solutionType)) {
+            return "当前评定对象存在差次或低值指标，应重点核查 " + metric + " 对应的裂缝、坑槽、沉陷、车辙等病害贡献，并判断是否存在连续损坏、排水不良或结构承载不足。";
+        }
+        if ("EVALUATION_UNIT_ADVICE".equals(solutionType) || "ASSESSMENT_RESULT".equals(objectType)) {
+            return "当前评定对象应结合指标短板、关联病害和相邻单元表现综合判断；若指标处于良好区间，建议以预防性养护和跟踪复核为主，避免将正常评定结果误判为低分处置。";
+        }
+        if ("SECTION_PLAN".equals(solutionType) || "ROAD_SECTION".equals(objectType)) {
+            return "当前路段需综合评定结果和病害分布识别主要短板，重点关注低 PCI/PQI 单元、重度病害和连续损坏区段，并从交通荷载、排水条件、材料老化和结构承载方面分析原因。";
+        }
+        if ("DISEASE".equals(objectType)) {
+            return "当前病害需结合损坏范围、严重程度、周边同类病害和现场排水条件判断成因，避免只处理表层现象。";
+        }
+        return "建议结合当前对象基础信息、业务查询证据和现场复核资料，识别主要技术短板和处置触发因素。";
+    }
+
+    private String buildMapObjectMaintenanceSuggestionText(Map<String, Object> variables) {
+        String solutionType = safe(variables.get("solutionType"));
+        if ("LOW_SCORE_TREATMENT".equals(solutionType)) {
+            return "- P1/P2：优先复核差次或低值指标对应桩号，核实关联病害和结构状态。\n" +
+                    "- 按病害类型选择裂缝处治、坑槽修补、铣刨重铺、排水修复或结构性修复。\n" +
+                    "- 与相邻低分单元统筹，形成连续处治清单，避免零散修补反复返工。";
+        }
+        if ("EVALUATION_UNIT_ADVICE".equals(solutionType)) {
+            return "- 对良好或中等评定单元，以预防性养护、巡查跟踪和局部病害修补为主。\n" +
+                    "- 若关联病害集中或指标持续下降，纳入近期复核并评估是否升级为专项处治。\n" +
+                    "- 处置后跟踪 MQI/PQI/PCI 改善效果。";
+        }
+        if ("SECTION_PLAN".equals(solutionType)) {
+            return "- 将路段按评定短板和病害集中程度分段，形成近期处置、预防养护和跟踪观察清单。\n" +
+                    "- 优先处理安全风险高、病害密集和指标偏低区段；一般区段纳入年度计划统筹。\n" +
+                    "- 实施前补充现场复核工程量、交通组织和预算测算。";
+        }
+        return "- 先完成现场复核，确认病害范围、结构状态和工程量。\n" +
+                "- 按安全影响、发展速度和养护资金安排确定实施优先级。\n" +
+                "- 处置后建立跟踪复评记录。";
+    }
+
+    private String buildMapObjectTreatmentAdviceText(Map<String, Object> variables) {
+        String diseaseName = safe(variables.get("diseaseName"));
+        if (diseaseName.isEmpty()) {
+            return "根据现场复核结果选择局部修补、预防性养护或结构性修复；涉及结构层损坏时需先处理基层和排水问题。";
+        }
+        return "针对" + diseaseName + "，建议先复核损坏深度、范围和基层状态；表层病害可采用局部修补、裂缝处治或铣刨重铺，若发现基层松散、含水或排水不畅，应先处理结构和排水后恢复面层。";
+    }
+
+    private String buildMapObjectLowScoreText(Map<String, Object> variables) {
+        String stakeRange = safe(variables.get("stakeRange"));
+        String metric = firstNonBlank(activeMetricText(variables), "关键指标");
+        if (stakeRange.isEmpty()) {
+            return "当前对象未提供明确桩号范围，建议先补齐评定单元或路段桩号后再划定低分区段。";
+        }
+        return firstNonBlank(safe(variables.get("routeCode")), "当前路线") + " " + stakeRange + " 为重点复核范围，需结合 " + metric + " 与关联病害确认是否纳入低分处置清单。";
+    }
+
+    private String buildBusinessEvidenceSummaryText(Map<String, Object> evidence) {
+        if (evidence == null || evidence.isEmpty()) {
+            return "未取得结构化工具取证，建议先确认本次分析是否已执行评定、病害、路段或区域统计查询。";
+        }
+        StringBuilder builder = new StringBuilder();
+        appendTextLine(builder, "取证概况", "成功工具 " + firstNonBlank(safe(evidence.get("toolSuccessCount")), "-") +
+                " 个，业务命中 " + firstNonBlank(safe(evidence.get("businessHitCount")), "-"));
+        Object raw = evidence.get("toolSummary");
+        if (raw instanceof List) {
+            for (Object item : (List<?>) raw) {
+                Map<String, Object> tool = toMap(item);
+                String toolName = safe(tool.get("toolName"));
+                if (toolName.isEmpty()) {
+                    continue;
+                }
+                appendTextLine(builder, toolName, firstNonBlank(safe(tool.get("summary")), "命中 " + firstNonBlank(safe(tool.get("hitCount")), "0") + " 条"));
+            }
+        }
+        return builder.length() == 0
+                ? "未取得结构化工具取证，建议先确认本次分析是否已执行评定、病害、路段或区域统计查询。"
+                : builder.toString();
+    }
+
+    private String activeMetricText(Map<String, Object> variables) {
+        String code = safe(first(variables, "activeMetricCode", "activeIndexCode"));
+        String value = safe(first(variables, "activeMetricValue", "activeIndexValue"));
+        String grade = safe(first(variables, "activeMetricGrade", "activeIndexGrade"));
+        if (code.isEmpty() && value.isEmpty() && grade.isEmpty()) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder();
+        if (!code.isEmpty()) {
+            builder.append(code);
+        }
+        if (!value.isEmpty()) {
+            if (builder.length() > 0) {
+                builder.append("=");
+            }
+            builder.append(value);
+        }
+        if (!grade.isEmpty()) {
+            if (builder.length() > 0) {
+                builder.append("，");
+            }
+            builder.append("等级 ").append(grade);
+        }
+        return builder.toString();
+    }
+
+    private String toolHitText(Map<String, Object> variables, String toolName, String label) {
+        Map<String, Object> evidence = toMap(variables.get("businessEvidence"));
+        Object raw = evidence.get("toolSummary");
+        if (!(raw instanceof List)) {
+            return "";
+        }
+        for (Object item : (List<?>) raw) {
+            Map<String, Object> tool = toMap(item);
+            if (!toolName.equals(safe(tool.get("toolName")))) {
+                continue;
+            }
+            String summary = safe(tool.get("summary"));
+            if (!summary.isEmpty()) {
+                return summary;
+            }
+            return label + " " + firstNonBlank(safe(tool.get("hitCount")), "0") + " 条";
+        }
+        return "";
+    }
+
+    private String quantityText(Map<String, Object> variables) {
+        String quantity = safe(variables.get("quantity"));
+        String unit = safe(variables.get("measureUnit"));
+        if (quantity.isEmpty() && unit.isEmpty()) {
+            return "";
+        }
+        return quantity + unit;
+    }
+
+    private String appendUnit(String value, String unit) {
+        return safe(value).isEmpty() ? "" : safe(value) + " " + unit;
+    }
+
+    private void appendTextLine(StringBuilder builder, String label, String value) {
+        if (builder == null || safe(value).isEmpty()) {
+            return;
+        }
+        builder.append("- ").append(label).append("：").append(safe(value)).append("\n");
     }
 
     private List<?> firstList(Object first, Object second) {

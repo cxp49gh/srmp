@@ -122,7 +122,9 @@
           </el-form-item>
           <el-form-item>
             <el-button type="primary" :loading="saving" @click="createTemplate">保存模板</el-button>
-            <el-button @click="fillDemo">填充示例</el-button>
+            <el-button @click="fillSectionPlanDemo">路段计划</el-button>
+            <el-button @click="fillEvaluationAdviceDemo">评定建议</el-button>
+            <el-button @click="fillLowScoreTreatmentDemo">低分处置</el-button>
           </el-form-item>
         </el-form>
 
@@ -217,10 +219,11 @@ import {
 } from '../../api/solution'
 
 const solutionTypeOptions = [
-  { label: '技术状况评定报告', value: 'ROAD_ASSESSMENT_REPORT' },
-  { label: '养护建议方案', value: 'MAINTENANCE_SUGGESTION' },
-  { label: '病害治理方案', value: 'DISEASE_TREATMENT_PLAN' },
-  { label: '低分路段分析', value: 'LOW_SCORE_SECTION_ANALYSIS' },
+  { label: '路段养护计划', value: 'SECTION_PLAN' },
+  { label: '评定结果养护建议', value: 'EVALUATION_UNIT_ADVICE' },
+  { label: '低分评定处置建议', value: 'LOW_SCORE_TREATMENT' },
+  { label: '病害处置建议', value: 'DISEASE_TREATMENT' },
+  { label: '路线技术状况报告', value: 'ROUTE_REPORT' },
   { label: '区域养护建议', value: 'REGION_MAINTENANCE_SUGGESTION' }
 ]
 
@@ -260,9 +263,9 @@ const previewResult = ref<Record<string, any> | null>(null)
 const form = reactive({
   templateName: '',
   templateCode: '',
-  solutionType: 'ROAD_ASSESSMENT_REPORT',
-  originType: 'ROUTE_REPORT',
-  objectType: 'ROAD_ROUTE',
+  solutionType: 'SECTION_PLAN',
+  originType: 'MAP_OBJECT',
+  objectType: 'ROAD_SECTION',
   sourceType: 'LOCAL',
   version: 'v1',
   priority: 0,
@@ -279,7 +282,7 @@ const versionForm = reactive({
 
 const importForm = reactive({
   knowledgeDocumentId: '',
-  solutionType: 'ROAD_ASSESSMENT_REPORT'
+  solutionType: 'SECTION_PLAN'
 })
 
 const variables = computed(() => {
@@ -306,39 +309,130 @@ async function selectTemplate(item: Record<string, any>) {
   resetVersionForm()
 }
 
-function fillDemo() {
-  form.templateName = '技术状况评定报告模板'
-  form.templateCode = 'road_assessment_report_demo'
-  form.solutionType = 'ROAD_ASSESSMENT_REPORT'
-  form.originType = 'ROUTE_REPORT'
-  form.objectType = 'ROAD_ROUTE'
-  form.sourceType = 'LOCAL'
-  form.version = 'v1'
-  form.priority = 0
-  form.isDefault = false
-  form.changeNote = '内置演示模板'
-  form.content = `# {{routeCode}} {{year}} 年技术状况评定报告草稿
+function fillSectionPlanDemo() {
+  applyTemplatePreset({
+    templateName: '路段养护计划默认模板',
+    templateCode: 'map_object_section_plan_default',
+    solutionType: 'SECTION_PLAN',
+    originType: 'MAP_OBJECT',
+    objectType: 'ROAD_SECTION',
+    priority: 40,
+    changeNote: '一张图路段对象方案模板',
+    content: `# {{routeCode}} {{year}} 路段养护计划
 
-## 一、路线概况
+## 一、路段概况
 {{routeSummary}}
 
-## 二、评定结果
+## 二、技术状况
 {{assessmentSummary}}
 
 ## 三、主要病害
 {{diseaseSummary}}
 
-## 四、低分路段
-{{lowScoreSections}}
-
-## 五、问题分析
+## 四、问题分析
 {{problemAnalysis}}
 
-## 六、养护建议
+## 五、养护建议
 {{maintenanceSuggestion}}
+
+## 六、业务证据
+{{businessEvidenceSummary}}
 
 ## 七、风险提示
 {{riskNotice}}`
+  })
+}
+
+function fillEvaluationAdviceDemo() {
+  applyTemplatePreset({
+    templateName: '评定结果养护建议默认模板',
+    templateCode: 'map_object_evaluation_unit_advice_default',
+    solutionType: 'EVALUATION_UNIT_ADVICE',
+    originType: 'MAP_OBJECT',
+    objectType: 'ASSESSMENT_RESULT',
+    priority: 40,
+    changeNote: '一张图评定结果对象方案模板',
+    content: `# {{routeCode}} {{year}} 评定结果养护建议
+
+## 一、评定对象
+- 桩号：{{stakeRange}}
+- 评定单元：{{unitCode}}
+- MQI：{{mqi}}
+- PQI：{{pqi}}
+- PCI：{{pci}}
+- 等级：{{grade}}
+
+## 二、技术状况判断
+{{assessmentSummary}}
+
+## 三、关联病害
+{{diseaseSummary}}
+
+## 四、问题分析
+{{problemAnalysis}}
+
+## 五、养护建议
+{{maintenanceSuggestion}}
+
+## 六、业务证据
+{{businessEvidenceSummary}}
+
+## 七、风险提示
+{{riskNotice}}`
+  })
+}
+
+function fillLowScoreTreatmentDemo() {
+  applyTemplatePreset({
+    templateName: '低分评定处置建议默认模板',
+    templateCode: 'map_object_low_score_treatment_default',
+    solutionType: 'LOW_SCORE_TREATMENT',
+    originType: 'MAP_OBJECT',
+    objectType: 'ASSESSMENT_RESULT',
+    priority: 45,
+    changeNote: '一张图低分评定结果处置模板',
+    content: `# {{routeCode}} {{year}} 低分评定处置建议
+
+## 一、低分对象
+- 桩号：{{stakeRange}}
+- 评定单元：{{unitCode}}
+- MQI：{{mqi}}
+- PQI：{{pqi}}
+- PCI：{{pci}}
+- 等级：{{grade}}
+
+## 二、低分原因判断
+{{problemAnalysis}}
+
+## 三、关联病害
+{{diseaseSummary}}
+
+## 四、处置策略
+{{maintenanceSuggestion}}
+
+## 五、重点范围
+{{lowScoreSections}}
+
+## 六、业务证据
+{{businessEvidenceSummary}}
+
+## 七、风险提示
+{{riskNotice}}`
+  })
+}
+
+function applyTemplatePreset(preset: Record<string, any>) {
+  form.templateName = String(preset.templateName || '')
+  form.templateCode = String(preset.templateCode || '')
+  form.solutionType = String(preset.solutionType || 'SECTION_PLAN')
+  form.originType = String(preset.originType || 'MAP_OBJECT')
+  form.objectType = String(preset.objectType || 'ROAD_SECTION')
+  form.sourceType = 'LOCAL'
+  form.version = 'v1'
+  form.priority = Number(preset.priority || 0)
+  form.isDefault = false
+  form.changeNote = String(preset.changeNote || '')
+  form.content = String(preset.content || '')
 }
 
 async function createTemplate() {
@@ -445,7 +539,7 @@ function resetVersionForm() {
 function buildPreviewSample(item: Record<string, any>) {
   const originType = String(item.origin_type || item.originType || form.originType || 'ROUTE_REPORT')
   const objectType = String(item.object_type || item.objectType || form.objectType || 'ROAD_ROUTE')
-  const solutionType = String(item.solution_type || item.solutionType || form.solutionType || 'ROAD_ASSESSMENT_REPORT')
+  const solutionType = String(item.solution_type || item.solutionType || form.solutionType || 'SECTION_PLAN')
   return {
     originType,
     objectType,
@@ -464,7 +558,8 @@ function buildPreviewVariables(originType: string, objectType: string, solutionT
     originType,
     objectType,
     maintenanceSuggestion: '优先处治重度病害点位，同步安排预防性养护和复核检测。',
-    riskNotice: '样例数据仅用于模板变量验证，实际方案以业务分析结果为准。'
+    riskNotice: '样例数据仅用于模板变量验证，实际方案以业务分析结果为准。',
+    businessEvidenceSummary: '- gis.queryAssessmentResults：查询到评定结果 2 条\n- gis.queryDiseases：查询到病害 5 条'
   }
 
   if (originType === 'MAP_REGION' || objectType === 'MAP_REGION') {
@@ -498,15 +593,34 @@ function buildPreviewVariables(originType: string, objectType: string, solutionT
     }
   }
 
-  if (objectType === 'ASSESSMENT_RESULT') {
+  if (solutionType === 'SECTION_PLAN' || objectType === 'ROAD_SECTION') {
+    return {
+      ...common,
+      objectId: 'section-demo-001',
+      sectionName: 'G210 白云段',
+      stakeRange: 'K97+474-K112+386',
+      lengthKm: 14.912,
+      routeSummary: 'G210 白云段 K97+474-K112+386，长度 14.912 km。',
+      assessmentSummary: '该路段命中评定结果 23 条，MQI 均值 79.65，PCI 均值 77.05。',
+      diseaseSummary: '该路段命中病害 59 条，其中重度 12 条、中度 26 条，病害集中在 K100-K104。',
+      problemAnalysis: '病害集中区与低 PCI 单元重叠，需重点复核裂缝、坑槽和排水条件。',
+      lowScoreSections: 'K100+000-K104+500 为优先复核区间。'
+    }
+  }
+
+  if (solutionType === 'EVALUATION_UNIT_ADVICE' || solutionType === 'LOW_SCORE_TREATMENT' || objectType === 'ASSESSMENT_RESULT') {
     return {
       ...common,
       unitCode: 'G210-2026-U023',
+      stakeRange: 'K97+474-K98+000',
       mqi: 72.4,
       pqi: 71.8,
-      pci: 69.2,
-      grade: '次',
-      problemAnalysis: 'PCI 偏低，裂缝和坑槽对单元评分影响较大。'
+      pci: solutionType === 'LOW_SCORE_TREATMENT' ? 58.6 : 69.2,
+      grade: solutionType === 'LOW_SCORE_TREATMENT' ? '差' : '次',
+      assessmentSummary: '当前评定单元指标偏弱，需结合关联病害判断处置等级。',
+      diseaseSummary: '桩号范围内命中病害 5 条，裂缝和坑槽对 PCI 影响较大。',
+      problemAnalysis: 'PCI 偏低，裂缝、坑槽和排水不良可能共同导致评分下降。',
+      lowScoreSections: 'G210 K97+474-K98+000 为重点复核范围。'
     }
   }
 
