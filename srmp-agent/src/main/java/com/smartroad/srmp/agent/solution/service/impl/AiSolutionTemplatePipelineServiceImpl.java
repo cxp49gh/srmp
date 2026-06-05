@@ -12,9 +12,11 @@ import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplatePipelineService {
@@ -127,13 +129,14 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
         variables.put("originType", safe(context.getOriginType()));
         variables.put("objectType", safe(context.getObjectType()));
         variables.put("solutionType", safe(context.getSolutionType()));
-        variables.put("routeCode", safe(context.getRouteCode()));
-        variables.put("year", context.getYear());
+        putIfPresent(variables, "routeCode", context.getRouteCode());
+        putIfPresent(variables, "year", context.getYear());
         variables.put("title", safe(context.getTitle()));
         variables.put("fallbackMarkdown", safe(context.getFallbackMarkdown()));
         variables.put("knowledgeSources", context.getKnowledgeSources());
         variables.put("outlineSources", context.getOutlineSources());
         normalizeRegionVariables(variables, context.getRegionSummary());
+        normalizeRegionIdentityVariables(variables, context.getRegionSummary());
         normalizeRegionTextVariables(variables, context.getRegionSummary());
         normalizeMapObjectTextVariables(variables);
         if (timer != null) {
@@ -304,6 +307,25 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
         putIfPresent(variables, "avgMqi", first(assessment, "avg_mqi", "avgMqi"));
         putIfPresent(variables, "avgPqi", first(assessment, "avg_pqi", "avgPqi"));
         putIfPresent(variables, "avgPci", first(assessment, "avg_pci", "avgPci"));
+    }
+
+    private void normalizeRegionIdentityVariables(Map<String, Object> variables, Map<String, Object> regionSummary) {
+        if (variables == null || variables.isEmpty()) {
+            return;
+        }
+        String originType = safe(variables.get("originType"));
+        String objectType = safe(variables.get("objectType"));
+        String solutionType = safe(variables.get("solutionType"));
+        if (!"MAP_REGION".equals(originType) && !"MAP_REGION".equals(objectType)
+                && !"REGION_MAINTENANCE_SUGGESTION".equals(solutionType)) {
+            return;
+        }
+        String routeCode = firstNonBlank(
+                safe(first(variables, "routeCode", "route_code")),
+                firstNonBlank(safe(first(regionSummary, "routeCode", "route_code")), inferSingleRouteCode(regionSummary))
+        );
+        putIfBlank(variables, "regionLabel", routeCode.isEmpty() ? "框选区域" : routeCode);
+        putIfBlank(variables, "routeCode", routeCode.isEmpty() ? "选区" : routeCode);
     }
 
     private void normalizeRegionTextVariables(Map<String, Object> variables, Map<String, Object> regionSummary) {
@@ -578,6 +600,40 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
         return builder.length() == 0
                 ? "未识别到明显集中热点，建议保持常规巡查，并结合现场复核确认零散病害处治优先级。"
                 : builder.toString();
+    }
+
+    private String inferSingleRouteCode(Map<String, Object> regionSummary) {
+        if (regionSummary == null || regionSummary.isEmpty()) {
+            return "";
+        }
+        Set<String> routes = new LinkedHashSet<String>();
+        collectRouteCode(routes, first(regionSummary, "routeCodes", "route_codes", "routes"));
+        for (Object raw : firstList(regionSummary.get("hotspots"), regionSummary.get("hot_spots"))) {
+            Map<String, Object> hotspot = toMap(raw);
+            collectRouteCode(routes, first(hotspot, "route_code", "routeCode", "route"));
+        }
+        return routes.size() == 1 ? routes.iterator().next() : "";
+    }
+
+    private void collectRouteCode(Set<String> routes, Object value) {
+        if (routes == null || value == null) {
+            return;
+        }
+        if (value instanceof Map) {
+            Map<String, Object> map = toMap(value);
+            collectRouteCode(routes, first(map, "routeCode", "route_code", "code", "route"));
+            return;
+        }
+        if (value instanceof List) {
+            for (Object item : (List<?>) value) {
+                collectRouteCode(routes, item);
+            }
+            return;
+        }
+        String text = safe(value);
+        if (!text.isEmpty()) {
+            routes.add(text);
+        }
     }
 
     private String buildRegionSummaryText(Map<String, Object> regionSummary) {

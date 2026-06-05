@@ -44,6 +44,53 @@ public class AiSolutionTemplatePipelineServiceImplTest {
     }
 
     @Test
+    public void buildVariablesFillsRegionRouteCodeWhenQueryRouteIsMissing() throws Exception {
+        AiSolutionTemplatePipelineServiceImpl service = new AiSolutionTemplatePipelineServiceImpl();
+        SolutionTemplateContext context = regionContext();
+        context.setRouteCode("");
+
+        Method method = AiSolutionTemplatePipelineServiceImpl.class
+                .getDeclaredMethod("buildVariables", com.smartroad.srmp.agent.trace.AiTraceContext.class, SolutionTemplateContext.class);
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> variables = (Map<String, Object>) method.invoke(service, null, context);
+
+        String template = "# {{routeCode}} {{year}} 框选区域养护建议\n\n{{regionSummary}}\n";
+        MarkdownTemplateRenderer.RenderResult rendered = new MarkdownTemplateRenderer().renderWithCheck(template, variables);
+
+        assertTrue(rendered.getMissingVariables().isEmpty());
+        assertFalse(rendered.getRenderedMarkdown().contains("{{routeCode}}"));
+        assertTrue(rendered.getRenderedMarkdown().contains("G210 2026 框选区域养护建议"));
+    }
+
+    @Test
+    public void buildVariablesInfersRegionRouteCodeFromRouteObjects() throws Exception {
+        AiSolutionTemplatePipelineServiceImpl service = new AiSolutionTemplatePipelineServiceImpl();
+        SolutionTemplateContext context = regionContext();
+        context.setRouteCode("");
+        Map<String, Object> summary = regionSummary();
+        summary.remove("hotspots");
+        Map<String, Object> route = new LinkedHashMap<>();
+        route.put("routeCode", "G310");
+        List<Map<String, Object>> routes = new ArrayList<>();
+        routes.add(route);
+        summary.put("routes", routes);
+        context.setRegionSummary(summary);
+
+        Method method = AiSolutionTemplatePipelineServiceImpl.class
+                .getDeclaredMethod("buildVariables", com.smartroad.srmp.agent.trace.AiTraceContext.class, SolutionTemplateContext.class);
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> variables = (Map<String, Object>) method.invoke(service, null, context);
+
+        String template = "# {{routeCode}} {{year}} 框选区域养护建议\n";
+        MarkdownTemplateRenderer.RenderResult rendered = new MarkdownTemplateRenderer().renderWithCheck(template, variables);
+
+        assertTrue(rendered.getMissingVariables().isEmpty());
+        assertTrue(rendered.getRenderedMarkdown().contains("G310 2026 框选区域养护建议"));
+    }
+
+    @Test
     public void buildVariablesFillsMapObjectSectionPlanTemplateSections() throws Exception {
         AiSolutionTemplatePipelineServiceImpl service = new AiSolutionTemplatePipelineServiceImpl();
         SolutionTemplateContext context = mapObjectContext("ROAD_SECTION", "SECTION_PLAN");
