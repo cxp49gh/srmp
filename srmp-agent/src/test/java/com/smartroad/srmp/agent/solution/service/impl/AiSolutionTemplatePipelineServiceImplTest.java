@@ -160,6 +160,38 @@ public class AiSolutionTemplatePipelineServiceImplTest {
     }
 
     @Test
+    public void buildVariablesFillsAssessmentIdentityFallbacks() throws Exception {
+        AiSolutionTemplatePipelineServiceImpl service = new AiSolutionTemplatePipelineServiceImpl();
+        SolutionTemplateContext context = mapObjectContext("ASSESSMENT_RESULT", "LOW_SCORE_TREATMENT");
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("objectType", "ASSESSMENT_RESULT");
+        summary.put("objectId", "assessment-1");
+        summary.put("routeCode", "Y016140727");
+        summary.put("unit_id", "U-001");
+        summary.put("stakeRange", "K10-K12.5");
+        summary.put("mqi", 82.4);
+        summary.put("pqi", 76.1);
+        summary.put("pci", 72.8);
+        summary.put("activeMetricGrade", "GOOD");
+        context.setObjectSummary(summary);
+
+        Method method = AiSolutionTemplatePipelineServiceImpl.class
+                .getDeclaredMethod("buildVariables", com.smartroad.srmp.agent.trace.AiTraceContext.class, SolutionTemplateContext.class);
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> variables = (Map<String, Object>) method.invoke(service, null, context);
+
+        String template = "- 单元编号：{{unitCode}}\n- 等级：{{grade}}\n";
+        MarkdownTemplateRenderer.RenderResult rendered = new MarkdownTemplateRenderer().renderWithCheck(template, variables);
+
+        assertTrue(rendered.getMissingVariables().isEmpty());
+        assertEquals("U-001", variables.get("unitCode"));
+        assertEquals("良", variables.get("grade"));
+        assertTrue(rendered.getRenderedMarkdown().contains("U-001"));
+        assertTrue(rendered.getRenderedMarkdown().contains("良"));
+    }
+
+    @Test
     public void buildVariablesKeepsMapObjectTemplateCompleteWithoutBusinessEvidence() throws Exception {
         AiSolutionTemplatePipelineServiceImpl service = new AiSolutionTemplatePipelineServiceImpl();
         SolutionTemplateContext context = mapObjectContext("ROAD_SECTION", "SECTION_PLAN");

@@ -342,6 +342,7 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
         if (!"MAP_OBJECT".equals(originType)) {
             return;
         }
+        normalizeMapObjectIdentityVariables(variables);
         putIfBlank(variables, "businessEvidenceSummary", buildBusinessEvidenceSummaryText(toMap(variables.get("businessEvidence"))));
         putIfBlank(variables, "routeSummary", buildMapObjectRouteSummaryText(variables));
         putIfBlank(variables, "assessmentSummary", buildMapObjectAssessmentSummaryText(variables));
@@ -351,6 +352,17 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
         putIfBlank(variables, "treatmentAdvice", buildMapObjectTreatmentAdviceText(variables));
         putIfBlank(variables, "lowScoreSections", buildMapObjectLowScoreText(variables));
         putIfBlank(variables, "riskNotice", "本方案草稿由系统基于地图对象、业务查询证据和模板规则生成，实施前需结合现场复核、预算计划、交通组织和最新检测资料进行人工审核。");
+    }
+
+    private void normalizeMapObjectIdentityVariables(Map<String, Object> variables) {
+        putIfBlank(variables, "unitCode", firstNonBlank(
+                safe(first(variables, "unitCode", "unit_code", "unitId", "unit_id")),
+                firstNonBlank(safe(first(variables, "objectId", "object_id", "id")), "未关联评定单元")
+        ));
+        putIfBlank(variables, "grade", firstNonBlank(
+                displayGrade(first(variables, "grade", "activeMetricGrade", "active_metric_grade", "activeIndexGrade", "active_index_grade", "metricGrade", "metric_grade")),
+                firstNonBlank(inferGradeFromScores(variables), "未分级")
+        ));
     }
 
     private String buildMapObjectRouteSummaryText(Map<String, Object> variables) {
@@ -477,7 +489,7 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
     private String activeMetricText(Map<String, Object> variables) {
         String code = safe(first(variables, "activeMetricCode", "activeIndexCode"));
         String value = safe(first(variables, "activeMetricValue", "activeIndexValue"));
-        String grade = safe(first(variables, "activeMetricGrade", "activeIndexGrade"));
+        String grade = displayGrade(first(variables, "activeMetricGrade", "activeIndexGrade"));
         if (code.isEmpty() && value.isEmpty() && grade.isEmpty()) {
             return "";
         }
@@ -498,6 +510,80 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
             builder.append("等级 ").append(grade);
         }
         return builder.toString();
+    }
+
+    private String inferGradeFromScores(Map<String, Object> variables) {
+        Double score = firstScore(
+                first(variables, "activeMetricValue", "activeIndexValue", "metricValue", "metric_value"),
+                first(variables, "mqi", "MQI"),
+                first(variables, "pqi", "PQI"),
+                first(variables, "pci", "PCI")
+        );
+        if (score == null) {
+            return "";
+        }
+        if (score >= 90) {
+            return "优";
+        }
+        if (score >= 80) {
+            return "良";
+        }
+        if (score >= 70) {
+            return "中";
+        }
+        if (score >= 60) {
+            return "次";
+        }
+        return "差";
+    }
+
+    private Double firstScore(Object... values) {
+        if (values == null) {
+            return null;
+        }
+        for (Object value : values) {
+            Double parsed = parseDouble(value);
+            if (parsed != null) {
+                return parsed;
+            }
+        }
+        return null;
+    }
+
+    private Double parseDouble(Object value) {
+        String text = safe(value);
+        if (text.isEmpty()) {
+            return null;
+        }
+        try {
+            return Double.valueOf(text);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private String displayGrade(Object value) {
+        String raw = safe(value);
+        if (raw.isEmpty()) {
+            return "";
+        }
+        String upper = raw.toUpperCase();
+        if ("EXCELLENT".equals(upper) || "优".equals(raw) || "优秀".equals(raw)) {
+            return "优";
+        }
+        if ("GOOD".equals(upper) || "良".equals(raw) || "良好".equals(raw)) {
+            return "良";
+        }
+        if ("MEDIUM".equals(upper) || "中".equals(raw) || "中等".equals(raw)) {
+            return "中";
+        }
+        if ("POOR".equals(upper) || "次".equals(raw) || "较差".equals(raw)) {
+            return "次";
+        }
+        if ("BAD".equals(upper) || "差".equals(raw) || "很差".equals(raw)) {
+            return "差";
+        }
+        return raw;
     }
 
     private String toolHitText(Map<String, Object> variables, String toolName, String label) {
