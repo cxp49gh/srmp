@@ -11,6 +11,7 @@
               <el-option label="路段养护计划" value="SECTION_PLAN" />
               <el-option label="评定结果养护建议" value="EVALUATION_UNIT_ADVICE" />
               <el-option label="低分评定处置建议" value="LOW_SCORE_TREATMENT" />
+              <el-option label="病害复核意见" value="DISEASE_REVIEW" />
               <el-option label="病害处置建议" value="DISEASE_TREATMENT" />
               <el-option label="区域养护建议" value="REGION_MAINTENANCE_SUGGESTION" />
             </el-select>

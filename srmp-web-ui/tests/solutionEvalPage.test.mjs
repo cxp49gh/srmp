@@ -22,6 +22,7 @@ test('solution eval page exposes one-click regression checks for solution qualit
   assert.match(page, /SECTION_PLAN/)
   assert.match(page, /EVALUATION_UNIT_ADVICE/)
   assert.match(page, /LOW_SCORE_TREATMENT/)
+  assert.match(page, /DISEASE_REVIEW/)
   assert.match(page, /DISEASE_TREATMENT/)
   assert.match(page, /REGION_MAINTENANCE_SUGGESTION/)
 })

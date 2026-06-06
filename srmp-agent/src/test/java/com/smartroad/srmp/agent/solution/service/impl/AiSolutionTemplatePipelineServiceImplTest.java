@@ -246,6 +246,47 @@ public class AiSolutionTemplatePipelineServiceImplTest {
     }
 
     @Test
+    public void buildVariablesFillsDiseaseReviewTemplateSections() throws Exception {
+        AiSolutionTemplatePipelineServiceImpl service = new AiSolutionTemplatePipelineServiceImpl();
+        SolutionTemplateContext context = mapObjectContext("DISEASE", "DISEASE_REVIEW");
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("objectType", "DISEASE");
+        summary.put("objectId", "disease-1");
+        summary.put("routeCode", "Y016140727");
+        summary.put("stakeRange", "K1.1-K1.2");
+        summary.put("diseaseName", "裂缝");
+        summary.put("quantity", 12.5);
+        summary.put("measureUnit", "m");
+        context.setObjectSummary(summary);
+        context.setBusinessData(businessEvidenceData());
+
+        Method method = AiSolutionTemplatePipelineServiceImpl.class
+                .getDeclaredMethod("buildVariables", com.smartroad.srmp.agent.trace.AiTraceContext.class, SolutionTemplateContext.class);
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> variables = (Map<String, Object>) method.invoke(service, null, context);
+
+        String template = "# {{routeCode}} 病害复核意见\n\n" +
+                "## 一、病害对象\n" +
+                "- 对象编号：{{objectId}}\n" +
+                "- 病害类型：{{diseaseName}}\n" +
+                "- 严重程度：{{severity}}\n" +
+                "- 位置范围：{{stakeRange}}\n" +
+                "- 工程量：{{quantity}}{{measureUnit}}\n\n" +
+                "## 二、复核判断\n{{problemAnalysis}}\n\n" +
+                "## 三、现场复核重点\n{{maintenanceSuggestion}}\n\n" +
+                "## 四、业务证据\n{{businessEvidenceSummary}}\n\n" +
+                "## 五、风险提示\n{{riskNotice}}\n";
+        MarkdownTemplateRenderer.RenderResult rendered = new MarkdownTemplateRenderer().renderWithCheck(template, variables);
+
+        assertTrue(rendered.getMissingVariables().isEmpty());
+        assertFalse(rendered.getRenderedMarkdown().contains("{{"));
+        assertTrue(rendered.getRenderedMarkdown().contains("病害复核意见"));
+        assertTrue(rendered.getRenderedMarkdown().contains("严重程度：未标注"));
+        assertTrue(rendered.getRenderedMarkdown().contains("gis.queryDiseases"));
+    }
+
+    @Test
     public void buildVariablesKeepsMapObjectTemplateCompleteWithoutBusinessEvidence() throws Exception {
         AiSolutionTemplatePipelineServiceImpl service = new AiSolutionTemplatePipelineServiceImpl();
         SolutionTemplateContext context = mapObjectContext("ROAD_SECTION", "SECTION_PLAN");

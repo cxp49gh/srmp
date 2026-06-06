@@ -413,6 +413,9 @@ public class AiSolutionGenerateServiceImpl implements AiSolutionGenerateService 
         if ("LOW_SCORE_TREATMENT".equals(solutionType)) {
             return "低分评定处置建议草稿";
         }
+        if ("DISEASE_REVIEW".equals(solutionType)) {
+            return "病害复核意见草稿";
+        }
         if ("DISEASE_TREATMENT".equals(solutionType)) {
             return "病害处置建议草稿";
         }

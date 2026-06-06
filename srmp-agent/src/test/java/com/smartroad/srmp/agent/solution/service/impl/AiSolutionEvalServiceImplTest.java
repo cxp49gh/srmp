@@ -20,7 +20,7 @@ public class AiSolutionEvalServiceImplTest {
 
         List<Map<String, Object>> cases = service.defaultCases();
 
-        assertEquals(6, cases.size());
+        assertEquals(7, cases.size());
         Set<String> solutionTypes = cases.stream()
                 .map(item -> String.valueOf(item.get("solutionType")))
                 .collect(Collectors.toSet());
@@ -28,6 +28,7 @@ public class AiSolutionEvalServiceImplTest {
         assertTrue(solutionTypes.contains("SECTION_PLAN"));
         assertTrue(solutionTypes.contains("EVALUATION_UNIT_ADVICE"));
         assertTrue(solutionTypes.contains("LOW_SCORE_TREATMENT"));
+        assertTrue(solutionTypes.contains("DISEASE_REVIEW"));
         assertTrue(solutionTypes.contains("DISEASE_TREATMENT"));
         assertTrue(solutionTypes.contains("REGION_MAINTENANCE_SUGGESTION"));
     }
@@ -38,11 +39,11 @@ public class AiSolutionEvalServiceImplTest {
 
         Map<String, Object> result = service.run(new LinkedHashMap<>());
 
-        assertEquals(6, result.get("total"));
-        assertEquals(6, result.get("passed"));
+        assertEquals(7, result.get("total"));
+        assertEquals(7, result.get("passed"));
         assertEquals(0, result.get("failed"));
         List<Map<String, Object>> items = resultList(result);
-        assertEquals(6, items.size());
+        assertEquals(7, items.size());
         for (Map<String, Object> item : items) {
             assertEquals(Boolean.TRUE, item.get("passed"));
             assertEquals("FIXTURE", item.get("sourceMode"));

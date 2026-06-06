@@ -33,6 +33,7 @@ public class AiSolutionEvalServiceImpl implements AiSolutionEvalService {
         cases.add(defaultCase("section-plan", "路段养护计划", "SECTION_PLAN", "MAP_OBJECT", "ROAD_SECTION", "MAP_OBJECT"));
         cases.add(defaultCase("evaluation-advice", "评定结果养护建议", "EVALUATION_UNIT_ADVICE", "MAP_OBJECT", "ASSESSMENT_RESULT", "MAP_OBJECT"));
         cases.add(defaultCase("low-score-treatment", "低分评定处置建议", "LOW_SCORE_TREATMENT", "MAP_OBJECT", "ASSESSMENT_RESULT", "MAP_OBJECT"));
+        cases.add(defaultCase("disease-review", "病害复核意见", "DISEASE_REVIEW", "MAP_OBJECT", "DISEASE", "MAP_OBJECT"));
         cases.add(defaultCase("disease-treatment", "病害处置建议", "DISEASE_TREATMENT", "MAP_OBJECT", "DISEASE", "MAP_OBJECT"));
         cases.add(defaultCase("region-maintenance", "区域养护建议", "REGION_MAINTENANCE_SUGGESTION", "MAP_REGION", "MAP_REGION", "MAP_REGION"));
         return cases;

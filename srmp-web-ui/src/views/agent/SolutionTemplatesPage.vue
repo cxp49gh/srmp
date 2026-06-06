@@ -222,6 +222,7 @@ const solutionTypeOptions = [
   { label: '路段养护计划', value: 'SECTION_PLAN' },
   { label: '评定结果养护建议', value: 'EVALUATION_UNIT_ADVICE' },
   { label: '低分评定处置建议', value: 'LOW_SCORE_TREATMENT' },
+  { label: '病害复核意见', value: 'DISEASE_REVIEW' },
   { label: '病害处置建议', value: 'DISEASE_TREATMENT' },
   { label: '路线技术状况报告', value: 'ROUTE_REPORT' },
   { label: '区域养护建议', value: 'REGION_MAINTENANCE_SUGGESTION' }
@@ -579,7 +580,7 @@ function buildPreviewVariables(originType: string, objectType: string, solutionT
     }
   }
 
-  if (objectType === 'DISEASE') {
+  if (solutionType === 'DISEASE_REVIEW' || objectType === 'DISEASE') {
     return {
       ...common,
       objectId: 'disease-demo-001',
@@ -588,7 +589,9 @@ function buildPreviewVariables(originType: string, objectType: string, solutionT
       quantity: 127.52,
       measureUnit: 'm',
       stakeRange: 'K100+000-K100+180',
-      treatmentAdvice: '裂缝清缝灌缝后局部铣刨重铺，雨后复核排水条件。'
+      treatmentAdvice: '裂缝清缝灌缝后局部铣刨重铺，雨后复核排水条件。',
+      problemAnalysis: '需复核裂缝边界、深度、是否贯穿结构层，以及周边是否存在连续同类病害。',
+      maintenanceSuggestion: '现场复核时同步核定工程量、排水条件、基层状态和既有修补质量，复核后再确定处置工艺。'
     }
   }
 

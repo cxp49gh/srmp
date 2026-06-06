@@ -1351,6 +1351,38 @@ $tpl$,
         '["routeCode","objectId","diseaseName","severity","stakeRange","quantity","measureUnit","treatmentAdvice","maintenanceSuggestion","riskNotice"]'::jsonb
     ),
     (
+        'tpl-phase52-disease-review-default',
+        'default',
+        'map_object_disease_review_default',
+        '地图病害复核意见默认模板',
+        'DISEASE_REVIEW',
+        'MAP_OBJECT',
+        'DISEASE',
+        35,
+        $tpl$# {{routeCode}} 病害复核意见
+
+## 一、病害对象
+- 对象编号：{{objectId}}
+- 病害类型：{{diseaseName}}
+- 严重程度：{{severity}}
+- 位置范围：{{stakeRange}}
+- 工程量：{{quantity}}{{measureUnit}}
+
+## 二、复核判断
+{{problemAnalysis}}
+
+## 三、现场复核重点
+{{maintenanceSuggestion}}
+
+## 四、业务证据
+{{businessEvidenceSummary}}
+
+## 五、风险提示
+{{riskNotice}}
+$tpl$,
+        '["routeCode","objectId","diseaseName","severity","stakeRange","quantity","measureUnit","problemAnalysis","maintenanceSuggestion","businessEvidenceSummary","riskNotice"]'::jsonb
+    ),
+    (
         'tpl-phase35-assessment-low-score-default',
         'default',
         'map_object_low_score_treatment_default',
@@ -1632,6 +1664,35 @@ $tpl$,
 $tpl$,
         'phase35-sample-disease-treatment-template-v1',
         '["routeCode","objectId","diseaseName","severity","stakeRange","quantity","measureUnit","treatmentAdvice","maintenanceSuggestion","riskNotice"]'::jsonb
+    ),
+    (
+        'tplv-phase52-disease-review-default-v1',
+        'default',
+        'tpl-phase52-disease-review-default',
+        'v1',
+        $tpl$# {{routeCode}} 病害复核意见
+
+## 一、病害对象
+- 对象编号：{{objectId}}
+- 病害类型：{{diseaseName}}
+- 严重程度：{{severity}}
+- 位置范围：{{stakeRange}}
+- 工程量：{{quantity}}{{measureUnit}}
+
+## 二、复核判断
+{{problemAnalysis}}
+
+## 三、现场复核重点
+{{maintenanceSuggestion}}
+
+## 四、业务证据
+{{businessEvidenceSummary}}
+
+## 五、风险提示
+{{riskNotice}}
+$tpl$,
+        'phase52-disease-review-template-v1',
+        '["routeCode","objectId","diseaseName","severity","stakeRange","quantity","measureUnit","problemAnalysis","maintenanceSuggestion","businessEvidenceSummary","riskNotice"]'::jsonb
     ),
     (
         'tplv-phase35-assessment-low-score-default-v1',

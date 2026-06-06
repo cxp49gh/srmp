@@ -400,7 +400,7 @@ public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService 
         if ("EVALUATION_UNIT_ADVICE".equals(type) || "LOW_SCORE_TREATMENT".equals(type) || "LOW_SCORE_SECTION_ANALYSIS".equals(type)) {
             return "ASSESSMENT_RESULT";
         }
-        if ("DISEASE_TREATMENT".equals(type) || "DISEASE_TREATMENT_PLAN".equals(type)) {
+        if ("DISEASE_REVIEW".equals(type) || "DISEASE_TREATMENT".equals(type) || "DISEASE_TREATMENT_PLAN".equals(type)) {
             return "DISEASE";
         }
         if ("REGION_MAINTENANCE_SUGGESTION".equals(type)) {

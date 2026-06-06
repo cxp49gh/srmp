@@ -547,7 +547,7 @@ public class AiSolutionQualityServiceImpl implements AiSolutionQualityService {
         if ("LOW_SCORE_TREATMENT".equals(solution) || "LOW_SCORE_SECTION_ANALYSIS".equals(solution)) {
             return "MAP_OBJECT".equals(origin) && "ASSESSMENT_RESULT".equals(object);
         }
-        if ("DISEASE_TREATMENT".equals(solution) || "DISEASE_TREATMENT_PLAN".equals(solution)) {
+        if ("DISEASE_REVIEW".equals(solution) || "DISEASE_TREATMENT".equals(solution) || "DISEASE_TREATMENT_PLAN".equals(solution)) {
             return "MAP_OBJECT".equals(origin) && "DISEASE".equals(object);
         }
         if ("REGION_MAINTENANCE_SUGGESTION".equals(solution)) {
@@ -560,6 +560,7 @@ public class AiSolutionQualityServiceImpl implements AiSolutionQualityService {
         if ("SECTION_PLAN".equals(solutionType)) return "路段养护计划";
         if ("EVALUATION_UNIT_ADVICE".equals(solutionType)) return "评定结果养护建议";
         if ("LOW_SCORE_TREATMENT".equals(solutionType)) return "低分评定处置建议";
+        if ("DISEASE_REVIEW".equals(solutionType)) return "病害复核意见";
         if ("DISEASE_TREATMENT".equals(solutionType)) return "病害处置建议";
         if ("REGION_MAINTENANCE_SUGGESTION".equals(solutionType)) return "区域养护建议";
         if ("ROUTE_REPORT".equals(solutionType)) return "路线技术状况报告";

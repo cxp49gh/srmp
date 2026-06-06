@@ -154,6 +154,7 @@ const defaultScenarioBadges: AiSolutionEvalCase[] = [
   { id: 'section-plan', name: '路段养护计划', solutionType: 'SECTION_PLAN' },
   { id: 'evaluation-advice', name: '评定结果养护建议', solutionType: 'EVALUATION_UNIT_ADVICE' },
   { id: 'low-score-treatment', name: '低分评定处置建议', solutionType: 'LOW_SCORE_TREATMENT' },
+  { id: 'disease-review', name: '病害复核意见', solutionType: 'DISEASE_REVIEW' },
   { id: 'disease-treatment', name: '病害处置建议', solutionType: 'DISEASE_TREATMENT' },
   { id: 'region-maintenance', name: '区域养护建议', solutionType: 'REGION_MAINTENANCE_SUGGESTION' }
 ]

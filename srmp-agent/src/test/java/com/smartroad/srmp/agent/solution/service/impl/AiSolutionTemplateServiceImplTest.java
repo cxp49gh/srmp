@@ -19,4 +19,15 @@ public class AiSolutionTemplateServiceImplTest {
         assertEquals("MAP_OBJECT", method.invoke(service, "ROUTE_REPORT"));
         assertEquals("MAP_OBJECT", method.invoke(service, "ROAD_ASSESSMENT_REPORT"));
     }
+
+    @Test
+    public void diseaseReviewDefaultObjectTypeUsesDisease() throws Exception {
+        AiSolutionTemplateServiceImpl service = new AiSolutionTemplateServiceImpl();
+
+        Method method = AiSolutionTemplateServiceImpl.class
+                .getDeclaredMethod("defaultObjectTypeForSolution", String.class);
+        method.setAccessible(true);
+
+        assertEquals("DISEASE", method.invoke(service, "DISEASE_REVIEW"));
+    }
 }
