@@ -56,7 +56,7 @@ public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService 
         String sourceType = safe(request.getSourceType(), "LOCAL");
         String category = safe(request.getCategory(), "SOLUTION_TEMPLATE");
         String content = safe(request.getContent(), "");
-        String originType = safe(request.getOriginType(), "ROUTE_REPORT");
+        String originType = safe(request.getOriginType(), defaultOriginTypeForSolution(request.getSolutionType()));
         String objectType = safe(request.getObjectType(), "ROAD_ROUTE");
         boolean isDefault = Boolean.TRUE.equals(request.getIsDefault());
         Integer priority = request.getPriority() == null ? 0 : request.getPriority();
@@ -387,7 +387,7 @@ public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService 
             return "MAP_REGION";
         }
         if ("ROUTE_REPORT".equals(type) || "ROAD_ASSESSMENT_REPORT".equals(type)) {
-            return "ROUTE_REPORT";
+            return "MAP_OBJECT";
         }
         return "MAP_OBJECT";
     }

@@ -232,7 +232,7 @@ public class AiSolutionGenerateServiceImpl implements AiSolutionGenerateService 
                                                          List<KnowledgeSearchResult> knowledgeSources) {
         SolutionTemplateContext context = new SolutionTemplateContext();
         context.setTenantId(tenantId);
-        context.setOriginType("ROUTE_REPORT");
+        context.setOriginType("MAP_OBJECT");
         context.setObjectType("ROAD_ROUTE");
         context.setSolutionType(request.getSolutionType());
         context.setRouteCode(request.getRouteCode());

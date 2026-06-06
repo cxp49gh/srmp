@@ -1258,7 +1258,7 @@ CREATE INDEX IF NOT EXISTS idx_ai_solution_task_template
 ON ai_solution_task(tenant_id, template_id, template_version);
 
 UPDATE ai_solution_template
-SET origin_type = COALESCE(origin_type, 'ROUTE_REPORT'),
+SET origin_type = COALESCE(origin_type, 'MAP_OBJECT'),
     object_type = COALESCE(object_type, 'ROAD_ROUTE'),
     priority = COALESCE(priority, 0),
     is_default = COALESCE(is_default, false)
@@ -1293,7 +1293,7 @@ WITH seed_templates(
         'route_report_default',
         '路线技术状况报告默认模板',
         'ROUTE_REPORT',
-        'ROUTE_REPORT',
+        'MAP_OBJECT',
         'ROAD_ROUTE',
         30,
         $tpl$# {{routeCode}} 路线技术状况报告草稿

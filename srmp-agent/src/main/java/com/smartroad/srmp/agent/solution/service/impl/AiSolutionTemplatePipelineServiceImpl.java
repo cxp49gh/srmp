@@ -97,26 +97,7 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
                 baseSql + "and coalesce(t.origin_type,'')=:originType and coalesce(t.object_type,'')=:objectType and t.solution_type=:solutionType " + orderSql,
                 params
         );
-        if (!rows.isEmpty() || !isLegacyRouteContext(context)) {
-            return rows;
-        }
-
-        rows = namedParameterJdbcTemplate.queryForList(
-                baseSql + "and coalesce(t.origin_type,'')='' and coalesce(t.object_type,'')='' and t.solution_type=:solutionType " + orderSql,
-                params
-        );
-        if (!rows.isEmpty()) {
-            Map<String, Object> legacy = new LinkedHashMap<String, Object>(rows.get(0));
-            legacy.put("matchReason", "按 legacy solutionType 兼容匹配路线模板，solutionType=" + safe(context.getSolutionType()));
-            rows = new ArrayList<Map<String, Object>>();
-            rows.add(legacy);
-        }
         return rows;
-    }
-
-    private boolean isLegacyRouteContext(SolutionTemplateContext context) {
-        return "ROUTE_REPORT".equals(safe(context.getOriginType()))
-                && "ROAD_ROUTE".equals(safe(context.getObjectType()));
     }
 
     private Map<String, Object> buildVariables(AiTraceContext trace, SolutionTemplateContext context) {
