@@ -192,6 +192,60 @@ public class AiSolutionTemplatePipelineServiceImplTest {
     }
 
     @Test
+    public void buildVariablesDoesNotInventAssessmentIdentityForRouteReport() throws Exception {
+        AiSolutionTemplatePipelineServiceImpl service = new AiSolutionTemplatePipelineServiceImpl();
+        SolutionTemplateContext context = mapObjectContext("ROAD_ROUTE", "ROUTE_REPORT");
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("objectType", "ROAD_ROUTE");
+        summary.put("objectId", "route-1");
+        summary.put("routeCode", "Y016140727");
+        summary.put("stakeRange", "K0-K14.072");
+        context.setObjectSummary(summary);
+
+        Method method = AiSolutionTemplatePipelineServiceImpl.class
+                .getDeclaredMethod("buildVariables", com.smartroad.srmp.agent.trace.AiTraceContext.class, SolutionTemplateContext.class);
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> variables = (Map<String, Object>) method.invoke(service, null, context);
+
+        String template = "## 评定结果\n{{assessmentSummary}}\n";
+        MarkdownTemplateRenderer.RenderResult rendered = new MarkdownTemplateRenderer().renderWithCheck(template, variables);
+
+        assertTrue(rendered.getMissingVariables().isEmpty());
+        assertFalse(rendered.getRenderedMarkdown().contains("评定单元：route-1"));
+        assertFalse(rendered.getRenderedMarkdown().contains("等级：未分级"));
+        assertTrue(rendered.getRenderedMarkdown().contains("未取得完整评定指标"));
+    }
+
+    @Test
+    public void buildVariablesMarksMissingDiseaseSeverityWithoutLeakingTemplateVariable() throws Exception {
+        AiSolutionTemplatePipelineServiceImpl service = new AiSolutionTemplatePipelineServiceImpl();
+        SolutionTemplateContext context = mapObjectContext("DISEASE", "DISEASE_TREATMENT");
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("objectType", "DISEASE");
+        summary.put("objectId", "disease-1");
+        summary.put("routeCode", "Y016140727");
+        summary.put("stakeRange", "K1.1-K1.2");
+        summary.put("diseaseName", "裂缝");
+        summary.put("quantity", 12.5);
+        summary.put("measureUnit", "m");
+        context.setObjectSummary(summary);
+
+        Method method = AiSolutionTemplatePipelineServiceImpl.class
+                .getDeclaredMethod("buildVariables", com.smartroad.srmp.agent.trace.AiTraceContext.class, SolutionTemplateContext.class);
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> variables = (Map<String, Object>) method.invoke(service, null, context);
+
+        String template = "- 严重程度：{{severity}}\n";
+        MarkdownTemplateRenderer.RenderResult rendered = new MarkdownTemplateRenderer().renderWithCheck(template, variables);
+
+        assertTrue(rendered.getMissingVariables().isEmpty());
+        assertEquals("未标注", variables.get("severity"));
+        assertTrue(rendered.getRenderedMarkdown().contains("严重程度：未标注"));
+    }
+
+    @Test
     public void buildVariablesKeepsMapObjectTemplateCompleteWithoutBusinessEvidence() throws Exception {
         AiSolutionTemplatePipelineServiceImpl service = new AiSolutionTemplatePipelineServiceImpl();
         SolutionTemplateContext context = mapObjectContext("ROAD_SECTION", "SECTION_PLAN");

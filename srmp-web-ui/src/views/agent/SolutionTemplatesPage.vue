@@ -228,7 +228,6 @@ const solutionTypeOptions = [
 ]
 
 const originTypeOptions = [
-  { label: '路线报告', value: 'ROUTE_REPORT' },
   { label: '地图对象', value: 'MAP_OBJECT' },
   { label: '框选区域', value: 'MAP_REGION' }
 ]
@@ -537,7 +536,7 @@ function resetVersionForm() {
 }
 
 function buildPreviewSample(item: Record<string, any>) {
-  const originType = String(item.origin_type || item.originType || form.originType || 'ROUTE_REPORT')
+  const originType = String(item.origin_type || item.originType || form.originType || 'MAP_OBJECT')
   const objectType = String(item.object_type || item.objectType || form.objectType || 'ROAD_ROUTE')
   const solutionType = String(item.solution_type || item.solutionType || form.solutionType || 'SECTION_PLAN')
   return {

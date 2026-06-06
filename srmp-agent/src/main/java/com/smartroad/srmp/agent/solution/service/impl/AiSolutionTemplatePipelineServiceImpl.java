@@ -355,6 +355,29 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
     }
 
     private void normalizeMapObjectIdentityVariables(Map<String, Object> variables) {
+        String objectType = safe(variables.get("objectType")).toUpperCase();
+        String solutionType = safe(variables.get("solutionType")).toUpperCase();
+        if (isAssessmentIdentityContext(objectType, solutionType)) {
+            normalizeAssessmentIdentityVariables(variables);
+        }
+        if (isDiseaseIdentityContext(objectType, solutionType)) {
+            normalizeDiseaseIdentityVariables(variables);
+        }
+    }
+
+    private boolean isAssessmentIdentityContext(String objectType, String solutionType) {
+        return "ASSESSMENT".equals(objectType)
+                || "ASSESSMENT_RESULT".equals(objectType)
+                || "LOW_SCORE_TREATMENT".equals(solutionType)
+                || "EVALUATION_UNIT_ADVICE".equals(solutionType);
+    }
+
+    private boolean isDiseaseIdentityContext(String objectType, String solutionType) {
+        return "DISEASE".equals(objectType)
+                || "DISEASE_TREATMENT".equals(solutionType);
+    }
+
+    private void normalizeAssessmentIdentityVariables(Map<String, Object> variables) {
         putIfBlank(variables, "unitCode", firstNonBlank(
                 safe(first(variables, "unitCode", "unit_code", "unitId", "unit_id")),
                 firstNonBlank(safe(first(variables, "objectId", "object_id", "id")), "未关联评定单元")
@@ -362,6 +385,13 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
         putIfBlank(variables, "grade", firstNonBlank(
                 displayGrade(first(variables, "grade", "activeMetricGrade", "active_metric_grade", "activeIndexGrade", "active_index_grade", "metricGrade", "metric_grade")),
                 firstNonBlank(inferGradeFromScores(variables), "未分级")
+        ));
+    }
+
+    private void normalizeDiseaseIdentityVariables(Map<String, Object> variables) {
+        putIfBlank(variables, "severity", firstNonBlank(
+                displaySeverity(first(variables, "severity", "severity_level")),
+                "未标注"
         ));
     }
 
@@ -582,6 +612,27 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
         }
         if ("BAD".equals(upper) || "差".equals(raw) || "很差".equals(raw)) {
             return "差";
+        }
+        return raw;
+    }
+
+    private String displaySeverity(Object value) {
+        String raw = safe(value);
+        if (raw.isEmpty()) {
+            return "";
+        }
+        String upper = raw.toUpperCase();
+        if ("HEAVY".equals(upper)) {
+            return "重度";
+        }
+        if ("MEDIUM".equals(upper)) {
+            return "中度";
+        }
+        if ("LIGHT".equals(upper)) {
+            return "轻度";
+        }
+        if ("UNKNOWN".equals(upper)) {
+            return "未标注";
         }
         return raw;
     }
