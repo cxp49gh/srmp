@@ -227,6 +227,7 @@ const diseaseLayerInfo = reactive({
 
 let map: LeafletMap
 const layerMap = new Map<string, GeoJSON>()
+const layerSignatures = new Map<string, string>()
 let selectedLayer: L.Layer | null = null
 const currentZoom = ref(11)
 let regionLayer: L.Layer | null = null
@@ -496,6 +497,7 @@ onUnmounted(() => {
     map.remove()
   }
   layerMap.clear()
+  layerSignatures.clear()
   selectedLayer = null
   regionLayer = null
   regionPreviewLayer = null
@@ -514,6 +516,25 @@ function layerQuery(): GisLayerQuery {
     next[key] = typeof value === 'string' ? value.trim() : value
   })
   return next as GisLayerQuery
+}
+
+function stableLayerSignature(value: any): string {
+  if (Array.isArray(value)) return `[${value.map((item) => stableLayerSignature(item)).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableLayerSignature(value[key])}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+function layerQuerySignature(layerKey: string) {
+  return stableLayerSignature(layerKey === 'disease' ? diseaseLayerQuery() : layerQuery())
+}
+
+function layerCacheMatches(layerKey: string) {
+  return layerMap.has(layerKey) && layerSignatures.get(layerKey) === layerQuerySignature(layerKey)
 }
 
 /** 一张图业务数据仅在已选数据管理项目后加载 */
@@ -545,7 +566,8 @@ function diseaseNeedsViewportReload(reason: 'zoom' | 'move' | 'sync' = 'sync'): 
 function diseaseNeedsSyncLoad(): boolean {
   const mode = diseaseTargetMode()
   if (mode === 'hidden') return false
-  if (!layerMap.has('disease') && diseaseLayerViewMode !== mode) return true
+  if (!layerMap.has('disease')) return true
+  if (!layerCacheMatches('disease')) return true
   return diseaseLayerViewMode !== '' && diseaseLayerViewMode !== mode
 }
 
@@ -633,7 +655,7 @@ function scheduleDiseaseViewportReload(reason: 'zoom' | 'move' | 'sync' = 'sync'
       window.clearTimeout(diseaseViewportTimer)
       diseaseViewportTimer = null
     }
-    removeLayerByKey('disease')
+    discardLayerByKey('disease')
     resetDiseaseLayerInfo()
     return
   }
@@ -643,7 +665,7 @@ function scheduleDiseaseViewportReload(reason: 'zoom' | 'move' | 'sync' = 'sync'
       window.clearTimeout(diseaseViewportTimer)
       diseaseViewportTimer = null
     }
-    removeLayerByKey('disease')
+    discardLayerByKey('disease')
     resetDiseaseLayerInfo()
     return
   }
@@ -653,7 +675,7 @@ function scheduleDiseaseViewportReload(reason: 'zoom' | 'move' | 'sync' = 'sync'
     diseaseViewportTimer = null
     if (!map || mapDisposed || !layers.disease) return
     if (!diseaseLayerLoadable()) {
-      removeLayerByKey('disease')
+      discardLayerByKey('disease')
       resetDiseaseLayerInfo()
       return
     }
@@ -738,7 +760,7 @@ async function reloadLayers(options: ReloadLayerOptions = {}) {
     const params = layerQuery()
 
     if (!hasProjectSelected()) {
-      removeLayerByKey('disease')
+      discardLayerByKey('disease')
       resetDiseaseLayerInfo()
     } else {
       if (layers.roadRoute) tasks.push(loadLayerSafely('roadRoute', () => getRoadRoutes(params)))
@@ -746,7 +768,7 @@ async function reloadLayers(options: ReloadLayerOptions = {}) {
       if (layers.disease && diseaseLayerLoadable()) {
         tasks.push(loadLayerSafely('disease', () => getDiseases(diseaseLayerQuery())))
       } else if (layers.disease) {
-        removeLayerByKey('disease')
+        discardLayerByKey('disease')
         resetDiseaseLayerInfo()
       }
       if (layers.assessment) tasks.push(loadLayerSafely('assessment', () => getAssessmentResults(params)))
@@ -768,10 +790,10 @@ async function syncVisibleLayers() {
   mapLoadingMask.value = false
   try {
     if (!hasProjectSelected()) {
-      removeLayerByKey('roadRoute')
-      removeLayerByKey('roadSection')
-      removeLayerByKey('disease')
-      removeLayerByKey('assessment')
+      discardLayerByKey('roadRoute')
+      discardLayerByKey('roadSection')
+      discardLayerByKey('disease')
+      discardLayerByKey('assessment')
       await loadStatistics()
       return
     }
@@ -779,24 +801,23 @@ async function syncVisibleLayers() {
     const params = layerQuery()
     const tasks: Promise<void>[] = []
 
-    if (!layers.roadRoute) removeLayerByKey('roadRoute')
-    else if (!layerMap.has('roadRoute')) tasks.push(loadLayerSafely('roadRoute', () => getRoadRoutes(params)))
+    if (!layers.roadRoute) hideLayerByKey('roadRoute')
+    else if (!showCachedLayer('roadRoute')) tasks.push(loadLayerSafely('roadRoute', () => getRoadRoutes(params)))
 
-    if (!layers.roadSection) removeLayerByKey('roadSection')
-    else if (!layerMap.has('roadSection')) tasks.push(loadLayerSafely('roadSection', () => getRoadSections(params)))
+    if (!layers.roadSection) hideLayerByKey('roadSection')
+    else if (!showCachedLayer('roadSection')) tasks.push(loadLayerSafely('roadSection', () => getRoadSections(params)))
 
     if (!layers.disease) {
-      removeLayerByKey('disease')
-      resetDiseaseLayerInfo()
-    } else if (diseaseNeedsSyncLoad()) {
-      tasks.push(loadLayerSafely('disease', () => getDiseases(diseaseLayerQuery())))
+      hideLayerByKey('disease')
     } else if (layers.disease && !diseaseLayerLoadable()) {
-      removeLayerByKey('disease')
+      discardLayerByKey('disease')
       resetDiseaseLayerInfo()
+    } else if (!showCachedLayer('disease') || diseaseNeedsSyncLoad()) {
+      tasks.push(loadLayerSafely('disease', () => getDiseases(diseaseLayerQuery())))
     }
 
-    if (!layers.assessment) removeLayerByKey('assessment')
-    else if (!layerMap.has('assessment')) tasks.push(loadLayerSafely('assessment', () => getAssessmentResults(params)))
+    if (!layers.assessment) hideLayerByKey('assessment')
+    else if (!showCachedLayer('assessment')) tasks.push(loadLayerSafely('assessment', () => getAssessmentResults(params)))
 
     await settleLayerTasks(tasks, '图层切换')
     await loadStatistics()
@@ -807,11 +828,32 @@ async function syncVisibleLayers() {
   }
 }
 
-function removeLayerByKey(layerKey: string) {
+function hideLayerByKey(layerKey: string) {
   const layer = layerMap.get(layerKey)
   if (!layer) return
-  map.removeLayer(layer)
+  if (map.hasLayer(layer)) map.removeLayer(layer)
+  delete layerErrors[layerKey]
+  layerLoading[layerKey] = false
+  if (selectedLayer && layer === selectedLayer) {
+    selectedLayer = null
+  }
+}
+
+function showCachedLayer(layerKey: string) {
+  if (!layerCacheMatches(layerKey)) return false
+  const layer = layerMap.get(layerKey)
+  if (!layer) return false
+  if (!map.hasLayer(layer)) layer.addTo(map)
+  delete layerErrors[layerKey]
+  layerLoading[layerKey] = false
+  return true
+}
+
+function discardLayerByKey(layerKey: string) {
+  const layer = layerMap.get(layerKey)
+  if (layer && map.hasLayer(layer)) map.removeLayer(layer)
   layerMap.delete(layerKey)
+  layerSignatures.delete(layerKey)
   layerCounts[layerKey] = 0
   delete layerErrors[layerKey]
   layerLoading[layerKey] = false
@@ -822,9 +864,10 @@ function removeLayerByKey(layerKey: string) {
 
 function clearLayers(options: { clearSelection?: boolean } = {}) {
   layerMap.forEach((layer) => {
-    map.removeLayer(layer)
+    if (map.hasLayer(layer)) map.removeLayer(layer)
   })
   layerMap.clear()
+  layerSignatures.clear()
   resetDiseaseLayerInfo()
   selectedLayer = null
   clearAiSourceHighlight()
@@ -968,12 +1011,12 @@ function errorMessage(error: any) {
   return error?.message || error?.response?.data?.message || error?.data?.message || '加载失败'
 }
 
-async function loadLayerSafely(layerKey: string, loader: () => Promise<GeoJsonFeatureCollection>) {
+async function loadLayerSafely(layerKey: string, loader: () => Promise<GeoJsonFeatureCollection>, signature = layerQuerySignature(layerKey)) {
   const loadingSeq = (layerLoadingSeq[layerKey] || 0) + 1
   layerLoadingSeq[layerKey] = loadingSeq
   layerLoading[layerKey] = true
   try {
-    await loadLayer(layerKey, loader)
+    await loadLayer(layerKey, loader, signature)
     delete layerErrors[layerKey]
   } catch (error: any) {
     layerCounts[layerKey] = 0
@@ -994,14 +1037,14 @@ async function settleLayerTasks(tasks: Promise<void>[], actionName: string) {
   }
 }
 
-async function loadLayer(layerKey: string, loader: () => Promise<GeoJsonFeatureCollection>) {
+async function loadLayer(layerKey: string, loader: () => Promise<GeoJsonFeatureCollection>, signature: string) {
   const requestSeq = layerKey === 'disease' ? ++diseaseRequestSeq : 0
   const collection: any = await loader()
   if (mapDisposed) return
   if (!Boolean((layers as any)[layerKey])) return
   if (layerKey === 'disease' && requestSeq !== diseaseRequestSeq) return
 
-  removeLayerByKey(layerKey)
+  discardLayerByKey(layerKey)
 
   const featureCount = Array.isArray(collection?.features) ? collection.features.length : 0
   layerCounts[layerKey] = layerKey === 'disease' && Number.isFinite(Number(collection?.total))
@@ -1014,9 +1057,11 @@ async function loadLayer(layerKey: string, loader: () => Promise<GeoJsonFeatureC
     updateDiseaseLayerInfo(collection)
   }
 
-  if (!collection || !collection.features || collection.features.length === 0) return
+  const safeCollection = collection && Array.isArray(collection.features)
+    ? collection
+    : { type: 'FeatureCollection', features: [] }
 
-  const geoLayer = L.geoJSON(collection as any, {
+  const geoLayer = L.geoJSON(safeCollection as any, {
     style: (feature: any) => styleForMapLayer(layerKey, feature?.properties || feature, query.indexCode || 'MQI'),
     pointToLayer: (feature, latlng) => {
       const style = styleForMapLayer(layerKey, feature?.properties || feature, query.indexCode || 'MQI') as any
@@ -1074,6 +1119,7 @@ async function loadLayer(layerKey: string, loader: () => Promise<GeoJsonFeatureC
 
   geoLayer.addTo(map)
   layerMap.set(layerKey, geoLayer)
+  layerSignatures.set(layerKey, signature)
 }
 
 async function handleFeatureClick(layerKey: string, feature: any, layer: L.Layer) {
@@ -1994,6 +2040,7 @@ function findLayerByTarget(target: GisSourceMapTarget): { layer: L.Layer; layerK
   let result: { layer: L.Layer; layerKey: string; feature: any } | null = null
   layerMap.forEach((geoLayer, layerKey) => {
     if (result) return
+    if (!map.hasLayer(geoLayer)) return
     geoLayer.eachLayer((layer: any) => {
       if (result) return
       const feature = layer.feature || {}
@@ -2108,6 +2155,7 @@ function handleFitAll() {
 
   const bounds = new LatLngBounds([])
   layerMap.forEach((layer) => {
+    if (!map.hasLayer(layer)) return
     const layerBounds = layer.getBounds()
     if (layerBounds.isValid()) bounds.extend(layerBounds)
   })
@@ -2126,7 +2174,7 @@ function handleFitAll() {
 function fitViewportToQueryRoadRoutes() {
   if (!map) return
   const assessmentLayer = layerMap.get('assessment')
-  if (assessmentLayer) {
+  if (assessmentLayer && map.hasLayer(assessmentLayer)) {
     const b = (assessmentLayer as GeoJSON).getBounds()
     if (b.isValid()) {
       map.fitBounds(b, {
@@ -2139,7 +2187,7 @@ function fitViewportToQueryRoadRoutes() {
   }
   if (layers.roadRoute) {
     const routeLayer = layerMap.get('roadRoute')
-    if (routeLayer) {
+    if (routeLayer && map.hasLayer(routeLayer)) {
       const b = (routeLayer as GeoJSON).getBounds()
       if (b.isValid()) {
         map.fitBounds(b, {
