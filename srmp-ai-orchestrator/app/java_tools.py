@@ -166,10 +166,12 @@ class JavaToolGateway:
 
     def _headers(self, tenant_id: Optional[str], trace_id: Optional[str]) -> Dict[str, str]:
         headers = {"Content-Type": "application/json"}
-        if tenant_id:
-            headers["X-Tenant-Id"] = tenant_id
-        if trace_id:
-            headers["X-AI-Trace-Id"] = trace_id
+        safe_tenant_id = _safe_header_value(tenant_id)
+        safe_trace_id = _safe_header_value(trace_id)
+        if safe_tenant_id:
+            headers["X-Tenant-Id"] = safe_tenant_id
+        if safe_trace_id:
+            headers["X-AI-Trace-Id"] = safe_trace_id
         return headers
 
     def _is_allowed(self, tool_name: str) -> bool:
@@ -210,6 +212,13 @@ def _unwrap_r(body: Any) -> Tuple[Any, Optional[str]]:
             return None, str(message or code)
         return body.get("data"), None
     return body, None
+
+
+def _safe_header_value(value: Optional[str]) -> str:
+    if value is None:
+        return ""
+    text = str(value).replace("\r", "").replace("\n", "").strip()
+    return text.encode("ascii", "ignore").decode("ascii")
 
 
 def _http_error_message(exc: Exception) -> str:
