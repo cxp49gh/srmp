@@ -48,11 +48,11 @@
 | `map.disease_analysis` | 分析病害 | `map.disease_analysis` | `gis.queryNearbyObjects`, `knowledge.retrieve` | 不应查区域统计 |
 | `map.assessment_analysis` | 分析评定 | `map.assessment_analysis` | `gis.queryAssessmentResults`, `gis.queryDiseasesByStakeRange`, `knowledge.retrieve` | 不应泛化为“低分”；路线和桩号必须来自当前评定 |
 | `map.region_analysis` | 分析框选区域 | `map.region_analysis` | `gis.queryRegionSummary`, `knowledge.retrieve` | `geometry` 必须进入后端工具参数 |
-| `solution.route_report` | 生成路线养护报告 | `solution.generate` | 路线统计、评定、病害、知识库、`solution.generateDraft` | 模板 `route_report_default`，不得兜底 |
-| `solution.section_plan` | 生成路段养护计划 | `solution.generate` | 路段评定、病害、桩号病害、知识库、`solution.generateDraft` | 模板 `map_object_section_plan_default`，不得兜底 |
-| `solution.disease_review` | 生成病害复核意见 | `solution.generate` | 周边对象、知识库、`solution.generateDraft` | 模板 `map_object_disease_review_default`，不得兜底 |
-| `solution.assessment_advice` | 生成评定处置建议 | `solution.generate` | 评定、桩号病害、知识库、`solution.generateDraft` | 模板 `map_object_evaluation_unit_advice_default`，不得兜底 |
-| `solution.region_advice` | 生成区域养护建议 | `solution.generate` | 区域统计、知识库、`solution.generateDraft` | 模板 `map_region_maintenance_advice_default`，不得出现 `routeCode` 变量缺失 |
+| `solution.route_report` | 生成路线养护报告 | `solution.route_report` | 路线统计、评定、病害、知识库、`solution.generateDraft` | 模板 `route_report_default`，不得兜底 |
+| `solution.section_plan` | 生成路段养护计划 | `solution.section_plan` | 路段评定、病害、桩号病害、知识库、`solution.generateDraft` | 模板 `map_object_section_plan_default`，不得兜底 |
+| `solution.disease_review` | 生成病害复核意见 | `solution.disease_review` | 周边对象、知识库、`solution.generateDraft` | 模板 `map_object_disease_review_default`，不得兜底 |
+| `solution.assessment_advice` | 生成评定处置建议 | `solution.assessment_advice` | 评定、桩号病害、知识库、`solution.generateDraft` | 模板 `map_object_evaluation_unit_advice_default`，不得兜底 |
+| `solution.region_advice` | 生成区域养护建议 | `solution.region_advice` | 区域统计、知识库、`solution.generateDraft` | 模板 `map_region_maintenance_advice_default`，不得出现 `routeCode` 变量缺失 |
 | `followup.source_replay` | 参考资料来源追问 | 任意匹配能力 | 不固定工具 | 必须继承并回显可定位 `followupSource.mapTarget` |
 
 ## 人工验收清单

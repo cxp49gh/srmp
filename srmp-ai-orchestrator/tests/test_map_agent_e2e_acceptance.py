@@ -96,6 +96,28 @@ class MapAgentE2EAcceptanceTest(unittest.TestCase):
 
         self.assertIn("prohibited tool executed: gis.queryRegionSummary", issues)
 
+    def test_solution_cases_expect_concrete_capabilities(self):
+        samples = {
+            "projectId": "project-1",
+            "route": {"objectType": "ROAD_ROUTE", "objectId": "route-1", "routeCode": "Y016140727"},
+            "section": {"objectType": "ROAD_SECTION", "objectId": "section-1", "routeCode": "Y016140727", "startStake": 1, "endStake": 2},
+            "disease": {"objectType": "DISEASE", "objectId": "disease-1", "routeCode": "Y016140727", "startStake": 1.2, "endStake": 1.2},
+            "assessment": {"objectType": "ASSESSMENT_RESULT", "objectId": "assessment-1", "routeCode": "Y016140727", "year": 2026, "startStake": 1, "endStake": 1.1},
+            "geometry": {"type": "Polygon", "coordinates": [[[112.1, 37.1], [112.2, 37.1], [112.2, 37.2], [112.1, 37.2], [112.1, 37.1]]]},
+        }
+
+        generation_cases = {
+            case.case_id: case
+            for case in build_acceptance_cases(samples, require_ai=True)
+            if case.generation
+        }
+
+        self.assertEqual("solution.route_report", generation_cases["solution.route_report"].expected_capability)
+        self.assertEqual("solution.section_plan", generation_cases["solution.section_plan"].expected_capability)
+        self.assertEqual("solution.disease_review", generation_cases["solution.disease_review"].expected_capability)
+        self.assertEqual("solution.assessment_advice", generation_cases["solution.assessment_advice"].expected_capability)
+        self.assertEqual("solution.region_advice", generation_cases["solution.region_advice"].expected_capability)
+
     def test_requires_answer_meta_for_all_live_cases(self):
         case = AcceptanceCase(case_id="map.route_analysis", name="分析路线", payload={}, required_tools=["gis.queryDiseases"])
         response = {"answer": "已分析。", "toolResults": [{"toolName": "gis.queryDiseases", "success": True}]}
