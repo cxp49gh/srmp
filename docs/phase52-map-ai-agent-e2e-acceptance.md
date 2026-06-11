@@ -38,6 +38,8 @@
 
 脚本会自动抽样项目、路线、路段、病害、评定对象，并调用 `/api/agent/map-agent/run`。失败时会指出具体 case、缺失工具、误用工具、模板变量、兜底、answerMeta、业务来源不可定位或 LLM 状态问题。
 
+方案生成类 case 现在按具体子能力验收。直接生成必须完整查询证据；先分析再生成的 UI 链路应携带 `evidenceSnapshotId`，生成 trace 中应展示 `evidenceReuseStatus`、`basedOnAnalysisTraceId` 和 `scopeFingerprint`。
+
 ## 自动检查矩阵
 
 | Case | 客户入口 | 期望能力 | 必须调用 | 禁止/重点 |

@@ -56,11 +56,12 @@ class GovernancePlanningTest(unittest.TestCase):
                 "routeCode": "Y016140727",
                 "year": 2026,
             },
+            "actionInput": {"solutionType": "ROUTE_REPORT", "routeCode": "Y016140727"},
             "options": {"useKnowledge": True},
         })
         names = [item["toolName"] for item in result["toolPlan"]]
 
-        self.assertEqual("solution.generate", result["capabilityId"])
+        self.assertEqual("solution.route_report", result["capabilityId"])
         self.assertEqual("PASS", result["policyStatus"])
         self.assertIn("gis.queryRegionSummary", names)
         self.assertIn("gis.queryAssessmentResults", names)
@@ -211,11 +212,17 @@ class GovernancePlanningTest(unittest.TestCase):
                     "endStake": 12.5,
                 },
             },
+            "actionInput": {
+                "solutionType": "SECTION_PLAN",
+                "routeCode": "Y016140727",
+                "startStake": 10,
+                "endStake": 12.5,
+            },
             "options": {"useKnowledge": True},
         })
         calls = {item["toolName"]: item for item in result["toolPlan"]}
 
-        self.assertEqual("solution.generate", result["capabilityId"])
+        self.assertEqual("solution.section_plan", result["capabilityId"])
         self.assertEqual("PASS", result["policyStatus"])
         self.assertIn("gis.queryAssessmentResults", calls)
         self.assertIn("gis.queryDiseases", calls)
