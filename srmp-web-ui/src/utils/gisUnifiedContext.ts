@@ -162,9 +162,20 @@ export function sourceToMapTarget(source: any): GisSourceMapTarget {
     return raw as GisSourceMapTarget
   }
 
+  const explicitTarget = pickValue(raw, 'mapTarget', 'map_target', 'target', 'geoTarget')
+  if (explicitTarget && typeof explicitTarget === 'object') {
+    return normalizeSourceMapTarget(explicitTarget, raw)
+  }
+
+  const followupContext = pickValue(raw, 'followupContext', 'followup_context') || {}
+  const followupTarget = pickValue(followupContext, 'mapTarget', 'map_target')
+  if (followupTarget && typeof followupTarget === 'object') {
+    return normalizeSourceMapTarget(followupTarget, raw)
+  }
+
   const metadata = pickValue(raw, 'metadata', 'meta') || {}
   const mapContext = pickValue(raw, 'mapContext', 'map_context', 'context') || {}
-  const mapTarget = pickValue(raw, 'mapTarget', 'map_target', 'target', 'geoTarget') || {}
+  const mapTarget = {}
   const properties = pickValue(raw, 'properties', 'props') || {}
   const candidates = [raw, metadata, mapTarget, mapContext, properties]
   const pickAny = (...keys: string[]) => firstPresent(...candidates.map((it) => pickValue(it, ...keys)))
@@ -186,6 +197,22 @@ export function sourceToMapTarget(source: any): GisSourceMapTarget {
     bbox: pickAny('bbox', 'bounds', 'extent'),
     title: pickValue(raw, 'title', 'docTitle', 'documentTitle', 'sourceTitle') || pickValue(metadata, 'title', 'docTitle', 'documentTitle', 'sourceTitle'),
     sourceType: pickValue(raw, 'sourceType', 'source_type') || pickValue(metadata, 'sourceType', 'source_type'),
+    raw
+  }
+}
+
+function normalizeSourceMapTarget(target: any, raw: any): GisSourceMapTarget {
+  return {
+    objectType: normalizeGisContextType(pickValue(target, 'objectType', 'object_type', 'targetType', 'target_type')),
+    objectId: firstPresent(pickValue(target, 'objectId', 'object_id', 'targetId', 'target_id', 'id'), undefined),
+    id: firstPresent(pickValue(target, 'id', 'objectId', 'object_id', 'targetId', 'target_id'), undefined),
+    routeCode: pickValue(target, 'routeCode', 'route_code', 'routeNo', 'route_no', 'roadCode', 'road_code'),
+    startStake: pickValue(target, 'startStake', 'start_stake', 'stakeStart', 'stake_start', 'beginStake', 'begin_stake'),
+    endStake: pickValue(target, 'endStake', 'end_stake', 'stakeEnd', 'stake_end', 'finishStake', 'finish_stake'),
+    geometry: pickValue(target, 'geometry', 'geojson', 'geoJson', 'geom'),
+    bbox: pickValue(target, 'bbox', 'bounds', 'extent'),
+    title: pickValue(target, 'title', 'sourceTitle', 'source_title') || pickValue(raw, 'sourceTitle', 'source_title', 'title'),
+    sourceType: pickValue(target, 'sourceType', 'source_type') || pickValue(raw, 'sourceType', 'source_type'),
     raw
   }
 }

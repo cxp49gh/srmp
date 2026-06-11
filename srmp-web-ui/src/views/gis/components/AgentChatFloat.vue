@@ -346,6 +346,7 @@ const activeTraceId = ref('')
 const liveTrace = ref<LiveTraceSnapshot | null>(null)
 const liveTraceError = ref('')
 const liveTraceFailureCount = ref(0)
+const pendingSourceFollowupContext = ref<Record<string, any> | null>(null)
 let liveTraceTimer: ReturnType<typeof window.setInterval> | null = null
 
 type PlanExecutionKind = 'SEND'
@@ -1119,7 +1120,7 @@ async function copyCurrentContext() {
  * 构建一张图 AI Agent 使用的地图上下文包。
  */
 function buildMapAiContext(message: string) {
-  return buildMapAiContextPayload({
+  const mapContext: any = buildMapAiContextPayload({
     mode: contextMode.value,
     message,
     context: props.context || {},
@@ -1129,6 +1130,19 @@ function buildMapAiContext(message: string) {
     analysisTargets: analysisTargets.value,
     nearbyObjects: props.context?.nearbyObjects || []
   })
+  if (pendingSourceFollowupContext.value) {
+    const followupSource = pendingSourceFollowupContext.value
+    mapContext.followupSource = followupSource
+    mapContext.extra = {
+      ...(mapContext.extra || {}),
+      followupSource,
+      rawContext: {
+        ...((mapContext.extra || {}).rawContext || {}),
+        followupSource
+      }
+    }
+  }
+  return mapContext
 }
 
 async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
@@ -1269,7 +1283,7 @@ async function saveSolutionDraft() {
 }
 
 function buildChatRunRequest(message: string, traceId: string): MapAgentRunRequest {
-  return {
+  const request = {
     action: resolveChatAction(contextMode.value, message),
     message,
     mapContext: buildMapAiContext(message),
@@ -1278,6 +1292,8 @@ function buildChatRunRequest(message: string, traceId: string): MapAgentRunReque
     },
     options: { ...options, useTools: useAgentTools.value, traceId }
   }
+  pendingSourceFollowupContext.value = null
+  return request
 }
 
 async function runMapAgentRequest(request: MapAgentRunRequest, userMessage: string) {
@@ -1459,7 +1475,42 @@ function locateEvidenceSource(target: GisSourceMapTarget) {
 }
 
 function askWithSource(source: any) {
+  pendingSourceFollowupContext.value = buildSourceFollowupContext(source)
   emit('ask-with-source', source)
+}
+
+function buildSourceFollowupContext(source: any) {
+  const existing = (source?.followupContext || source?.followup_context || {}) as Record<string, any>
+  const target = sourceToMapTarget(source)
+  const sourceTitle = source?.sourceTitle || source?.source_title || source?.title || existing.sourceTitle || existing.source_title || target.title || '参考来源'
+  const contentExcerpt = sourceExcerptText(source) || existing.contentExcerpt || existing.content_excerpt || ''
+  return {
+    ...existing,
+    sourceId: source?.sourceId || source?.source_id || source?.chunkId || source?.chunk_id || source?.documentId || source?.document_id || existing.sourceId,
+    sourceType: source?.sourceType || source?.source_type || existing.sourceType,
+    sourceTitle,
+    contentExcerpt,
+    mapTarget: target,
+    hasMapTarget: Boolean(target.objectId || target.routeCode || target.geometry || target.bbox || target.startStake || target.endStake)
+  }
+}
+
+function sourceExcerptText(source: any) {
+  const metadata = source?.metadata || source?.meta || {}
+  const value = [
+    source?.sourceExcerpt,
+    source?.content,
+    source?.text,
+    source?.contentExcerpt,
+    source?.content_excerpt,
+    source?.excerpt,
+    source?.summary,
+    metadata.content,
+    metadata.text,
+    metadata.excerpt,
+    metadata.summary
+  ].find((item) => String(item ?? '').trim())
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 260)
 }
 
 function openTrace(execution: Record<string, any>) {

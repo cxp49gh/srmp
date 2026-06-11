@@ -167,7 +167,8 @@ class MapAgentRunWorkflow:
             "policyStatus": tool_policy.get("policyStatus"),
             "policyChecks": tool_policy.get("policyChecks") or [],
         })
-        source_summaries = data.get("sourceSummaries") if isinstance(data.get("sourceSummaries"), list) else []
+        raw_source_summaries = data.get("sourceSummaries") if isinstance(data.get("sourceSummaries"), list) else []
+        source_summaries = [self._enrich_source_summary(item, request) for item in raw_source_summaries if isinstance(item, dict)]
         business_sources = extract_business_sources(evidence_results)
         knowledge_sources = extract_knowledge_sources(evidence_results)
         merged_sources = merge_sources(list(source_summaries), business_sources, knowledge_sources)
@@ -385,6 +386,28 @@ class MapAgentRunWorkflow:
             "toolSummary": tool_summary,
         }
 
+    def _enrich_source_summary(self, source: Dict[str, Any], request: MapAgentRunRequest) -> Dict[str, Any]:
+        enriched = dict(source or {})
+        if _has_locatable_source(enriched):
+            return enriched
+        target = _request_map_target(request)
+        if not target:
+            return enriched
+        enriched["mapTarget"] = target
+        title = enriched.get("sourceTitle") or enriched.get("source_title") or enriched.get("title") or target.get("title") or "业务来源"
+        excerpt = enriched.get("contentExcerpt") or enriched.get("content_excerpt") or enriched.get("content") or enriched.get("summary") or ""
+        followup = enriched.get("followupContext") if isinstance(enriched.get("followupContext"), dict) else {}
+        enriched["followupContext"] = {
+            **followup,
+            "sourceId": enriched.get("sourceId") or enriched.get("source_id") or target.get("objectId") or target.get("routeCode"),
+            "sourceType": enriched.get("sourceType") or enriched.get("source_type"),
+            "sourceTitle": title,
+            "contentExcerpt": excerpt,
+            "excerpt": excerpt,
+            "mapTarget": target,
+        }
+        return enriched
+
     def _trace_id(self, request: MapAgentRunRequest, trace_id: Optional[str]) -> str:
         option_trace_id = (request.options or {}).get("traceId")
         return str(trace_id or option_trace_id or "").strip()
@@ -488,3 +511,100 @@ def _estimate_hit_count(data: Any) -> int:
     if isinstance(data, list):
         return len(data)
     return 1 if data else 0
+
+
+def _request_map_target(request: MapAgentRunRequest) -> Dict[str, Any]:
+    action = normalize_action(request.action)
+    ctx = request.mapContext.model_dump(exclude_none=True) if request.mapContext else {}
+    action_input = request.actionInput or {}
+    obj = action_input.get("mapObject") if isinstance(action_input.get("mapObject"), dict) else ctx.get("mapObject") if isinstance(ctx.get("mapObject"), dict) else {}
+    geometry = action_input.get("geometry") or ctx.get("geometry") or ctx.get("regionGeometry")
+    route_code = _first_value(action_input, "routeCode", "route_code") or _first_value(ctx, "routeCode", "route_code")
+    if obj:
+        object_type = _normalize_target_object_type(_first_value(obj, "objectType", "object_type", "type", "layerType"))
+        object_id = _first_value(obj, "objectId", "object_id", "id")
+        target = _compact({
+            "objectType": object_type,
+            "objectId": str(object_id) if object_id not in (None, "") else None,
+            "id": str(object_id) if object_id not in (None, "") else None,
+            "routeCode": _first_value(obj, "routeCode", "route_code", "route", "routeNo", "route_no") or route_code,
+            "startStake": _first_value(obj, "startStake", "start_stake", "stakeStart", "stake_start"),
+            "endStake": _first_value(obj, "endStake", "end_stake", "stakeEnd", "stake_end"),
+            "title": _target_title(obj, object_type),
+        })
+        if _has_locatable_target(target):
+            return target
+    if action == "GENERATE_REGION_SOLUTION" or geometry:
+        target = _compact({
+            "objectType": "MAP_REGION",
+            "routeCode": route_code,
+            "geometry": geometry,
+            "bbox": _first_value(action_input, "bbox", "bounds") or _first_value(ctx, "bbox", "bounds"),
+            "title": "地图框选区域",
+        })
+        if _has_locatable_target(target):
+            return target
+    if action == "GENERATE_ROUTE_REPORT" or str(ctx.get("mode") or "").upper() == "ROUTE":
+        target = _compact({
+            "objectType": "ROAD_ROUTE",
+            "routeCode": route_code,
+            "title": f"路线 {route_code}" if route_code else "路线",
+        })
+        if _has_locatable_target(target):
+            return target
+    return {}
+
+
+def _has_locatable_source(source: Dict[str, Any]) -> bool:
+    target = source.get("mapTarget") or source.get("map_target")
+    if not isinstance(target, dict):
+        followup = source.get("followupContext") or source.get("followup_context")
+        if isinstance(followup, dict):
+            target = followup.get("mapTarget") or followup.get("map_target")
+    return isinstance(target, dict) and _has_locatable_target(target)
+
+
+def _has_locatable_target(target: Dict[str, Any]) -> bool:
+    return any(target.get(key) not in (None, "", [], {}) for key in ("objectId", "routeCode", "startStake", "endStake", "geometry", "bbox"))
+
+
+def _first_value(data: Dict[str, Any], *keys: str) -> Any:
+    if not isinstance(data, dict):
+        return None
+    for key in keys:
+        value = data.get(key)
+        if value not in (None, ""):
+            return value
+    raw = data.get("raw")
+    if isinstance(raw, dict):
+        return _first_value(raw, *keys)
+    return None
+
+
+def _compact(data: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: value for key, value in data.items() if value not in (None, "", [], {})}
+
+
+def _normalize_target_object_type(value: Any) -> str:
+    raw = str(value or "").strip().upper()
+    aliases = {
+        "ASSESSMENT": "ASSESSMENT_RESULT",
+        "ASSESSMENT_RESULT_RECORD": "ASSESSMENT_RESULT",
+        "DISEASE_RECORD": "DISEASE",
+        "ROADROUTE": "ROAD_ROUTE",
+        "ROADSECTION": "ROAD_SECTION",
+    }
+    return aliases.get(raw, raw)
+
+
+def _target_title(obj: Dict[str, Any], object_type: str) -> str:
+    route_code = _first_value(obj, "routeCode", "route_code", "route")
+    if object_type == "ROAD_ROUTE":
+        return str(_first_value(obj, "routeName", "route_name", "name") or route_code or "路线")
+    if object_type == "ROAD_SECTION":
+        return str(_first_value(obj, "sectionName", "section_name", "sectionCode", "section_code") or route_code or "路段")
+    if object_type == "DISEASE":
+        return str(_first_value(obj, "diseaseName", "disease_name", "diseaseType", "disease_type") or "病害")
+    if object_type == "ASSESSMENT_RESULT":
+        return str(_first_value(obj, "unitCode", "unit_code", "objectId", "object_id", "id") or "评定结果")
+    return str(route_code or object_type or "地图对象")

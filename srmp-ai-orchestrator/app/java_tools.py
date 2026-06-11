@@ -281,6 +281,13 @@ def _extract_source_candidates(data: Any) -> List[Dict[str, Any]]:
         return [item for item in data if isinstance(item, dict)]
     if not isinstance(data, dict):
         return []
+    grouped: List[Dict[str, Any]] = []
+    for key in ("diseases", "assessments"):
+        value = data.get(key)
+        if isinstance(value, list):
+            grouped.extend([item for item in value if isinstance(item, dict)])
+    if grouped:
+        return grouped
     for key in ("hits", "list", "records", "items", "sources"):
         value = data.get(key)
         if isinstance(value, list):
@@ -298,33 +305,37 @@ def _normalize_source(hit: Dict[str, Any], idx: int) -> Dict[str, Any]:
     chunk_id = _first(hit, "chunkId", "chunk_id", "id", "knowledgeId")
     document_id = _first(hit, "documentId", "document_id", "docId")
     source_id = _first(hit, "sourceId", "source_id", "knowledgeId", "id", "documentId", "docId")
-    source_type = _first(hit, "sourceType", "source_type", "type")
+    source_type = _first(hit, "sourceType", "source_type", "type") or "KNOWLEDGE"
     section_title = _first(hit, "sectionTitle", "section_title", "section", "heading")
     score = _first(hit, "score", "similarity", "distance")
     content = _first(hit, "content", "chunk", "text", "summary")
     metadata = hit.get("metadata") if isinstance(hit.get("metadata"), dict) else {}
-    return {
+    content_excerpt = str(content)[:500] if content is not None else None
+    source = {
         "chunkId": chunk_id,
         "documentId": document_id,
         "title": title,
+        "sourceTitle": title,
         "sectionTitle": section_title,
         "sourceType": source_type,
         "sourceId": source_id,
         "score": score,
-        "content": str(content)[:500] if content is not None else None,
+        "content": content_excerpt,
+        "contentExcerpt": content_excerpt,
         "metadata": metadata,
     }
+    return _with_source_context(source, hit, "KNOWLEDGE", idx)
 
 
 def _normalize_business_source(item: Dict[str, Any], result: ToolResult, default_object_type: str, idx: int) -> Dict[str, Any]:
-    object_type = _normalize_object_type(_first(item, "objectType", "object_type", "type", "layerType") or default_object_type)
+    object_type = _infer_business_object_type(item, default_object_type)
     object_id = _first(item, "objectId", "object_id", "id", "sourceId", "source_id")
     route_code = _first(item, "routeCode", "route_code", "route", "routeNo", "route_no")
     start_stake = _first(item, "startStake", "start_stake", "stakeStart", "stake_start", "beginStake", "begin_stake")
     end_stake = _first(item, "endStake", "end_stake", "stakeEnd", "stake_end", "finishStake", "finish_stake")
     title = _business_source_title(item, result.toolName, object_type, idx)
     content = _business_source_content(item, result)
-    return {
+    source = {
         "sourceType": "BUSINESS_DATA",
         "title": title,
         "sourceTitle": title,
@@ -337,6 +348,7 @@ def _normalize_business_source(item: Dict[str, Any], result: ToolResult, default
         "endStake": end_stake,
         "sourceId": str(object_id) if object_id not in (None, "") else f"{result.toolName}:{idx}",
         "content": content,
+        "contentExcerpt": content,
         "metadata": {
             "toolName": result.toolName,
             "summary": result.summary,
@@ -344,6 +356,73 @@ def _normalize_business_source(item: Dict[str, Any], result: ToolResult, default
         },
         "raw": item,
     }
+    return _with_source_context(source, item, object_type, idx)
+
+
+def _with_source_context(source: Dict[str, Any], raw: Dict[str, Any], default_object_type: str, idx: int) -> Dict[str, Any]:
+    title = source.get("sourceTitle") or source.get("title") or f"来源 {idx + 1}"
+    excerpt = source.get("contentExcerpt") or source.get("content") or ""
+    map_target = _build_map_target(raw, source, default_object_type, str(title))
+    if map_target:
+        source["mapTarget"] = map_target
+    source["followupContext"] = _compact({
+        "sourceId": source.get("sourceId") or source.get("chunkId") or source.get("documentId"),
+        "sourceType": source.get("sourceType"),
+        "sourceTitle": title,
+        "contentExcerpt": excerpt,
+        "excerpt": excerpt,
+        "mapTarget": map_target,
+    })
+    return _compact(source)
+
+
+def _build_map_target(raw: Dict[str, Any], source: Dict[str, Any], default_object_type: str, title: str) -> Dict[str, Any]:
+    metadata = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+    source_metadata = source.get("metadata") if isinstance(source.get("metadata"), dict) else {}
+    query_scope = _first_map(raw, "queryScope", "query_scope")
+    source_query_scope = _first_map(source, "queryScope", "query_scope")
+    explicit_target = _first_map(raw, "mapTarget", "map_target", "target", "geoTarget", "geo_target")
+    followup = _first_map(raw, "followupContext", "followup_context")
+    followup_target = _first_map(followup, "mapTarget", "map_target") if followup else {}
+    candidates = [explicit_target, followup_target, source, raw, query_scope, source_query_scope, metadata, source_metadata]
+    object_id_candidates = [explicit_target, followup_target, metadata, source_metadata, source, raw]
+    object_type = _normalize_object_type(_first_from(candidates, "objectType", "object_type", "targetType", "target_type", "sourceObjectType", "source_object_type", "layerType", "layer_type") or default_object_type)
+    object_id = _first_from(object_id_candidates, "objectId", "object_id", "targetId", "target_id", "sourceObjectId", "source_object_id", "featureId", "feature_id", "id")
+    route_code = _first_from(candidates, "routeCode", "route_code", "route", "routeNo", "route_no", "roadCode", "road_code")
+    start_stake = _first_from(candidates, "startStake", "start_stake", "stakeStart", "stake_start", "beginStake", "begin_stake", "startMileage", "start_mileage")
+    end_stake = _first_from(candidates, "endStake", "end_stake", "stakeEnd", "stake_end", "finishStake", "finish_stake", "endMileage", "end_mileage")
+    geometry = _first_from(candidates, "geometry", "geojson", "geoJson", "geom")
+    bbox = _first_from(candidates, "bbox", "bounds", "extent")
+    target = _compact({
+        "objectType": object_type,
+        "objectId": str(object_id) if object_id not in (None, "") else None,
+        "id": str(object_id) if object_id not in (None, "") else None,
+        "routeCode": route_code,
+        "startStake": start_stake,
+        "endStake": end_stake,
+        "geometry": geometry,
+        "bbox": bbox,
+        "title": title,
+    })
+    return target if _has_map_target(target) else {}
+
+
+def _has_map_target(target: Dict[str, Any]) -> bool:
+    return any(target.get(key) not in (None, "", [], {}) for key in ("objectId", "routeCode", "startStake", "endStake", "geometry", "bbox"))
+
+
+def _first_map(data: Dict[str, Any], *keys: str) -> Dict[str, Any]:
+    value = _first(data, *keys) if isinstance(data, dict) else None
+    return value if isinstance(value, dict) else {}
+
+
+def _first_from(candidates: List[Dict[str, Any]], *keys: str) -> Any:
+    for candidate in candidates:
+        if isinstance(candidate, dict):
+            value = _first(candidate, *keys)
+            if value not in (None, ""):
+                return value
+    return None
 
 
 def _business_source_title(item: Dict[str, Any], tool_name: str, object_type: str, idx: int) -> str:
@@ -399,6 +478,24 @@ def _normalize_object_type(value: Any) -> str:
         "ROADROUTE": "ROAD_ROUTE",
     }
     return aliases.get(raw, raw)
+
+
+def _infer_business_object_type(item: Dict[str, Any], default_object_type: str) -> str:
+    default_type = _normalize_object_type(default_object_type)
+    if default_type:
+        return default_type
+    explicit = _normalize_object_type(_first(item, "objectType", "object_type", "type", "layerType"))
+    if explicit in {"DISEASE", "ASSESSMENT_RESULT", "ROAD_ROUTE", "ROAD_SECTION", "MAP_REGION"}:
+        return explicit
+    if any(_first(item, key) not in (None, "") for key in ("diseaseName", "disease_name", "diseaseType", "disease_type", "severity", "quantity")):
+        return "DISEASE"
+    if any(_first(item, key) not in (None, "") for key in ("mqi", "pqi", "pci", "rqi", "rdi", "sci", "bci", "tci")):
+        return "ASSESSMENT_RESULT"
+    return explicit
+
+
+def _compact(data: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: value for key, value in data.items() if value not in (None, "", [], {})}
 
 
 def _dedupe_sources(sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

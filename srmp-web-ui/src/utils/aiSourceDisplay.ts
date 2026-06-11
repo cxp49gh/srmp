@@ -27,9 +27,9 @@ export function pickField(obj: Record<string, any> | null | undefined, ...keys: 
 export function classifySource(source: Record<string, any>): AiSourceCategory {
   const type = pickField(source, 'sourceType', 'source_type', 'type').toUpperCase()
   if (type === 'OUTLINE') return 'OUTLINE'
-  if (type === 'BUSINESS' || source._category === 'BUSINESS') return 'BUSINESS'
+  if (['BUSINESS', 'BUSINESS_DATA', 'MAP_REGION'].includes(type) || source._category === 'BUSINESS') return 'BUSINESS'
   const toolName = pickField(source, 'toolName', 'tool_name', 'name').toLowerCase()
-  if (toolName && BUSINESS_TOOL_PREFIXES.some((p) => toolName.startsWith(p))) return 'BUSINESS'
+  if (toolName && (toolName.startsWith('gis.') || BUSINESS_TOOL_PREFIXES.some((p) => toolName.startsWith(p)))) return 'BUSINESS'
   return 'KNOWLEDGE'
 }
 

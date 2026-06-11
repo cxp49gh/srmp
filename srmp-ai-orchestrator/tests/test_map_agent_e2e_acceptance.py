@@ -102,6 +102,28 @@ class MapAgentE2EAcceptanceTest(unittest.TestCase):
 
         self.assertIn("missing answerMeta", issues)
 
+    def test_business_source_must_be_locatable_when_case_requires_it(self):
+        case = AcceptanceCase(
+            case_id="map.route_analysis",
+            name="分析路线",
+            payload={},
+            required_tools=["gis.queryDiseases"],
+            require_locatable_business_sources=True,
+        )
+        response = {
+            "answer": "已分析。",
+            "answerMeta": {"capabilityId": "map.route_analysis", "answerSource": "LLM"},
+            "toolResults": [{"toolName": "gis.queryDiseases", "success": True}],
+            "sources": [
+                {"sourceType": "BUSINESS_DATA", "sourceTitle": "病害记录", "content": "裂缝"},
+                {"sourceType": "KNOWLEDGE", "sourceTitle": "规范条文", "content": "PCI 指标说明"},
+            ],
+        }
+
+        issues = validate_case_response(case, response)
+
+        self.assertIn("business source is not locatable: 病害记录", issues)
+
     def test_generation_rejects_template_fallback_missing_variables_and_mustache(self):
         case = AcceptanceCase(
             case_id="solution.section_plan",

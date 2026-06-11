@@ -38,6 +38,7 @@ class AcceptanceCase:
     generation: bool = False
     expected_template: Optional[str] = None
     require_llm: bool = False
+    require_locatable_business_sources: bool = False
 
 
 @dataclass
@@ -94,6 +95,7 @@ def build_acceptance_cases(samples: Dict[str, Any], require_ai: bool = True, top
             ),
             expected_capability="map.route_analysis",
             required_tools=["gis.queryRegionSummary", "gis.queryAssessmentResults", "gis.queryDiseases", "knowledge.retrieve"],
+            require_locatable_business_sources=True,
         ),
         AcceptanceCase(
             case_id="map.section_analysis",
@@ -111,6 +113,7 @@ def build_acceptance_cases(samples: Dict[str, Any], require_ai: bool = True, top
             expected_capability="map.section_analysis",
             required_tools=["gis.queryAssessmentResults", "gis.queryDiseases", "gis.queryDiseasesByStakeRange", "knowledge.retrieve"],
             prohibited_tools=["gis.queryRegionSummary"],
+            require_locatable_business_sources=True,
         ),
         AcceptanceCase(
             case_id="map.disease_analysis",
@@ -128,6 +131,7 @@ def build_acceptance_cases(samples: Dict[str, Any], require_ai: bool = True, top
             expected_capability="map.disease_analysis",
             required_tools=["gis.queryNearbyObjects", "knowledge.retrieve"],
             prohibited_tools=["gis.queryRegionSummary"],
+            require_locatable_business_sources=True,
         ),
         AcceptanceCase(
             case_id="map.assessment_analysis",
@@ -145,6 +149,7 @@ def build_acceptance_cases(samples: Dict[str, Any], require_ai: bool = True, top
             expected_capability="map.assessment_analysis",
             required_tools=["gis.queryAssessmentResults", "gis.queryDiseasesByStakeRange", "knowledge.retrieve"],
             prohibited_tools=["gis.queryRegionSummary"],
+            require_locatable_business_sources=True,
         ),
         AcceptanceCase(
             case_id="map.region_analysis",
@@ -161,6 +166,7 @@ def build_acceptance_cases(samples: Dict[str, Any], require_ai: bool = True, top
             ),
             expected_capability="map.region_analysis",
             required_tools=["gis.queryRegionSummary", "knowledge.retrieve"],
+            require_locatable_business_sources=True,
         ),
         AcceptanceCase(
             case_id="solution.route_report",
@@ -180,6 +186,7 @@ def build_acceptance_cases(samples: Dict[str, Any], require_ai: bool = True, top
             generation=True,
             expected_template="route_report_default",
             require_llm=require_ai,
+            require_locatable_business_sources=True,
         ),
         AcceptanceCase(
             case_id="solution.section_plan",
@@ -200,6 +207,7 @@ def build_acceptance_cases(samples: Dict[str, Any], require_ai: bool = True, top
             generation=True,
             expected_template="map_object_section_plan_default",
             require_llm=require_ai,
+            require_locatable_business_sources=True,
         ),
         AcceptanceCase(
             case_id="solution.disease_review",
@@ -220,6 +228,7 @@ def build_acceptance_cases(samples: Dict[str, Any], require_ai: bool = True, top
             generation=True,
             expected_template="map_object_disease_review_default",
             require_llm=require_ai,
+            require_locatable_business_sources=True,
         ),
         AcceptanceCase(
             case_id="solution.assessment_advice",
@@ -240,6 +249,7 @@ def build_acceptance_cases(samples: Dict[str, Any], require_ai: bool = True, top
             generation=True,
             expected_template="map_object_evaluation_unit_advice_default",
             require_llm=require_ai,
+            require_locatable_business_sources=True,
         ),
         AcceptanceCase(
             case_id="solution.region_advice",
@@ -260,6 +270,7 @@ def build_acceptance_cases(samples: Dict[str, Any], require_ai: bool = True, top
             generation=True,
             expected_template="map_region_maintenance_advice_default",
             require_llm=require_ai,
+            require_locatable_business_sources=True,
         ),
     ]
 
@@ -302,6 +313,14 @@ def validate_case_response(case: AcceptanceCase, response: Dict[str, Any]) -> Li
     for marker in CONFUSING_MARKERS:
         if marker in answer:
             issues.append(f"confusing marker in answer: {marker}")
+
+    if case.require_locatable_business_sources:
+        business_sources = [source for source in extract_response_sources(data) if is_business_source(source)]
+        if not business_sources:
+            issues.append("missing business sources")
+        for source in business_sources:
+            if not is_locatable_source(source):
+                issues.append(f"business source is not locatable: {source_title(source)}")
 
     if case.generation:
         issues.extend(validate_generation_response(case, data, tool_results, answer_meta))
@@ -678,6 +697,41 @@ def extract_tool_results(data: Dict[str, Any]) -> List[Dict[str, Any]]:
     return []
 
 
+def extract_response_sources(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    for key in ("sources", "knowledgeSources", "knowledge_sources"):
+        value = data.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+    nested = first_dict(data, "data")
+    value = nested.get("sources") or nested.get("knowledgeSources") or nested.get("knowledge_sources")
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def is_business_source(source: Dict[str, Any]) -> bool:
+    source_type = str(source.get("sourceType") or source.get("source_type") or source.get("type") or "").upper()
+    if source_type in {"BUSINESS", "BUSINESS_DATA", "MAP_REGION"}:
+        return True
+    tool_name = str(source.get("toolName") or source.get("tool_name") or "").lower()
+    return tool_name.startswith("gis.")
+
+
+def is_locatable_source(source: Dict[str, Any]) -> bool:
+    target = source.get("mapTarget") or source.get("map_target")
+    if not isinstance(target, dict):
+        followup = source.get("followupContext") or source.get("followup_context")
+        if isinstance(followup, dict):
+            target = followup.get("mapTarget") or followup.get("map_target")
+    if not isinstance(target, dict):
+        target = source
+    return any(target.get(key) not in (None, "", [], {}) for key in ("objectId", "object_id", "routeCode", "route_code", "geometry", "bbox", "startStake", "start_stake", "endStake", "end_stake"))
+
+
+def source_title(source: Dict[str, Any]) -> str:
+    return str(source.get("sourceTitle") or source.get("source_title") or source.get("title") or source.get("sourceId") or source.get("source_id") or "unknown")
+
+
 def generation_data(data: Dict[str, Any], tool_results: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     for item in tool_results:
         if tool_result_name(item) == "solution.generateDraft":
@@ -782,6 +836,7 @@ def summarize_result(result: CaseRunResult) -> Dict[str, Any]:
         "missingVariables": draft.get("missingVariables") or [],
         "sourceCount": len(data.get("sources") or []),
         "knowledgeSourceCount": len(data.get("knowledgeSources") or []),
+        "locatableBusinessSourceCount": len([source for source in extract_response_sources(data) if is_business_source(source) and is_locatable_source(source)]),
     }
 
 
