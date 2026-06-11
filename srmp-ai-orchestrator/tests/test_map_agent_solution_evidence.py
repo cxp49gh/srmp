@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from app.map_agent_run import MapAgentRunWorkflow
-from app.schemas import MapAgentRunRequest, MapAiContext, ToolResult
+from app.schemas import MapAgentRunRequest, MapAiAgentResponse, MapAiContext, ToolResult
 
 
 class MapAgentSolutionEvidenceTest(unittest.IsolatedAsyncioTestCase):
@@ -49,10 +49,10 @@ class MapAgentSolutionEvidenceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("businessEvidence", draft_call.args)
         self.assertEqual(4, draft_call.args["businessEvidence"]["toolSuccessCount"])
         self.assertEqual("SOLUTION_PREVIEW", response.actionResult.type)
-        self.assertEqual("solution.generate", response.answerMeta["capabilityId"])
-        self.assertEqual("方案生成", response.answerMeta["capabilityName"])
-        self.assertEqual("solution.generate", response.trace["capability"]["capabilityId"])
-        self.assertEqual("solution.generate", response.data["capabilityId"])
+        self.assertEqual("solution.section_plan", response.answerMeta["capabilityId"])
+        self.assertEqual("生成路段养护计划", response.answerMeta["capabilityName"])
+        self.assertEqual("solution.section_plan", response.trace["capability"]["capabilityId"])
+        self.assertEqual("solution.section_plan", response.data["capabilityId"])
         self.assertEqual("PASS", response.answerMeta["policyStatus"])
         self.assertEqual("PASS", response.data["toolPolicy"]["policyStatus"])
         self.assertEqual("PASS", response.trace["toolPolicy"]["policyStatus"])
@@ -108,6 +108,101 @@ class MapAgentSolutionEvidenceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("FAIL", response.answerMeta["policyStatus"])
         self.assertIn("gis.queryDiseases", response.data["toolPolicy"]["blockedToolNames"])
         self.assertIn("PROHIBITED_TOOL_BLOCKED", [item["code"] for item in response.answerMeta["policyChecks"]])
+
+    async def test_analysis_run_creates_evidence_snapshot(self):
+        store = FakeSnapshotStore()
+        workflow = MapAgentRunWorkflow(base_workflow=FakeAnalysisWorkflow(), gateway=RecordingGateway(), evidence_snapshot_store=store)
+
+        response = await workflow.run(
+            MapAgentRunRequest(
+                action="ANALYZE_ROUTE",
+                message="分析当前路线",
+                mapContext=MapAiContext(mode="ROUTE", routeCode="Y016140727"),
+                options={"traceId": "analysis-trace-1"},
+            ),
+            tenant_id="default",
+            trace_id=None,
+        )
+
+        self.assertEqual(1, len(store.created))
+        self.assertEqual("evs-test", response.answerMeta["evidenceSnapshotId"])
+        self.assertEqual("sha256:test", response.answerMeta["scopeFingerprint"])
+        self.assertEqual("evs-test", response.data["evidenceSnapshot"]["evidenceSnapshotId"])
+        self.assertEqual("analysis-trace-1", response.data["evidenceSnapshot"]["analysisTraceId"])
+        self.assertEqual("evs-test", response.trace["evidenceSnapshot"]["evidenceSnapshotId"])
+
+    async def test_solution_generation_reuses_matching_analysis_snapshot(self):
+        snapshot = {
+            "evidenceSnapshotId": "evs-test",
+            "analysisTraceId": "analysis-trace-1",
+            "scopeFingerprint": "sha256:test",
+            "toolResults": [
+                {"toolName": "gis.queryAssessmentResults", "success": True, "data": {"items": [{"routeCode": "Y016140727"}]}, "count": 1},
+                {"toolName": "gis.queryDiseasesByStakeRange", "success": True, "data": {"items": [{"routeCode": "Y016140727"}]}, "count": 1},
+            ],
+            "sources": [{"sourceType": "BUSINESS_DATA", "mapTarget": {"routeCode": "Y016140727", "objectId": "section-1"}}],
+            "evidence": {"toolSuccessCount": 2, "businessHitCount": 2},
+        }
+        gateway = RecordingGateway()
+        workflow = MapAgentRunWorkflow(base_workflow=None, gateway=gateway, evidence_snapshot_store=FakeSnapshotStore(snapshot))
+
+        response = await workflow.run(
+            MapAgentRunRequest(
+                action="GENERATE_OBJECT_SOLUTION",
+                message="生成当前路段养护计划",
+                mapContext=MapAiContext(
+                    mode="OBJECT",
+                    routeCode="Y016140727",
+                    mapObject={"objectType": "ROAD_SECTION", "objectId": "section-1", "routeCode": "Y016140727"},
+                ),
+                actionInput={"solutionType": "SECTION_PLAN", "evidenceSnapshotId": "evs-test"},
+                options={"traceId": "generate-trace-1", "useKnowledge": True},
+            ),
+            tenant_id="default",
+            trace_id="generate-trace-1",
+        )
+
+        executed_names = [call.toolName for call in gateway.calls]
+        self.assertEqual(["solution.generateDraft"], executed_names)
+        self.assertEqual("REUSED", response.answerMeta["evidenceReuseStatus"])
+        self.assertEqual("analysis-trace-1", response.answerMeta["basedOnAnalysisTraceId"])
+        self.assertEqual("evs-test", response.answerMeta["evidenceSnapshotId"])
+
+
+class FakeSnapshotStore:
+    def __init__(self, snapshot=None):
+        self.snapshot = snapshot
+        self.created = []
+
+    def create(self, **kwargs):
+        record = {
+            "evidenceSnapshotId": "evs-test",
+            "analysisTraceId": kwargs.get("analysis_trace_id"),
+            "scopeFingerprint": "sha256:test",
+            "toolResults": kwargs.get("tool_results") or [],
+            "sources": kwargs.get("sources") or [],
+            "evidence": kwargs.get("evidence") or {},
+        }
+        self.created.append(record)
+        return record
+
+    def get(self, snapshot_id, map_context, now_ms=None):
+        return self.snapshot if snapshot_id == "evs-test" else None
+
+
+class FakeAnalysisWorkflow:
+    async def run(self, request, tenant_id, trace_id):
+        return MapAiAgentResponse(
+            answer="路线分析完成",
+            intent="ROUTE_ANALYSIS",
+            mapContext=request.mapContext.model_dump(exclude_none=True) if request.mapContext else None,
+            toolResults=[{"toolName": "gis.queryDiseases", "success": True, "count": 2}],
+            sources=[{"sourceType": "BUSINESS_DATA", "sourceTitle": "病害记录", "mapTarget": {"routeCode": "Y016140727"}}],
+            data={
+                "answerMeta": {"capabilityId": "map.route_analysis", "answerSource": "LLM"},
+                "evidence": {"businessHitCount": 2},
+            },
+        )
 
 
 class RecordingGateway:

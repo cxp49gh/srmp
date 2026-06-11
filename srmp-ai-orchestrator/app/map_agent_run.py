@@ -2,6 +2,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from .java_tools import JavaToolGateway, extract_business_sources, extract_knowledge_sources, merge_sources
+from .evidence_snapshot import EvidenceSnapshotStore
 from .governance import governance_tool_policy_result, normalize_tool_policy, resolve_capability
 from .live_trace import LiveTraceStore
 from .observability import _business_scope_from_request
@@ -24,10 +25,17 @@ SOLUTION_ACTIONS = {"GENERATE_OBJECT_SOLUTION", "GENERATE_REGION_SOLUTION", "GEN
 
 
 class MapAgentRunWorkflow:
-    def __init__(self, base_workflow: LangGraphWorkflow, gateway: JavaToolGateway, live_trace_store: Optional[LiveTraceStore] = None):
+    def __init__(
+        self,
+        base_workflow: LangGraphWorkflow,
+        gateway: JavaToolGateway,
+        live_trace_store: Optional[LiveTraceStore] = None,
+        evidence_snapshot_store: Optional[EvidenceSnapshotStore] = None,
+    ):
         self.base_workflow = base_workflow
         self.gateway = gateway
         self.live_trace_store = live_trace_store
+        self.evidence_snapshot_store = evidence_snapshot_store
 
     async def run(
         self,
@@ -59,21 +67,24 @@ class MapAgentRunWorkflow:
         trace_id: Optional[str],
         action: str,
     ) -> MapAgentRunResponse:
+        resolved_trace_id = self._trace_id(request, trace_id)
         agent_request = self._to_agent_request(request, action)
-        agent_response = await self.base_workflow.run(agent_request, tenant_id=tenant_id, trace_id=trace_id)
+        agent_response = await self.base_workflow.run(agent_request, tenant_id=tenant_id, trace_id=resolved_trace_id or trace_id)
         result_type = "REGION_SUMMARY" if action == "ANALYZE_REGION" else "OBJECT_SUMMARY" if action == "ANALYZE_OBJECT" else "ANSWER"
         action_result = ActionResult(type=result_type, status="SUCCESS")
         if action == "ANALYZE_REGION" and agent_request.mapContext and agent_request.mapContext.regionSummary:
             action_result.regionSummary = agent_request.mapContext.regionSummary
         if action == "ANALYZE_OBJECT" and agent_request.mapContext and agent_request.mapContext.mapObject:
             action_result.objectSummary = agent_request.mapContext.mapObject
-        return self._from_agent_response(
+        response = self._from_agent_response(
             request,
             agent_response,
             action,
             graph_name=graph_name_for(action),
             action_result=action_result,
         )
+        self._attach_analysis_evidence_snapshot(response, resolved_trace_id=resolved_trace_id)
+        return response
 
     async def _run_solution_generation(
         self,
@@ -89,15 +100,37 @@ class MapAgentRunWorkflow:
             fallback_intent="SOLUTION_GENERATE",
             intent_detail={"action": normalize_action(request.action)},
         )
+        snapshot = self._matching_evidence_snapshot(request)
         evidence_started_at = time.perf_counter()
         self._start_live_step(resolved_trace_id, "solution_evidence_collect", "查询业务证据")
         try:
-            evidence_results, planned_evidence_tool_names, blocked_tool_names = await self._collect_solution_evidence(
-                agent_request,
-                tenant_id or "default",
-                resolved_trace_id,
-                capability,
-            )
+            if snapshot:
+                evidence_results = [ToolResult(**item) for item in snapshot.get("toolResults") or [] if isinstance(item, dict)]
+                planned_evidence_tool_names = [item.toolName for item in evidence_results]
+                blocked_tool_names: List[str] = []
+                evidence_reuse = {
+                    "status": "REUSED",
+                    "evidenceSnapshotId": snapshot.get("evidenceSnapshotId"),
+                    "basedOnAnalysisTraceId": snapshot.get("analysisTraceId"),
+                    "scopeFingerprint": snapshot.get("scopeFingerprint"),
+                    "reusedToolNames": planned_evidence_tool_names,
+                    "supplementalToolNames": [],
+                }
+            else:
+                evidence_results, planned_evidence_tool_names, blocked_tool_names = await self._collect_solution_evidence(
+                    agent_request,
+                    tenant_id or "default",
+                    resolved_trace_id,
+                    capability,
+                )
+                action_input = request.actionInput or {}
+                evidence_reuse = {
+                    "status": "MISS",
+                    "evidenceSnapshotId": action_input.get("evidenceSnapshotId") or action_input.get("evidence_snapshot_id"),
+                    "basedOnAnalysisTraceId": action_input.get("basedOnAnalysisTraceId") or action_input.get("based_on_analysis_trace_id"),
+                    "reusedToolNames": [],
+                    "supplementalToolNames": planned_evidence_tool_names,
+                }
         except Exception as exc:
             self._fail_live_step(resolved_trace_id, "solution_evidence_collect", str(exc))
             raise
@@ -118,13 +151,14 @@ class MapAgentRunWorkflow:
                 "toolNames": [item.toolName for item in evidence_results],
                 "businessHitCount": business_evidence.get("businessHitCount", 0),
                 "knowledgeHitCount": business_evidence.get("knowledgeHitCount", 0),
+                "evidenceReuse": evidence_reuse,
                 "toolPolicy": evidence_tool_policy,
             },
         })
         self._start_live_step(resolved_trace_id, "solution_generate", "生成方案预览")
         try:
             tool_result = await self.gateway.execute_tool(
-                call=ToolCall(toolName="solution.generateDraft", args=self._solution_args(request, evidence_results), reason="LangGraph-first solution preview"),
+                call=ToolCall(toolName="solution.generateDraft", args=self._solution_args(request, evidence_results, evidence_reuse), reason="LangGraph-first solution preview"),
                 request=agent_request,
                 tenant_id=tenant_id or "default",
                 trace_id=resolved_trace_id,
@@ -166,6 +200,10 @@ class MapAgentRunWorkflow:
             "capabilityContextUsage": capability.get("contextUsage"),
             "policyStatus": tool_policy.get("policyStatus"),
             "policyChecks": tool_policy.get("policyChecks") or [],
+            "evidenceReuseStatus": evidence_reuse.get("status"),
+            "evidenceSnapshotId": evidence_reuse.get("evidenceSnapshotId"),
+            "basedOnAnalysisTraceId": evidence_reuse.get("basedOnAnalysisTraceId"),
+            "scopeFingerprint": evidence_reuse.get("scopeFingerprint"),
         })
         raw_source_summaries = data.get("sourceSummaries") if isinstance(data.get("sourceSummaries"), list) else []
         source_summaries = [self._enrich_source_summary(item, request) for item in raw_source_summaries if isinstance(item, dict)]
@@ -204,6 +242,8 @@ class MapAgentRunWorkflow:
         response.trace = dict(response.trace or {})
         response.trace["capability"] = capability
         response.trace["toolPolicy"] = tool_policy
+        response.trace["evidenceReuse"] = evidence_reuse
+        response.data["evidenceReuse"] = evidence_reuse
         self._complete_live_step(resolved_trace_id, {
             "name": "solution_generate",
             "label": "生成方案预览",
@@ -309,6 +349,38 @@ class MapAgentRunWorkflow:
             data={**data, "orchestratorProvider": "langgraph", "graphName": graph_name},
         )
 
+    def _attach_analysis_evidence_snapshot(self, response: MapAgentRunResponse, resolved_trace_id: str) -> None:
+        if not self.evidence_snapshot_store or not response.mapContext:
+            return
+        response.data = dict(response.data or {})
+        response.answerMeta = dict(response.answerMeta or {})
+        snapshot = self.evidence_snapshot_store.create(
+            analysis_trace_id=resolved_trace_id or str(response.answerMeta.get("traceId") or ""),
+            capability_id=str(response.answerMeta.get("capabilityId") or response.data.get("capabilityId") or ""),
+            map_context=response.mapContext,
+            tool_results=response.toolResults or [],
+            sources=response.sources or response.knowledgeSources or [],
+            evidence=(response.data or {}).get("evidence") or {},
+        )
+        response.data["evidenceSnapshot"] = snapshot
+        response.answerMeta["evidenceSnapshotId"] = snapshot.get("evidenceSnapshotId")
+        response.answerMeta["scopeFingerprint"] = snapshot.get("scopeFingerprint")
+        response.trace = dict(response.trace or {})
+        response.trace["evidenceSnapshot"] = {
+            "evidenceSnapshotId": snapshot.get("evidenceSnapshotId"),
+            "scopeFingerprint": snapshot.get("scopeFingerprint"),
+            "ttlSeconds": snapshot.get("ttlSeconds"),
+        }
+
+    def _matching_evidence_snapshot(self, request: MapAgentRunRequest) -> Optional[Dict[str, Any]]:
+        if not self.evidence_snapshot_store or not request.mapContext:
+            return None
+        action_input = request.actionInput or {}
+        snapshot_id = action_input.get("evidenceSnapshotId") or action_input.get("evidence_snapshot_id")
+        if not snapshot_id:
+            return None
+        return self.evidence_snapshot_store.get(str(snapshot_id), request.mapContext.model_dump(exclude_none=True))
+
     def _to_agent_request(self, request: MapAgentRunRequest, action: str) -> MapAiAgentRequest:
         options = dict(request.options or {})
         options["action"] = action
@@ -352,12 +424,19 @@ class MapAgentRunWorkflow:
             allowed.append(call)
         return allowed, _unique_list(blocked)
 
-    def _solution_args(self, request: MapAgentRunRequest, evidence_results: Optional[List[ToolResult]] = None) -> Dict[str, Any]:
+    def _solution_args(
+        self,
+        request: MapAgentRunRequest,
+        evidence_results: Optional[List[ToolResult]] = None,
+        evidence_reuse: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         args = dict(request.actionInput or {})
         args["action"] = normalize_action(request.action)
         business_evidence = self._business_evidence_from_results(evidence_results or [])
         if business_evidence:
             args["businessEvidence"] = business_evidence
+        if evidence_reuse:
+            args["evidenceReuse"] = evidence_reuse
         if request.mapContext:
             args["mapContext"] = request.mapContext.model_dump(exclude_none=True)
         return args

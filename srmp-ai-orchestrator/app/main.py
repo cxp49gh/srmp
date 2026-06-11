@@ -26,6 +26,7 @@ from .governance import (
     validate_governance,
 )
 from .java_tools import JavaToolGateway
+from .evidence_snapshot import EvidenceSnapshotStore
 from .live_trace import LiveTraceStore
 from .llm_client import LlmClient
 from .map_agent_run import MapAgentRunWorkflow
@@ -39,8 +40,14 @@ app = FastAPI(title="SRMP LangGraph Orchestrator", version=APP_VERSION)
 
 gateway = JavaToolGateway()
 live_trace_store = LiveTraceStore(max_records=settings.audit_max_records)
+evidence_snapshot_store = EvidenceSnapshotStore()
 workflow = LangGraphWorkflow(gateway=gateway, llm_client=LlmClient(), live_trace_store=live_trace_store)
-map_agent_run_workflow = MapAgentRunWorkflow(base_workflow=workflow, gateway=gateway, live_trace_store=live_trace_store)
+map_agent_run_workflow = MapAgentRunWorkflow(
+    base_workflow=workflow,
+    gateway=gateway,
+    live_trace_store=live_trace_store,
+    evidence_snapshot_store=evidence_snapshot_store,
+)
 
 
 def _safe_runtime_config() -> dict:
