@@ -124,6 +124,16 @@ curl -X POST http://127.0.0.1:18080/api/srmp/langgraph/debug/plan \
 
 返回中重点看 `intent`、`contextSummary`、`toolPlan`、`steps`。
 
+## 一张图 AI 端到端验收
+
+仓库根目录提供 live smoke，用来覆盖指标解释、路线/路段/病害/评定/区域分析，以及路线报告、路段计划、病害复核、评定建议、区域建议生成：
+
+```bash
+./scripts/check-map-agent-e2e.sh
+```
+
+该脚本只调用后端公开 API，会自动从当前数据管理项目抽样对象，并校验 `answerMeta`、能力识别、工具链、模板命中、兜底、变量残留和误用工具。详细验收项见 `docs/phase52-map-ai-agent-e2e-acceptance.md`。
+
 ## 工具契约诊断
 
 Phase50.8 新增工具契约诊断接口，用来比较 Runtime 白名单与 Java Tool Gateway 实际注册工具：
