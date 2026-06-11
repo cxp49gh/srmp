@@ -347,6 +347,7 @@ const liveTrace = ref<LiveTraceSnapshot | null>(null)
 const liveTraceError = ref('')
 const liveTraceFailureCount = ref(0)
 const pendingSourceFollowupContext = ref<Record<string, any> | null>(null)
+const latestEvidenceSnapshot = ref<Record<string, any> | null>(null)
 let liveTraceTimer: ReturnType<typeof window.setInterval> | null = null
 
 type PlanExecutionKind = 'SEND'
@@ -1145,6 +1146,26 @@ function buildMapAiContext(message: string) {
   return mapContext
 }
 
+function responseEvidenceSnapshot(response: any) {
+  return response?.data?.evidenceSnapshot || response?.answerMeta?.evidenceSnapshot || null
+}
+
+function rememberAnalysisEvidenceSnapshot(action: string, response: any) {
+  if (!['ANALYZE_OBJECT', 'ANALYZE_ROUTE', 'ANALYZE_REGION'].includes(String(action || '').toUpperCase())) return
+  const snapshot = responseEvidenceSnapshot(response)
+  if (!snapshot?.evidenceSnapshotId) return
+  latestEvidenceSnapshot.value = snapshot
+}
+
+function currentEvidenceSnapshotInput() {
+  const snapshot = latestEvidenceSnapshot.value
+  if (!snapshot?.evidenceSnapshotId) return {}
+  return {
+    evidenceSnapshotId: snapshot.evidenceSnapshotId,
+    basedOnAnalysisTraceId: snapshot.analysisTraceId
+  }
+}
+
 async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
   const obj: any = activeMapObject.value
   if (!obj) {
@@ -1161,6 +1182,7 @@ async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
 
   try {
     savedSolutionTask.value = null
+    const snapshotInput = currentEvidenceSnapshotInput()
     const res = await mapAgentRun({
       action: solutionType === 'ROUTE_REPORT' ? 'GENERATE_ROUTE_REPORT' : 'GENERATE_OBJECT_SOLUTION',
       message: '生成当前对象的结构化养护建议',
@@ -1170,7 +1192,8 @@ async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
         objectId: String(obj.objectId || obj.object_id || obj.id || obj.featureId || ''),
         routeCode: String(obj.routeCode || obj.route_code || query.routeCode || ''),
         solutionType,
-        mapObject: obj
+        mapObject: obj,
+        ...snapshotInput
       },
       options: { ...options, requireAi: true, traceId }
     })
@@ -1308,6 +1331,7 @@ async function runMapAgentRequest(request: MapAgentRunRequest, userMessage: stri
   try {
     const res: any = await mapAgentRun(request)
     const payload = normalizeResponse(res)
+    rememberAnalysisEvidenceSnapshot(String(request.action || ''), payload)
     const answer = String(payload.answer || payload.data?.answer || '未返回内容')
     const timing = summarizeRunTiming(payload)
     const localElapsedMs = Date.now() - requestStartedAt

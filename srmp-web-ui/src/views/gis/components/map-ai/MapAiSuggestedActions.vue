@@ -45,13 +45,13 @@ const objectSolutionLabel = computed(() => {
   if (type === 'EVALUATION_UNIT') return '生成评定单元建议'
   if (type === 'ROAD_SECTION') return '生成路段养护计划'
   if (type === 'ROAD_ROUTE') return '生成路线养护报告'
-  return '生成对象方案'
+  return '生成养护建议'
 })
 
 function displayLabel(item: MapAgentSuggestedAction) {
   const action = String(item.action || '')
   if (action === 'GENERATE_OBJECT_SOLUTION') return objectSolutionLabel.value
-  if (action === 'GENERATE_REGION_SOLUTION') return '生成区域建议'
+  if (action === 'GENERATE_REGION_SOLUTION') return '生成区域养护建议'
   if (action === 'GENERATE_ROUTE_REPORT') return '生成路线养护报告'
   return item.label || action
 }
