@@ -39,6 +39,23 @@ class AcceptanceCase:
     expected_template: Optional[str] = None
     require_llm: bool = False
     require_locatable_business_sources: bool = False
+    followup_replay: bool = False
+    expected_followup_map_target: Optional[Dict[str, Any]] = None
+
+
+FOLLOWUP_REPLAY_CASE_ID = "followup.source_replay"
+FOLLOWUP_PARENT_CASE_PRIORITY = (
+    "map.disease_analysis",
+    "map.assessment_analysis",
+    "map.section_analysis",
+    "map.route_analysis",
+    "map.region_analysis",
+    "solution.disease_review",
+    "solution.assessment_advice",
+    "solution.section_plan",
+    "solution.route_report",
+    "solution.region_advice",
+)
 
 
 @dataclass
@@ -322,10 +339,28 @@ def validate_case_response(case: AcceptanceCase, response: Dict[str, Any]) -> Li
             if not is_locatable_source(source):
                 issues.append(f"business source is not locatable: {source_title(source)}")
 
+    if case.followup_replay:
+        issues.extend(validate_followup_replay_response(case, data))
+
     if case.generation:
         issues.extend(validate_generation_response(case, data, tool_results, answer_meta))
 
     return dedupe_preserve_order(issues)
+
+
+def validate_followup_replay_response(case: AcceptanceCase, data: Dict[str, Any]) -> List[str]:
+    issues: List[str] = []
+    map_context = first_dict(data, "mapContext", "map_context") or first_dict(first_dict(data, "data"), "mapContext", "map_context")
+    followup_source = extract_followup_source(map_context)
+    if not followup_source:
+        return ["missing echoed followupSource"]
+    if not is_locatable_source(followup_source):
+        issues.append("echoed followupSource is not locatable")
+    expected_target = case.expected_followup_map_target or {}
+    actual_target = source_map_target(followup_source)
+    if expected_target and not map_targets_match(expected_target, actual_target):
+        issues.append("echoed followupSource mapTarget mismatch")
+    return issues
 
 
 def validate_generation_response(
@@ -380,6 +415,50 @@ def validate_generation_response(
             issues.append(f"LLM status is {llm_status}")
 
     return issues
+
+
+def build_followup_replay_case(parent: CaseRunResult, require_ai: bool = True, top_k: int = 5) -> Optional[AcceptanceCase]:
+    source = first_followup_replay_source(parent)
+    if not source:
+        return None
+    followup_context = source_followup_context(source)
+    target = source_map_target(followup_context)
+    if not target:
+        return None
+
+    payload = json.loads(json.dumps(parent.case.payload))
+    source_name = source_title(source)
+    message = f"围绕参考来源「{source_name}」继续分析，说明它与当前地图对象或区域的关系。"
+    payload["action"] = "CHAT"
+    payload["message"] = message
+    payload.setdefault("options", {})
+    payload["options"].update({"useBusinessData": True, "useKnowledge": True, "topK": top_k, "requireAi": require_ai})
+    payload.pop("actionInput", None)
+
+    map_ctx = payload.setdefault("mapContext", {})
+    if not isinstance(map_ctx, dict):
+        map_ctx = {}
+        payload["mapContext"] = map_ctx
+    map_ctx["userQuestion"] = message
+    map_ctx["followupSource"] = followup_context
+    extra = map_ctx.setdefault("extra", {})
+    if not isinstance(extra, dict):
+        extra = {}
+        map_ctx["extra"] = extra
+    extra["followupSource"] = followup_context
+    raw_context = extra.setdefault("rawContext", {})
+    if not isinstance(raw_context, dict):
+        raw_context = {}
+        extra["rawContext"] = raw_context
+    raw_context["followupSource"] = followup_context
+
+    return AcceptanceCase(
+        case_id=FOLLOWUP_REPLAY_CASE_ID,
+        name="Replay source follow-up",
+        payload=payload,
+        followup_replay=True,
+        expected_followup_map_target=target,
+    )
 
 
 def agent_payload(
@@ -644,6 +723,7 @@ def run_live_acceptance(
     case_filter: Optional[Iterable[str]] = None,
     require_ai: bool = True,
     include_generation: bool = True,
+    include_followup_replay: bool = True,
     fail_fast: bool = False,
     top_k: int = 5,
     on_result: Optional[Any] = None,
@@ -653,29 +733,54 @@ def run_live_acceptance(
     if not include_generation:
         cases = [case for case in cases if not case.generation]
     wanted = set(case_filter or [])
+    followup_requested = include_followup_replay and (not wanted or FOLLOWUP_REPLAY_CASE_ID in wanted)
     if wanted:
-        cases = [case for case in cases if case.case_id in wanted]
+        cases = [
+            case
+            for case in cases
+            if case.case_id in wanted or (FOLLOWUP_REPLAY_CASE_ID in wanted and case.case_id in FOLLOWUP_PARENT_CASE_PRIORITY)
+        ]
     if not cases:
         raise RuntimeError("No acceptance cases selected.")
 
     results: List[CaseRunResult] = []
     for case in cases:
-        payload = json.loads(json.dumps(case.payload))
-        trace_id = "map-agent-e2e-" + re.sub(r"[^A-Za-z0-9_.-]+", "-", case.case_id)
-        payload.setdefault("options", {})["traceId"] = f"{trace_id}-{int(time.time() * 1000)}"
-        if "actionInput" in payload:
-            payload["actionInput"].setdefault("options", {})["traceId"] = payload["options"]["traceId"]
-        start = time.perf_counter()
-        response = client.post("/api/agent/map-agent/run", payload)
-        elapsed_ms = int((time.perf_counter() - start) * 1000)
-        issues = validate_case_response(case, response)
-        result = CaseRunResult(case=case, response=unwrap_api_response(response), issues=issues, elapsed_ms=elapsed_ms)
+        result = execute_acceptance_case(client, case)
         results.append(result)
         if on_result:
             on_result(result)
-        if issues and fail_fast:
-            break
+        if result.issues and fail_fast:
+            return results
+
+    if followup_requested:
+        parent = select_followup_parent_result(results)
+        replay_case = build_followup_replay_case(parent, require_ai=require_ai, top_k=top_k) if parent else None
+        if replay_case:
+            result = execute_acceptance_case(client, replay_case)
+        else:
+            result = CaseRunResult(
+                case=AcceptanceCase(case_id=FOLLOWUP_REPLAY_CASE_ID, name="Replay source follow-up", payload={}, followup_replay=True),
+                response={},
+                issues=["no locatable business source available for follow-up replay"],
+                elapsed_ms=0,
+            )
+        results.append(result)
+        if on_result:
+            on_result(result)
     return results
+
+
+def execute_acceptance_case(client: SrmpHttpClient, case: AcceptanceCase) -> CaseRunResult:
+    payload = json.loads(json.dumps(case.payload))
+    trace_id = "map-agent-e2e-" + re.sub(r"[^A-Za-z0-9_.-]+", "-", case.case_id)
+    payload.setdefault("options", {})["traceId"] = f"{trace_id}-{int(time.time() * 1000)}"
+    if "actionInput" in payload:
+        payload["actionInput"].setdefault("options", {})["traceId"] = payload["options"]["traceId"]
+    start = time.perf_counter()
+    response = client.post("/api/agent/map-agent/run", payload)
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+    issues = validate_case_response(case, response)
+    return CaseRunResult(case=case, response=unwrap_api_response(response), issues=issues, elapsed_ms=elapsed_ms)
 
 
 def unwrap_api_response(response: Dict[str, Any]) -> Dict[str, Any]:
@@ -718,18 +823,112 @@ def is_business_source(source: Dict[str, Any]) -> bool:
 
 
 def is_locatable_source(source: Dict[str, Any]) -> bool:
-    target = source.get("mapTarget") or source.get("map_target")
-    if not isinstance(target, dict):
-        followup = source.get("followupContext") or source.get("followup_context")
-        if isinstance(followup, dict):
-            target = followup.get("mapTarget") or followup.get("map_target")
-    if not isinstance(target, dict):
-        target = source
+    target = source_map_target(source) or source
     return any(target.get(key) not in (None, "", [], {}) for key in ("objectId", "object_id", "routeCode", "route_code", "geometry", "bbox", "startStake", "start_stake", "endStake", "end_stake"))
 
 
 def source_title(source: Dict[str, Any]) -> str:
     return str(source.get("sourceTitle") or source.get("source_title") or source.get("title") or source.get("sourceId") or source.get("source_id") or "unknown")
+
+
+def source_map_target(source: Dict[str, Any]) -> Dict[str, Any]:
+    target = source.get("mapTarget") or source.get("map_target")
+    if not isinstance(target, dict):
+        followup = source.get("followupContext") or source.get("followup_context")
+        if isinstance(followup, dict):
+            target = followup.get("mapTarget") or followup.get("map_target")
+    return target if isinstance(target, dict) else {}
+
+
+def source_followup_context(source: Dict[str, Any]) -> Dict[str, Any]:
+    existing = source.get("followupContext") or source.get("followup_context")
+    followup = json.loads(json.dumps(existing)) if isinstance(existing, dict) else {}
+    target = source_map_target(source)
+    title = source_title(source)
+    excerpt = first_present(
+        source.get("contentExcerpt"),
+        source.get("content_excerpt"),
+        source.get("excerpt"),
+        source.get("content"),
+        source.get("summary"),
+    )
+    followup.update(
+        compact(
+            {
+                "sourceId": first_present(source.get("sourceId"), source.get("source_id"), followup.get("sourceId"), followup.get("source_id")),
+                "sourceType": first_present(source.get("sourceType"), source.get("source_type"), source.get("type"), followup.get("sourceType"), followup.get("source_type")),
+                "sourceTitle": first_present(followup.get("sourceTitle"), followup.get("source_title"), title),
+                "contentExcerpt": first_present(followup.get("contentExcerpt"), followup.get("content_excerpt"), followup.get("excerpt"), excerpt),
+                "excerpt": first_present(followup.get("excerpt"), followup.get("contentExcerpt"), followup.get("content_excerpt"), excerpt),
+                "mapTarget": target,
+            }
+        )
+    )
+    return compact(followup)
+
+
+def extract_followup_source(map_context: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(map_context, dict):
+        return {}
+    direct = map_context.get("followupSource") or map_context.get("followup_source")
+    if isinstance(direct, dict):
+        return direct
+    extra = first_dict(map_context, "extra", "extra_context")
+    nested = extra.get("followupSource") or extra.get("followup_source")
+    if isinstance(nested, dict):
+        return nested
+    raw_context = first_dict(extra, "rawContext", "raw_context")
+    raw_nested = raw_context.get("followupSource") or raw_context.get("followup_source")
+    return raw_nested if isinstance(raw_nested, dict) else {}
+
+
+def first_followup_replay_source(result: CaseRunResult) -> Dict[str, Any]:
+    for source in extract_response_sources(result.response):
+        if is_business_source(source) and is_locatable_source(source):
+            return source
+    return {}
+
+
+def select_followup_parent_result(results: Sequence[CaseRunResult]) -> Optional[CaseRunResult]:
+    candidates = [result for result in results if result.passed and first_followup_replay_source(result)]
+    for case_id in FOLLOWUP_PARENT_CASE_PRIORITY:
+        for result in candidates:
+            if result.case.case_id == case_id:
+                return result
+    return candidates[0] if candidates else None
+
+
+def map_targets_match(expected: Dict[str, Any], actual: Dict[str, Any]) -> bool:
+    if not isinstance(expected, dict) or not isinstance(actual, dict):
+        return False
+    key_groups = (
+        ("objectType", "object_type"),
+        ("objectId", "object_id", "id"),
+        ("routeCode", "route_code"),
+        ("startStake", "start_stake"),
+        ("endStake", "end_stake"),
+        ("geometry",),
+        ("bbox",),
+    )
+    for group in key_groups:
+        expected_value = first_present(*(expected.get(key) for key in group))
+        if expected_value in (None, "", [], {}):
+            continue
+        actual_value = first_present(*(actual.get(key) for key in group))
+        if not values_match(expected_value, actual_value):
+            return False
+    return True
+
+
+def values_match(expected: Any, actual: Any) -> bool:
+    if actual in (None, "", [], {}):
+        return False
+    if isinstance(expected, (dict, list)) or isinstance(actual, (dict, list)):
+        return expected == actual
+    try:
+        return abs(float(expected) - float(actual)) < 0.000001
+    except (TypeError, ValueError):
+        return str(expected) == str(actual)
 
 
 def generation_data(data: Dict[str, Any], tool_results: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
@@ -876,6 +1075,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--project-id", default=None, help="Use a specific data management project id.")
     parser.add_argument("--case", action="append", dest="cases", help="Run only the named case id. May be repeated.")
     parser.add_argument("--no-generation", action="store_true", help="Skip solution generation cases.")
+    parser.add_argument("--no-followup-replay", action="store_true", help="Skip the automatic source follow-up replay case.")
     parser.add_argument("--no-require-ai", action="store_true", help="Do not require LLM success for generation cases.")
     parser.add_argument("--fail-fast", action="store_true")
     parser.add_argument("--timeout", type=int, default=180)
@@ -890,6 +1090,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         case_filter=args.cases,
         require_ai=not args.no_require_ai,
         include_generation=not args.no_generation,
+        include_followup_replay=not args.no_followup_replay,
         fail_fast=args.fail_fast,
         top_k=args.top_k,
         on_result=None if args.json_output else print_case_result,

@@ -1,7 +1,9 @@
 import unittest
 
+import app.map_agent_e2e_acceptance as acceptance
 from app.map_agent_e2e_acceptance import (
     AcceptanceCase,
+    CaseRunResult,
     build_acceptance_cases,
     validate_case_response,
 )
@@ -153,6 +155,86 @@ class MapAgentE2EAcceptanceTest(unittest.TestCase):
         self.assertIn("generation used fallback template", issues)
         self.assertIn("generation missing variables: unitCode", issues)
         self.assertIn("unrendered template variable found", issues)
+
+    def test_build_followup_replay_case_injects_source_context(self):
+        builder = getattr(acceptance, "build_followup_replay_case", None)
+        self.assertIsNotNone(builder, "missing build_followup_replay_case")
+        source_target = {
+            "objectType": "DISEASE",
+            "objectId": "disease-1",
+            "routeCode": "Y016140727",
+            "startStake": 1.2,
+            "endStake": 1.2,
+        }
+        followup_context = {
+            "sourceTitle": "病害记录",
+            "contentExcerpt": "K1+200 裂缝",
+            "mapTarget": source_target,
+        }
+        parent = CaseRunResult(
+            case=AcceptanceCase(
+                case_id="map.disease_analysis",
+                name="Analyze disease",
+                payload={
+                    "action": "ANALYZE_OBJECT",
+                    "message": "分析当前病害",
+                    "mapContext": {
+                        "mode": "OBJECT",
+                        "routeCode": "Y016140727",
+                        "extra": {"rawContext": {"query": {"projectId": "project-1"}}},
+                    },
+                    "options": {"useBusinessData": True, "useKnowledge": True},
+                },
+            ),
+            response={
+                "answer": "已分析。",
+                "answerMeta": {"capabilityId": "map.disease_analysis"},
+                "sources": [
+                    {
+                        "sourceType": "BUSINESS_DATA",
+                        "sourceTitle": "病害记录",
+                        "followupContext": followup_context,
+                    }
+                ],
+            },
+            issues=[],
+            elapsed_ms=12,
+        )
+
+        replay = builder(parent, require_ai=True, top_k=3)
+
+        self.assertIsNotNone(replay)
+        self.assertEqual("followup.source_replay", replay.case_id)
+        self.assertEqual("CHAT", replay.payload["action"])
+        self.assertTrue(replay.followup_replay)
+        self.assertEqual(source_target, replay.expected_followup_map_target)
+        replay_followup = replay.payload["mapContext"]["followupSource"]
+        self.assertEqual(source_target, replay_followup["mapTarget"])
+        self.assertEqual("病害记录", replay_followup["sourceTitle"])
+        self.assertEqual("BUSINESS_DATA", replay_followup["sourceType"])
+        self.assertEqual(replay_followup, replay.payload["mapContext"]["extra"]["followupSource"])
+        self.assertEqual(replay_followup, replay.payload["mapContext"]["extra"]["rawContext"]["followupSource"])
+        self.assertEqual(3, replay.payload["options"]["topK"])
+        self.assertTrue(replay.payload["options"]["requireAi"])
+
+    def test_followup_replay_requires_echoed_locatable_source_context(self):
+        case = AcceptanceCase(case_id="followup.source_replay", name="Replay source follow-up", payload={})
+        case.followup_replay = True
+        case.expected_followup_map_target = {
+            "objectType": "DISEASE",
+            "objectId": "disease-1",
+            "routeCode": "Y016140727",
+        }
+        response = {
+            "answer": "继续分析。",
+            "answerMeta": {"capabilityId": "map.disease_analysis", "answerSource": "LLM"},
+            "toolResults": [{"toolName": "knowledge.retrieve", "success": True}],
+            "mapContext": {"extra": {}},
+        }
+
+        issues = validate_case_response(case, response)
+
+        self.assertIn("missing echoed followupSource", issues)
 
 
 if __name__ == "__main__":

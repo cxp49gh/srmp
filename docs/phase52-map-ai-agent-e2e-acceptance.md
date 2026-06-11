@@ -26,6 +26,9 @@
 # 只跑分析入口，不跑方案生成
 ./scripts/check-map-agent-e2e.sh --no-generation
 
+# 跳过参考资料追问自动回放
+./scripts/check-map-agent-e2e.sh --no-followup-replay
+
 # 只跑 PCI 指标解释，确认不会误查 GIS 业务工具
 ./scripts/check-map-agent-e2e.sh --case knowledge.metric_explain
 
@@ -50,6 +53,7 @@
 | `solution.disease_review` | 生成病害复核意见 | `solution.generate` | 周边对象、知识库、`solution.generateDraft` | 模板 `map_object_disease_review_default`，不得兜底 |
 | `solution.assessment_advice` | 生成评定处置建议 | `solution.generate` | 评定、桩号病害、知识库、`solution.generateDraft` | 模板 `map_object_evaluation_unit_advice_default`，不得兜底 |
 | `solution.region_advice` | 生成区域养护建议 | `solution.generate` | 区域统计、知识库、`solution.generateDraft` | 模板 `map_region_maintenance_advice_default`，不得出现 `routeCode` 变量缺失 |
+| `followup.source_replay` | 参考资料来源追问 | 任意匹配能力 | 不固定工具 | 必须继承并回显可定位 `followupSource.mapTarget` |
 
 ## 人工验收清单
 
@@ -74,5 +78,4 @@
 ## 后续扩展
 
 - 将本脚本接入治理台评测用例集，作为发布前 smoke；
-- 给追问链路增加自动回放 case，验证同一会话的上下文继承；
 - 给知识库 metadata 建立导入规范，让更多知识来源也能自动带路线、桩号或对象定位。
