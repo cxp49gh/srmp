@@ -56,8 +56,7 @@ def should_use_capability_policy(capability: Optional[Dict[str, Any]], intent: s
     category = str(capability.get("category") or "").upper()
     if not capability_id or capability_id.startswith("legacy."):
         return False
-    # Solution generation still has action-specific evidence collection in the legacy planner.
-    return category != "SOLUTION" and intent != "SOLUTION_GENERATE"
+    return category in {"KNOWLEDGE", "MAP_ANALYSIS", "SOLUTION"}
 
 
 def plan_capability_tools(calls: List[ToolCall], request: MapAiAgentRequest, intent: str, capability: Dict[str, Any]) -> None:

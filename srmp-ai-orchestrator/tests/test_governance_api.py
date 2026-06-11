@@ -73,6 +73,88 @@ class GovernanceApiTest(unittest.TestCase):
         self.assertEqual(["knowledge.retrieve"], [item["toolName"] for item in body["toolPlan"]])
         self.assertIn("gis.queryRegionSummary", body["capability"]["toolPolicy"]["prohibited"])
 
+    def test_plan_simulate_returns_concrete_section_solution_tools(self):
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/srmp/langgraph/governance/plan-simulate",
+            json={
+                "action": "GENERATE_OBJECT_SOLUTION",
+                "message": "生成当前路段养护计划",
+                "mapContext": {
+                    "mode": "OBJECT",
+                    "routeCode": "Y016140727",
+                    "year": 2026,
+                    "mapObject": {
+                        "objectType": "ROAD_SECTION",
+                        "objectId": "section-1",
+                        "routeCode": "Y016140727",
+                        "startStake": 0,
+                        "endStake": 14.072,
+                    },
+                },
+                "actionInput": {"solutionType": "SECTION_PLAN"},
+                "options": {"useKnowledge": True, "traceId": "governance-section-solution-test"},
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual("solution.section_plan", body["capabilityId"])
+        self.assertEqual(
+            ["gis.queryAssessmentResults", "gis.queryDiseases", "gis.queryDiseasesByStakeRange", "solution.generateDraft", "knowledge.retrieve"],
+            [item["toolName"] for item in body["toolPlan"]],
+        )
+        self.assertEqual("PASS", body["policyStatus"])
+
+    def test_plan_simulate_uses_draft_solution_tool_policy(self):
+        client = TestClient(app)
+        active = client.get("/api/srmp/langgraph/governance/config").json()
+        capabilities_config = copy.deepcopy(active["capabilitiesConfig"])
+        tools_config = copy.deepcopy(active["toolsConfig"])
+        capability = next(item for item in capabilities_config["capabilities"] if item["id"] == "solution.section_plan")
+        capability["toolPolicy"]["required"] = ["knowledge.retrieve"]
+        capability["toolPolicy"]["optional"] = []
+        capability["toolPolicy"]["adaptive"] = []
+        capability["toolPolicy"]["prohibited"] = [
+            "gis.queryAssessmentResults",
+            "gis.queryDiseases",
+            "gis.queryDiseasesByStakeRange",
+            "solution.generateDraft",
+        ]
+
+        response = client.post(
+            "/api/srmp/langgraph/governance/plan-simulate",
+            json={
+                "request": {
+                    "action": "GENERATE_OBJECT_SOLUTION",
+                    "message": "生成当前路段养护计划",
+                    "mapContext": {
+                        "mode": "OBJECT",
+                        "routeCode": "Y016140727",
+                        "year": 2026,
+                        "mapObject": {
+                            "objectType": "ROAD_SECTION",
+                            "objectId": "section-1",
+                            "routeCode": "Y016140727",
+                            "startStake": 0,
+                            "endStake": 14.072,
+                        },
+                    },
+                    "actionInput": {"solutionType": "SECTION_PLAN"},
+                    "options": {"useKnowledge": True},
+                },
+                "capabilitiesConfig": capabilities_config,
+                "toolsConfig": tools_config,
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual("DRAFT_PLAN_SIMULATE", body["mode"])
+        self.assertEqual("solution.section_plan", body["capabilityId"])
+        self.assertEqual(["knowledge.retrieve"], [item["toolName"] for item in body["toolPlan"]])
+
     def test_policy_coverage_endpoint_runs_configured_examples(self):
         client = TestClient(app)
 

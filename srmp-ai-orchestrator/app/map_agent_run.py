@@ -328,7 +328,7 @@ class MapAgentRunWorkflow:
         capability: Optional[Dict[str, Any]] = None,
     ) -> tuple[List[ToolResult], List[str], List[str]]:
         calls = [
-            call for call in plan_tools(agent_request, "SOLUTION_GENERATE", {})
+            call for call in plan_tools(agent_request, "SOLUTION_GENERATE", {}, capability=capability)
             if call.toolName not in {"solution.generateDraft", "template.match"}
         ]
         planned_tool_names = [call.toolName for call in calls]
