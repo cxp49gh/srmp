@@ -85,6 +85,13 @@ export interface AiExecutionPlanExecution {
   raw: Record<string, any>
 }
 
+export interface AiExecutionEvidenceReuse {
+  status?: string
+  evidenceSnapshotId?: string
+  basedOnAnalysisTraceId?: string
+  scopeFingerprint?: string
+}
+
 export interface AiExecutionSnapshot {
   summary: {
     traceId?: string
@@ -120,6 +127,7 @@ export interface AiExecutionSnapshot {
   businessScope: Record<string, any>
   capability: Record<string, any>
   planExecution: AiExecutionPlanExecution
+  evidenceReuse: AiExecutionEvidenceReuse
   policyStatus: string
   policyChecks: AiExecutionPolicyCheck[]
   raw: Record<string, any>
@@ -326,6 +334,7 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     outlineCount: numberValue(liveSourceSummary.outline) ?? evidenceData.outlineHitCount ?? countSources(sources, 'OUTLINE'),
     sources
   }
+  const evidenceReuse = extractEvidenceReuse(answerMeta, responseData, trace || {})
   const warnings = buildWarnings(answerMeta, steps, summary.sourceCount, sources.length, tools, summary.status, currentStep, policyChecks)
   const repairActions = buildRepairActions(tools, answerMeta)
 
@@ -340,6 +349,7 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
     businessScope,
     capability,
     planExecution,
+    evidenceReuse,
     policyStatus,
     policyChecks,
     raw: sanitizeInternalDiagnostics(compactRaw(input)) as Record<string, any>,
@@ -353,6 +363,7 @@ export function toAiExecutionSnapshot(input: AiExecutionInput): AiExecutionSnaps
       evidence,
       capability,
       planExecution,
+      evidenceReuse,
       policyChecks,
       repairActions
     })
@@ -556,10 +567,11 @@ function buildDiagnosis(input: {
   evidence: AiExecutionSnapshot['evidence']
   capability: Record<string, any>
   planExecution: AiExecutionPlanExecution
+  evidenceReuse: AiExecutionEvidenceReuse
   policyChecks: AiExecutionPolicyCheck[]
   repairActions: AiExecutionRepairAction[]
 }): AiExecutionDiagnosis {
-  const tags = buildDiagnosisTags(input.summary, input.answerMeta, input.tools, input.evidence)
+  const tags = buildDiagnosisTags(input.summary, input.answerMeta, input.tools, input.evidence, input.evidenceReuse)
   if (isExecutionInProgress(input.summary.status, input.currentStep)) {
     return {
       severity: 'info',
@@ -657,18 +669,27 @@ function buildDiagnosisTags(
   summary: AiExecutionSnapshot['summary'],
   answerMeta: Record<string, any>,
   tools: AiExecutionTool[],
-  evidence: AiExecutionSnapshot['evidence']
+  evidence: AiExecutionSnapshot['evidence'],
+  evidenceReuse: AiExecutionEvidenceReuse = {}
 ): AiExecutionDiagnosisTag[] {
   const llmUsed = answerMeta.llmSuccess === true || String(answerMeta.answerSource || answerMeta.answer_source || '').toUpperCase() === 'LLM'
   const toolFailed = Boolean(summary.toolFailedCount) || tools.some((tool) => !tool.success)
   const evidenceCount = evidence.sourceCount || evidence.sources.length || 0
   const fallbackUsed = Boolean(summary.fallback) || hasLlmFallback(answerMeta)
-  return [
+  const tags: AiExecutionDiagnosisTag[] = [
     { label: '模型', value: llmUsed ? '已使用' : (Object.keys(answerMeta).length ? '未成功' : '未知'), type: llmUsed ? 'success' : 'info' },
     { label: '降级', value: fallbackUsed ? '是' : '否', type: fallbackUsed ? 'warning' : 'success' },
     { label: '工具', value: `${summary.toolSuccessCount || 0}/${summary.toolTotalCount || tools.length || 0}`, type: toolFailed ? 'danger' : 'success' },
     { label: '证据', value: String(evidenceCount), type: evidenceCount ? 'success' : 'warning' }
   ]
+  if (evidenceReuse.status) {
+    tags.push({
+      label: '证据复用',
+      value: evidenceReuse.status,
+      type: ['REUSED', 'PARTIAL_REUSED'].includes(evidenceReuse.status) ? 'success' : 'info'
+    })
+  }
+  return tags
 }
 
 function hasLlmFailure(answerMeta: Record<string, any>): boolean {
@@ -1009,6 +1030,20 @@ function countSources(sources: Record<string, any>[], type: string): number {
     const sourceType = String(item.sourceType || item.type || item.source || '').toUpperCase()
     return sourceType.includes(type)
   }).length
+}
+
+function extractEvidenceReuse(
+  answerMeta: Record<string, any>,
+  data: Record<string, any>,
+  trace: Record<string, any>
+): AiExecutionEvidenceReuse {
+  const reuse = firstRecord(data.evidenceReuse, data.evidence_reuse, trace.evidenceReuse, trace.evidence_reuse)
+  return {
+    status: stringValue(answerMeta.evidenceReuseStatus, answerMeta.evidence_reuse_status, reuse.status),
+    evidenceSnapshotId: stringValue(answerMeta.evidenceSnapshotId, answerMeta.evidence_snapshot_id, reuse.evidenceSnapshotId, reuse.evidence_snapshot_id),
+    basedOnAnalysisTraceId: stringValue(answerMeta.basedOnAnalysisTraceId, answerMeta.based_on_analysis_trace_id, reuse.basedOnAnalysisTraceId, reuse.based_on_analysis_trace_id),
+    scopeFingerprint: stringValue(answerMeta.scopeFingerprint, answerMeta.scope_fingerprint, reuse.scopeFingerprint, reuse.scope_fingerprint)
+  }
 }
 
 function firstRecord(...values: any[]): Record<string, any> {
