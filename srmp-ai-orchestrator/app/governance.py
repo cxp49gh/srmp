@@ -954,6 +954,10 @@ def normalize_capability(item: Dict[str, Any]) -> Dict[str, Any]:
     data["intent"] = str(data.get("intent") or "GENERAL_CHAT").strip().upper()
     data["enabled"] = bool(data.get("enabled", True))
     data["priority"] = int(data.get("priority") or 0)
+    data["family"] = str(data.get("family") or "").strip()
+    data["pipeline"] = str(data.get("pipeline") or "").strip()
+    data["solutionType"] = str(data.get("solutionType") or "").strip().upper()
+    data["templateExpectation"] = dict(data.get("templateExpectation") or {})
     data["legacyIntents"] = [str(value).strip().upper() for value in data.get("legacyIntents") or [] if str(value or "").strip()]
     data["triggers"] = _normalize_trigger_block(data.get("triggers") or {})
     data["contextPolicy"] = dict(data.get("contextPolicy") or {})
@@ -993,6 +997,10 @@ def capability_match(capability: Dict[str, Any], score: float, rules: List[str],
         "name": capability.get("name"),
         "category": capability.get("category"),
         "intent": capability.get("intent"),
+        "family": capability.get("family") or "",
+        "pipeline": capability.get("pipeline") or "",
+        "solutionType": capability.get("solutionType") or "",
+        "templateExpectation": capability.get("templateExpectation") or {},
         "confidence": round(min(0.99, max(0.1, score / 300.0)), 2),
         "matchedRules": rules,
         "contextUsage": context_usage,
@@ -1411,6 +1419,8 @@ def _match_capability(
     action = str(request.action or (request.options or {}).get("action") or intent_detail.get("action") or "").strip().upper()
     mode = str(ctx.mode or "" if ctx else "").strip().upper()
     object_type = normalize_object_type(_first_string(obj, "objectType", "object_type", "type", "layerType"))
+    action_input = request.actionInput if isinstance(request.actionInput, dict) else {}
+    solution_type = str(action_input.get("solutionType") or action_input.get("solution_type") or "").strip().upper()
     message = request.message or ""
     score = float(capability.get("priority") or 0)
     rules: List[str] = []
@@ -1431,6 +1441,14 @@ def _match_capability(
         score += 160
         concrete_match = True
         rules.append("objectType:" + object_type)
+
+    solution_types = triggers.get("solutionTypes") or []
+    if solution_types and solution_type in solution_types:
+        score += 200
+        concrete_match = True
+        rules.append("solutionType:" + solution_type)
+    elif solution_types:
+        return 0, [], ""
 
     modes = triggers.get("modes") or []
     if modes and mode in modes:
@@ -1505,6 +1523,10 @@ def _capability_summary(capability: Dict[str, Any]) -> Dict[str, Any]:
         "enabled": capability.get("enabled", True),
         "priority": capability.get("priority"),
         "intent": capability.get("intent"),
+        "family": capability.get("family") or "",
+        "pipeline": capability.get("pipeline") or "",
+        "solutionType": capability.get("solutionType") or "",
+        "templateExpectation": capability.get("templateExpectation") or {},
         "legacyIntents": capability.get("legacyIntents") or [],
         "triggers": capability.get("triggers") or {},
         "contextPolicy": capability.get("contextPolicy") or {},
@@ -1517,6 +1539,7 @@ def _normalize_trigger_block(value: Dict[str, Any]) -> Dict[str, List[str]]:
         "actions": [item.upper() for item in _string_list(value.get("actions"))],
         "modes": [item.upper() for item in _string_list(value.get("modes"))],
         "objectTypes": [normalize_object_type(item) for item in _string_list(value.get("objectTypes"))],
+        "solutionTypes": [item.upper() for item in _string_list(value.get("solutionTypes"))],
         "includeKeywords": _string_list(value.get("includeKeywords")),
         "questionKeywords": _string_list(value.get("questionKeywords")),
     }

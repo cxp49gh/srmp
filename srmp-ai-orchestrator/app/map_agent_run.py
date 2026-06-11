@@ -312,7 +312,13 @@ class MapAgentRunWorkflow:
     def _to_agent_request(self, request: MapAgentRunRequest, action: str) -> MapAiAgentRequest:
         options = dict(request.options or {})
         options["action"] = action
-        return MapAiAgentRequest(message=request.message, mapContext=request.mapContext, options=options)
+        return MapAiAgentRequest(
+            message=request.message,
+            action=action,
+            mapContext=request.mapContext,
+            actionInput=dict(request.actionInput or {}),
+            options=options,
+        )
 
     async def _collect_solution_evidence(
         self,

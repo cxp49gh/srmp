@@ -301,44 +301,218 @@
     {
       "id": "solution.generate",
       "name": "方案生成",
+      "category": "SOLUTION_FAMILY",
+      "enabled": false,
+      "priority": 0,
+      "intent": "SOLUTION_GENERATE",
+      "legacyIntents": [],
+      "triggers": {},
+      "contextPolicy": {
+        "contextUsage": "GROUP_ONLY"
+      },
+      "toolPolicy": {
+        "required": [],
+        "optional": [],
+        "adaptive": [],
+        "prohibited": []
+      },
+      "examples": []
+    },
+    {
+      "id": "solution.route_report",
+      "name": "生成路线养护报告",
       "category": "SOLUTION",
+      "family": "solution.generate",
+      "pipeline": "solution_generate",
+      "solutionType": "ROUTE_REPORT",
       "enabled": true,
-      "priority": 90,
+      "priority": 95,
       "intent": "SOLUTION_GENERATE",
       "legacyIntents": ["SOLUTION_GENERATE"],
       "triggers": {
-        "actions": ["GENERATE_OBJECT_SOLUTION", "GENERATE_REGION_SOLUTION", "GENERATE_ROUTE_REPORT"]
+        "actions": ["GENERATE_ROUTE_REPORT"],
+        "modes": ["ROUTE"],
+        "solutionTypes": ["ROUTE_REPORT"]
       },
       "contextPolicy": {
-        "contextUsage": "BUSINESS_SCOPE_REQUIRED"
+        "contextUsage": "ROUTE_REQUIRED"
       },
       "toolPolicy": {
-        "required": ["solution.generateDraft"],
+        "required": ["gis.queryRegionSummary", "gis.queryAssessmentResults", "gis.queryDiseases", "solution.generateDraft"],
         "optional": ["knowledge.retrieve"],
         "adaptive": ["knowledge.retrieve"],
         "prohibited": []
       },
+      "templateExpectation": {
+        "templateCode": "route_report_default"
+      },
       "examples": [
         {
-          "id": "solution.generate.object",
-          "name": "生成对象方案",
+          "id": "solution.route_report.route",
+          "name": "生成路线养护报告",
           "request": {
-            "action": "GENERATE_OBJECT_SOLUTION",
-            "message": "生成当前对象的结构化养护建议",
-            "mapContext": {
-              "mode": "OBJECT",
-              "routeCode": "Y016140727",
-              "year": 2026,
-              "mapObject": {"objectType": "ROAD_SECTION", "objectId": "section-1", "routeCode": "Y016140727", "startStake": 0, "endStake": 14.072}
-            },
+            "action": "GENERATE_ROUTE_REPORT",
+            "message": "生成当前路线养护报告",
+            "mapContext": {"mode": "ROUTE", "routeCode": "Y016140727", "year": 2026},
+            "actionInput": {"solutionType": "ROUTE_REPORT", "routeCode": "Y016140727"},
             "options": {"useKnowledge": true}
           },
           "expect": {
-            "capabilityId": "solution.generate",
-            "requiredTools": ["gis.queryAssessmentResults", "gis.queryDiseases", "gis.queryDiseasesByStakeRange", "knowledge.retrieve"]
+            "capabilityId": "solution.route_report",
+            "requiredTools": ["gis.queryRegionSummary", "gis.queryAssessmentResults", "gis.queryDiseases", "solution.generateDraft"]
           }
         }
       ]
+    },
+    {
+      "id": "solution.section_plan",
+      "name": "生成路段养护计划",
+      "category": "SOLUTION",
+      "family": "solution.generate",
+      "pipeline": "solution_generate",
+      "solutionType": "SECTION_PLAN",
+      "enabled": true,
+      "priority": 94,
+      "intent": "SOLUTION_GENERATE",
+      "legacyIntents": ["SOLUTION_GENERATE"],
+      "triggers": {
+        "actions": ["GENERATE_OBJECT_SOLUTION"],
+        "objectTypes": ["ROAD_SECTION"],
+        "solutionTypes": ["SECTION_PLAN"]
+      },
+      "contextPolicy": {
+        "contextUsage": "OBJECT_REQUIRED"
+      },
+      "toolPolicy": {
+        "required": ["gis.queryAssessmentResults", "gis.queryDiseases", "gis.queryDiseasesByStakeRange", "solution.generateDraft"],
+        "optional": ["knowledge.retrieve"],
+        "adaptive": ["knowledge.retrieve"],
+        "prohibited": []
+      },
+      "templateExpectation": {
+        "templateCode": "map_object_section_plan_default"
+      },
+      "examples": []
+    },
+    {
+      "id": "solution.disease_treatment",
+      "name": "生成病害处置建议",
+      "category": "SOLUTION",
+      "family": "solution.generate",
+      "pipeline": "solution_generate",
+      "solutionType": "DISEASE_TREATMENT",
+      "enabled": true,
+      "priority": 94,
+      "intent": "SOLUTION_GENERATE",
+      "legacyIntents": ["SOLUTION_GENERATE"],
+      "triggers": {
+        "actions": ["GENERATE_OBJECT_SOLUTION"],
+        "objectTypes": ["DISEASE"],
+        "solutionTypes": ["DISEASE_TREATMENT"]
+      },
+      "contextPolicy": {
+        "contextUsage": "OBJECT_REQUIRED"
+      },
+      "toolPolicy": {
+        "required": ["gis.queryNearbyObjects", "solution.generateDraft"],
+        "optional": ["knowledge.retrieve"],
+        "adaptive": ["knowledge.retrieve"],
+        "prohibited": ["gis.queryRegionSummary"]
+      },
+      "templateExpectation": {
+        "solutionType": "DISEASE_TREATMENT"
+      },
+      "examples": []
+    },
+    {
+      "id": "solution.disease_review",
+      "name": "生成病害复核意见",
+      "category": "SOLUTION",
+      "family": "solution.generate",
+      "pipeline": "solution_generate",
+      "solutionType": "DISEASE_REVIEW",
+      "enabled": true,
+      "priority": 95,
+      "intent": "SOLUTION_GENERATE",
+      "legacyIntents": ["SOLUTION_GENERATE"],
+      "triggers": {
+        "actions": ["GENERATE_OBJECT_SOLUTION"],
+        "objectTypes": ["DISEASE"],
+        "solutionTypes": ["DISEASE_REVIEW"]
+      },
+      "contextPolicy": {
+        "contextUsage": "OBJECT_REQUIRED"
+      },
+      "toolPolicy": {
+        "required": ["gis.queryNearbyObjects", "solution.generateDraft"],
+        "optional": ["knowledge.retrieve"],
+        "adaptive": ["knowledge.retrieve"],
+        "prohibited": ["gis.queryRegionSummary"]
+      },
+      "templateExpectation": {
+        "templateCode": "map_object_disease_review_default"
+      },
+      "examples": []
+    },
+    {
+      "id": "solution.assessment_advice",
+      "name": "生成评定养护建议",
+      "category": "SOLUTION",
+      "family": "solution.generate",
+      "pipeline": "solution_generate",
+      "solutionType": "EVALUATION_UNIT_ADVICE",
+      "enabled": true,
+      "priority": 94,
+      "intent": "SOLUTION_GENERATE",
+      "legacyIntents": ["SOLUTION_GENERATE"],
+      "triggers": {
+        "actions": ["GENERATE_OBJECT_SOLUTION"],
+        "objectTypes": ["ASSESSMENT_RESULT"],
+        "solutionTypes": ["EVALUATION_UNIT_ADVICE", "LOW_SCORE_TREATMENT"]
+      },
+      "contextPolicy": {
+        "contextUsage": "OBJECT_REQUIRED"
+      },
+      "toolPolicy": {
+        "required": ["gis.queryAssessmentResults", "gis.queryDiseasesByStakeRange", "solution.generateDraft"],
+        "optional": ["knowledge.retrieve"],
+        "adaptive": ["knowledge.retrieve"],
+        "prohibited": []
+      },
+      "templateExpectation": {
+        "templateCode": "map_object_evaluation_unit_advice_default"
+      },
+      "examples": []
+    },
+    {
+      "id": "solution.region_advice",
+      "name": "生成区域养护建议",
+      "category": "SOLUTION",
+      "family": "solution.generate",
+      "pipeline": "solution_generate",
+      "solutionType": "REGION_MAINTENANCE_SUGGESTION",
+      "enabled": true,
+      "priority": 95,
+      "intent": "SOLUTION_GENERATE",
+      "legacyIntents": ["SOLUTION_GENERATE"],
+      "triggers": {
+        "actions": ["GENERATE_REGION_SOLUTION"],
+        "modes": ["REGION", "BOX", "POLYGON", "SELECTION"],
+        "solutionTypes": ["REGION_MAINTENANCE_SUGGESTION"]
+      },
+      "contextPolicy": {
+        "contextUsage": "REGION_REQUIRED"
+      },
+      "toolPolicy": {
+        "required": ["gis.queryRegionSummary", "solution.generateDraft"],
+        "optional": ["knowledge.retrieve"],
+        "adaptive": ["knowledge.retrieve"],
+        "prohibited": []
+      },
+      "templateExpectation": {
+        "templateCode": "map_region_maintenance_advice_default"
+      },
+      "examples": []
     }
   ]
 }

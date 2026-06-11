@@ -41,6 +41,60 @@ class GovernanceRegistryTest(unittest.TestCase):
         self.assertEqual("ROUTE_ANALYSIS", match["intent"])
         self.assertIn("gis.queryRegionSummary", match["toolPolicy"]["required"])
 
+    def test_route_report_matches_concrete_solution_capability(self):
+        request = MapAiAgentRequest(
+            action="GENERATE_ROUTE_REPORT",
+            message="生成当前路线养护报告",
+            mapContext=MapAiContext(mode="ROUTE", routeCode="Y016140727", year=2026),
+            actionInput={"solutionType": "ROUTE_REPORT", "routeCode": "Y016140727"},
+            options={"action": "GENERATE_ROUTE_REPORT"},
+        )
+
+        match = resolve_capability(
+            request,
+            fallback_intent="SOLUTION_GENERATE",
+            intent_detail={"action": "GENERATE_ROUTE_REPORT"},
+        )
+
+        self.assertEqual("solution.route_report", match["capabilityId"])
+        self.assertEqual("solution.generate", match["family"])
+        self.assertEqual("solution_generate", match["pipeline"])
+        self.assertEqual("ROUTE_REPORT", match["solutionType"])
+        self.assertEqual("route_report_default", match["templateExpectation"]["templateCode"])
+
+    def test_disease_review_and_treatment_are_separate_solution_capabilities(self):
+        base_context = MapAiContext(
+            mode="OBJECT",
+            routeCode="Y016140727",
+            year=2026,
+            mapObject={"objectType": "DISEASE", "objectId": "disease-1", "routeCode": "Y016140727"},
+        )
+        review = resolve_capability(
+            MapAiAgentRequest(
+                action="GENERATE_OBJECT_SOLUTION",
+                message="生成当前病害复核意见",
+                mapContext=base_context,
+                actionInput={"solutionType": "DISEASE_REVIEW"},
+                options={"action": "GENERATE_OBJECT_SOLUTION"},
+            ),
+            fallback_intent="SOLUTION_GENERATE",
+            intent_detail={"action": "GENERATE_OBJECT_SOLUTION", "objectType": "DISEASE"},
+        )
+        treatment = resolve_capability(
+            MapAiAgentRequest(
+                action="GENERATE_OBJECT_SOLUTION",
+                message="生成当前病害处置建议",
+                mapContext=base_context,
+                actionInput={"solutionType": "DISEASE_TREATMENT"},
+                options={"action": "GENERATE_OBJECT_SOLUTION"},
+            ),
+            fallback_intent="SOLUTION_GENERATE",
+            intent_detail={"action": "GENERATE_OBJECT_SOLUTION", "objectType": "DISEASE"},
+        )
+
+        self.assertEqual("solution.disease_review", review["capabilityId"])
+        self.assertEqual("solution.disease_treatment", treatment["capabilityId"])
+
 
 if __name__ == "__main__":
     unittest.main()
