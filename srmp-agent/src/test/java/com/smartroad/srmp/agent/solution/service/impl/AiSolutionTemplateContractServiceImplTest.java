@@ -84,6 +84,70 @@ public class AiSolutionTemplateContractServiceImplTest {
         assertEquals("ERROR", check(diseaseReview, "TEMPLATE_SCOPE_MATCH").get("status"));
     }
 
+    @Test
+    public void defaultTemplateGuardAllowsCanonicalTemplate() {
+        AiSolutionTemplateContractServiceImpl service = new AiSolutionTemplateContractServiceImpl();
+
+        service.assertDefaultTemplateAllowed(
+                "map_object_disease_treatment_default",
+                "MAP_OBJECT",
+                "DISEASE",
+                "DISEASE_TREATMENT",
+                "# {{routeCode}} 病害处置建议\n\n{{treatmentAdvice}}\n\n{{maintenanceSuggestion}}\n"
+        );
+    }
+
+    @Test
+    public void defaultTemplateGuardRejectsLegacyTemplateCodeForStandardCapability() {
+        AiSolutionTemplateContractServiceImpl service = new AiSolutionTemplateContractServiceImpl();
+
+        try {
+            service.assertDefaultTemplateAllowed(
+                    "custom_disease_treatment",
+                    "MAP_OBJECT",
+                    "DISEASE",
+                    "DISEASE_TREATMENT",
+                    "# {{routeCode}} 病害处置建议\n\n{{maintenanceSuggestion}}\n"
+            );
+        } catch (IllegalArgumentException e) {
+            assertTrue(e.getMessage().contains("map_object_disease_treatment_default"));
+            return;
+        }
+        throw new AssertionError("expected guard rejection");
+    }
+
+    @Test
+    public void defaultTemplateGuardRejectsMissingVariablesForStandardCapability() {
+        AiSolutionTemplateContractServiceImpl service = new AiSolutionTemplateContractServiceImpl();
+
+        try {
+            service.assertDefaultTemplateAllowed(
+                    "route_report_default",
+                    "MAP_OBJECT",
+                    "ROAD_ROUTE",
+                    "ROUTE_REPORT",
+                    "# {{routeCode}} 路线养护报告\n\n{{undefinedMetric}}\n"
+            );
+        } catch (IllegalArgumentException e) {
+            assertTrue(e.getMessage().contains("undefinedMetric"));
+            return;
+        }
+        throw new AssertionError("expected guard rejection");
+    }
+
+    @Test
+    public void defaultTemplateGuardSkipsNonStandardSolutionType() {
+        AiSolutionTemplateContractServiceImpl service = new AiSolutionTemplateContractServiceImpl();
+
+        service.assertDefaultTemplateAllowed(
+                "map_object_low_score_treatment_default",
+                "MAP_OBJECT",
+                "ASSESSMENT_RESULT",
+                "LOW_SCORE_TREATMENT",
+                "# {{routeCode}} 低分评定处置建议\n\n{{customVariable}}\n"
+        );
+    }
+
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> contracts(Map<String, Object> result) {
         return (List<Map<String, Object>>) result.get("contracts");

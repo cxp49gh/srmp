@@ -53,6 +53,28 @@ public class AiSolutionTemplateContractServiceImpl implements AiSolutionTemplate
         return evaluateContracts(templateRows, defaultContracts());
     }
 
+    @Override
+    public void assertDefaultTemplateAllowed(String templateCode,
+                                             String originType,
+                                             String objectType,
+                                             String solutionType,
+                                             String content) {
+        ContractDefinition definition = findContractByScope(originType, objectType, solutionType);
+        if (definition == null) {
+            return;
+        }
+        if (!equalsIgnoreCase(definition.templateCode, templateCode)) {
+            throw new IllegalArgumentException("标准能力默认模板必须使用约定模板编码：" + definition.templateCode);
+        }
+        if (isBlank(content)) {
+            throw new IllegalArgumentException("标准能力默认模板内容不能为空：" + definition.templateCode);
+        }
+        MarkdownTemplateRenderer.RenderResult renderResult = renderer().renderWithCheck(content, sampleVariables(definition));
+        if (!renderResult.getMissingVariables().isEmpty()) {
+            throw new IllegalArgumentException("标准能力默认模板变量缺失：" + String.join(", ", renderResult.getMissingVariables()));
+        }
+    }
+
     private Map<String, Object> evaluateContracts(List<Map<String, Object>> templateRows,
                                                   List<ContractDefinition> definitions) {
         List<Map<String, Object>> safeRows = templateRows == null ? Collections.<Map<String, Object>>emptyList() : templateRows;
@@ -341,6 +363,19 @@ public class AiSolutionTemplateContractServiceImpl implements AiSolutionTemplate
                 contract("solution.region_advice", "生成区域养护建议", "GENERATE_REGION_SOLUTION", "REGION",
                         "MAP_REGION", "MAP_REGION", "REGION_MAINTENANCE_SUGGESTION", "map_region_maintenance_advice_default")
         );
+    }
+
+    private ContractDefinition findContractByScope(String originType,
+                                                   String objectType,
+                                                   String solutionType) {
+        for (ContractDefinition definition : defaultContracts()) {
+            if (equalsIgnoreCase(definition.originType, originType)
+                    && equalsIgnoreCase(definition.objectType, objectType)
+                    && equalsIgnoreCase(definition.solutionType, solutionType)) {
+                return definition;
+            }
+        }
+        return null;
     }
 
     private ContractDefinition contract(String capabilityId,

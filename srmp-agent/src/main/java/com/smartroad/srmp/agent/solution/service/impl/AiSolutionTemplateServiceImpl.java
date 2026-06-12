@@ -9,6 +9,7 @@ import com.smartroad.srmp.agent.solution.dto.AiSolutionTemplateRequest;
 import com.smartroad.srmp.agent.solution.dto.AiSolutionTemplateStatusRequest;
 import com.smartroad.srmp.agent.solution.dto.AiSolutionTemplateVersionRequest;
 import com.smartroad.srmp.agent.solution.service.AiSolutionTemplatePipelineService;
+import com.smartroad.srmp.agent.solution.service.AiSolutionTemplateContractService;
 import com.smartroad.srmp.agent.solution.service.AiSolutionTemplateService;
 import com.smartroad.srmp.agent.solution.template.MarkdownTemplateRenderer;
 import com.smartroad.srmp.agent.solution.template.SolutionTemplateContext;
@@ -38,6 +39,9 @@ public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService 
     private AiSolutionTemplatePipelineService aiSolutionTemplatePipelineService;
 
     @Resource
+    private AiSolutionTemplateContractService aiSolutionTemplateContractService;
+
+    @Resource
     private MarkdownTemplateRenderer markdownTemplateRenderer;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -62,6 +66,16 @@ public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService 
         Integer priority = request.getPriority() == null ? 0 : request.getPriority();
         String hash = hash(content);
         List<String> variables = variableParser.parse(content);
+
+        if (isDefault) {
+            aiSolutionTemplateContractService.assertDefaultTemplateAllowed(
+                    templateCode,
+                    originType,
+                    objectType,
+                    request.getSolutionType(),
+                    content
+            );
+        }
 
         MapSqlParameterSource templateParams = new MapSqlParameterSource()
                 .addValue("id", templateId)
@@ -300,6 +314,13 @@ public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService 
         String originType = stringValue(template.get("origin_type"));
         String objectType = stringValue(template.get("object_type"));
         String solutionType = stringValue(template.get("solution_type"));
+        aiSolutionTemplateContractService.assertDefaultTemplateAllowed(
+                stringValue(template.get("template_code")),
+                originType,
+                objectType,
+                solutionType,
+                stringValue(template.get("content"))
+        );
 
         clearDefaultAndSet(tenantId, id, originType, objectType, solutionType);
         return detail(id);
@@ -319,6 +340,15 @@ public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService 
         }
         if (isBlank(content)) {
             throw new IllegalArgumentException("模板内容不能为空");
+        }
+        if (boolValue(template.get("is_default"))) {
+            aiSolutionTemplateContractService.assertDefaultTemplateAllowed(
+                    stringValue(template.get("template_code")),
+                    stringValue(template.get("origin_type")),
+                    stringValue(template.get("object_type")),
+                    stringValue(template.get("solution_type")),
+                    content
+            );
         }
 
         String tenantId = TenantContextHolder.getTenantId();
@@ -499,6 +529,13 @@ public class AiSolutionTemplateServiceImpl implements AiSolutionTemplateService 
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private boolean boolValue(Object value) {
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        return "true".equalsIgnoreCase(stringValue(value));
     }
 
     private String uuid() {
