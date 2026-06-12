@@ -167,6 +167,14 @@ export function simulateAiGovernancePlan(data: OrchestratorPlanRequest): Promise
   return aiRequest.post('/api/agent/orchestrator/ops/governance/plan-simulate', data || {})
 }
 
+export function getAiCapabilityRegressionCases(): Promise<Record<string, any>> {
+  return aiRequest.get('/api/ai/capability-regression/cases')
+}
+
+export function runAiCapabilityRegression(data: Record<string, any>): Promise<Record<string, any>> {
+  return aiRequest.post('/api/ai/capability-regression/run', data || {})
+}
+
 export function getOrchestratorSnapshot(limit = 30, status?: string): Promise<Record<string, any>> {
   return aiRequest.get('/api/agent/orchestrator/ops/snapshot', {
     params: status ? { limit, status } : { limit }

@@ -38,6 +38,11 @@
           <p>通过 {{ coveragePassedCount }}；失败 {{ coverageFailedCount }}</p>
         </el-card>
         <el-card shadow="never" class="metric-card">
+          <span>能力回归</span>
+          <strong>{{ regressionStatus }}</strong>
+          <p>通过 {{ regressionPassedCount }}；失败 {{ regressionFailedCount }}</p>
+        </el-card>
+        <el-card shadow="never" class="metric-card">
           <span>治理体检</span>
           <strong>{{ readinessStatus }}</strong>
           <p>错误 {{ readinessErrorCount }}；告警 {{ readinessWarningCount }}</p>
@@ -342,6 +347,86 @@
             @update:capabilities-config="applyStructuredCapabilitiesConfig"
             @run-coverage="runDraftPolicyCoverage"
           />
+        </el-tab-pane>
+
+        <el-tab-pane label="能力回归" name="regression">
+          <div class="coverage-head">
+            <div>
+              <strong>能力回归用例集</strong>
+              <span>实跑 map-agent，校验能力命中、工具调用边界、生成模板和 answerMeta</span>
+            </div>
+            <div class="head-buttons">
+              <el-switch
+                v-model="regressionStrictAi"
+                active-text="严格大模型"
+                inactive-text="允许降级告警"
+              />
+              <el-button size="small" :loading="regressionCasesLoading" @click="loadCapabilityRegressionCases">刷新用例</el-button>
+              <el-button size="small" type="primary" :loading="regressionLoading" @click="runCapabilityRegression()">一键试跑</el-button>
+            </div>
+          </div>
+          <section class="plan-summary regression-summary">
+            <div><span>用例</span><strong>{{ regressionTotalCount }}</strong></div>
+            <div><span>通过率</span><strong>{{ regressionPassRate }}</strong></div>
+            <div><span>告警</span><strong>{{ regressionWarnedCount }}</strong></div>
+            <div><span>失败</span><strong :class="{ error: regressionFailedCount > 0 }">{{ regressionFailedCount }}</strong></div>
+          </section>
+          <el-alert
+            v-if="regressionFailedCount > 0"
+            class="mb"
+            type="error"
+            show-icon
+            title="能力回归存在失败项，请优先查看禁止工具、必需工具和模板命中错误。"
+          />
+          <el-table :data="regressionDisplayRows" border stripe v-loading="regressionLoading || regressionCasesLoading">
+            <el-table-column label="状态" width="100">
+              <template #default="{ row }">
+                <el-tag :type="regressionTagType(row.status)">{{ regressionStatusLabel(row.status) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="caseId" label="用例 ID" min-width="220" />
+            <el-table-column prop="name" label="场景" min-width="190" />
+            <el-table-column prop="action" label="Action" min-width="180" />
+            <el-table-column label="能力 / 模板" min-width="260">
+              <template #default="{ row }">
+                <div class="stacked">
+                  <strong>{{ row.actualCapabilityId || row.expectedCapabilityId || row.capabilityId || '-' }}</strong>
+                  <span>{{ row.actualTemplateCode || row.expectedTemplateCode || row.templateCode || '-' }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="工具" min-width="340">
+              <template #default="{ row }">
+                <div class="tag-list">
+                  <el-tag
+                    v-for="tool in arrayValue(row.actualTools).length ? arrayValue(row.actualTools) : arrayValue(row.requiredTools || row.expectedTools)"
+                    :key="`${row.caseId}-${tool}`"
+                    size="small"
+                    :type="arrayValue(row.actualTools).length ? 'success' : 'info'"
+                    effect="plain"
+                  >{{ tool }}</el-tag>
+                  <span v-if="!arrayValue(row.actualTools).length && !arrayValue(row.requiredTools || row.expectedTools).length" class="muted">无</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="问题" min-width="320">
+              <template #default="{ row }">
+                <span v-if="regressionProblems(row).length === 0" class="muted">{{ row.status ? '无' : '等待执行' }}</span>
+                <div v-else class="stacked">
+                  <span
+                    v-for="item in regressionProblems(row)"
+                    :key="`${row.caseId}-${item.code || item.message}`"
+                    :class="{ error: item.status === 'ERROR', warning: item.status === 'WARN' }"
+                  >{{ item.message || item.code }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="110" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" :loading="regressionLoading" @click="runCapabilityRegression([row.caseId])">单项试跑</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
         </el-tab-pane>
 
         <el-tab-pane label="能力矩阵" name="capabilities">
@@ -846,6 +931,7 @@ import GovernanceMatrixEditor from './components/GovernanceMatrixEditor.vue'
 import GovernanceToolCatalogEditor from './components/GovernanceToolCatalogEditor.vue'
 import {
   decideAiGovernanceConfigPublishRequest,
+  getAiCapabilityRegressionCases,
   getAiGovernanceCapability,
   getAiGovernanceCapabilities,
   getAiGovernanceConfig,
@@ -858,6 +944,7 @@ import {
   getAiGovernanceToolImpact,
   getAiGovernanceTools,
   requestAiGovernanceConfigRollback,
+  runAiCapabilityRegression,
   simulateAiGovernancePlan,
   submitAiGovernanceConfigPublishRequest,
   validateAiGovernanceConfigDraft,
@@ -869,6 +956,9 @@ const activeTab = ref('capabilities')
 const loading = ref(false)
 const planning = ref(false)
 const coverageLoading = ref(false)
+const regressionLoading = ref(false)
+const regressionCasesLoading = ref(false)
+const regressionStrictAi = ref(false)
 const toolImpactLoading = ref(false)
 const readinessLoading = ref(false)
 const configLoading = ref(false)
@@ -891,6 +981,8 @@ const capabilitiesPayload = ref<Record<string, any>>({})
 const toolsPayload = ref<Record<string, any>>({})
 const validationPayload = ref<Record<string, any>>({})
 const coveragePayload = ref<Record<string, any>>({})
+const regressionCasesPayload = ref<Record<string, any>[]>([])
+const regressionPayload = ref<Record<string, any>>({})
 const toolImpactPayload = ref<Record<string, any>>({})
 const readinessPayload = ref<Record<string, any>>({})
 const configPayload = ref<Record<string, any>>({})
@@ -938,6 +1030,23 @@ const coverageCases = computed(() => arrayValue(coveragePayload.value.cases))
 const coverageFailedCount = computed(() => Number(coveragePayload.value.failedCount || coverageCases.value.filter((item) => item.status !== 'PASS').length))
 const coveragePassedCount = computed(() => Number(coveragePayload.value.passedCount || coverageCases.value.filter((item) => item.status === 'PASS').length))
 const coverageStatus = computed(() => coverageFailedCount.value > 0 ? '异常' : coverageCases.value.length ? '通过' : '未运行')
+const regressionResults = computed(() => arrayValue(regressionPayload.value.results))
+const regressionSummary = computed(() => objectValue(regressionPayload.value.summary))
+const regressionDisplayRows = computed(() => regressionResults.value.length ? regressionResults.value : regressionCasesPayload.value)
+const regressionTotalCount = computed(() => Number(regressionSummary.value.total ?? regressionPayload.value.total ?? regressionCasesPayload.value.length))
+const regressionPassedCount = computed(() => Number(regressionSummary.value.passed ?? regressionPayload.value.passed ?? 0))
+const regressionWarnedCount = computed(() => Number(regressionSummary.value.warned ?? regressionPayload.value.warned ?? 0))
+const regressionFailedCount = computed(() => Number(regressionSummary.value.failed ?? regressionPayload.value.failed ?? 0))
+const regressionPassRate = computed(() => {
+  const rate = regressionSummary.value.passRate ?? regressionPayload.value.passRate
+  return rate === undefined || rate === null || rate === '' ? '-' : `${rate}%`
+})
+const regressionStatus = computed(() => {
+  if (!regressionResults.value.length) return regressionCasesPayload.value.length ? '待运行' : '未加载'
+  if (regressionFailedCount.value > 0) return '异常'
+  if (regressionWarnedCount.value > 0) return '有告警'
+  return '通过'
+})
 const toolImpactTools = computed(() => arrayValue(toolImpactPayload.value.tools))
 const readinessIssues = computed(() => arrayValue(readinessPayload.value.issues))
 const readinessSummary = computed(() => objectValue(readinessPayload.value.summary))
@@ -1052,7 +1161,7 @@ async function loadGovernance() {
   } finally {
     loading.value = false
   }
-  await Promise.all([loadPolicyCoverage(), loadToolImpact(), loadReadiness(), loadPublishRecords()])
+  await Promise.all([loadPolicyCoverage(), loadToolImpact(), loadReadiness(), loadPublishRecords(), loadCapabilityRegressionCases()])
 }
 
 async function loadGovernanceConfig() {
@@ -1252,6 +1361,40 @@ async function loadPolicyCoverage() {
     coveragePayload.value = extractBody(response)
   } finally {
     coverageLoading.value = false
+  }
+}
+
+async function loadCapabilityRegressionCases() {
+  regressionCasesLoading.value = true
+  try {
+    const response = await getAiCapabilityRegressionCases()
+    regressionCasesPayload.value = Array.isArray(response)
+      ? response
+      : arrayValue(extractBody(response).cases)
+  } finally {
+    regressionCasesLoading.value = false
+  }
+}
+
+async function runCapabilityRegression(caseIds: string[] = []) {
+  regressionLoading.value = true
+  try {
+    const response = await runAiCapabilityRegression({
+      caseIds,
+      strictAi: regressionStrictAi.value,
+      requireAi: true
+    })
+    regressionPayload.value = extractBody(response)
+    activeTab.value = 'regression'
+    if (regressionFailedCount.value > 0) {
+      ElMessage.warning(`能力回归完成，失败 ${regressionFailedCount.value} 项`)
+    } else if (regressionWarnedCount.value > 0) {
+      ElMessage.warning(`能力回归完成，告警 ${regressionWarnedCount.value} 项`)
+    } else {
+      ElMessage.success('能力回归通过')
+    }
+  } finally {
+    regressionLoading.value = false
   }
 }
 
@@ -1457,6 +1600,31 @@ function policyCheckTagType(status: string) {
   if (value === 'FAIL' || value === 'ERROR') return 'danger'
   if (value === 'WARN' || value === 'WARNING') return 'warning'
   return 'info'
+}
+
+function regressionTagType(status: string) {
+  const value = stringValue(status).toUpperCase()
+  if (value === 'PASS') return 'success'
+  if (value === 'ERROR' || value === 'FAIL') return 'danger'
+  if (value === 'WARN' || value === 'WARNING') return 'warning'
+  return 'info'
+}
+
+function regressionStatusLabel(status: string) {
+  const value = stringValue(status).toUpperCase()
+  if (value === 'PASS') return '通过'
+  if (value === 'ERROR' || value === 'FAIL') return '失败'
+  if (value === 'WARN' || value === 'WARNING') return '告警'
+  return status || '待运行'
+}
+
+function regressionProblems(row: Record<string, any>) {
+  const checks = arrayValue(row.checks).filter((item) => ['ERROR', 'WARN'].includes(stringValue(item.status).toUpperCase()))
+  if (checks.length) return checks
+  return [
+    ...arrayValue(row.errors).map((message) => ({ status: 'ERROR', message })),
+    ...arrayValue(row.warnings).map((message) => ({ status: 'WARN', message }))
+  ]
 }
 
 function changeTagType(changeType: string) {
@@ -1708,6 +1876,10 @@ function uniqueStrings(values: any[]): string[] {
   color: #dc2626;
 }
 
+.stacked .warning {
+  color: #d97706;
+}
+
 .drawer-title {
   display: grid;
   gap: 4px;
@@ -1823,6 +1995,10 @@ function uniqueStrings(values: any[]): string[] {
 }
 
 .coverage-comparison-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.regression-summary {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 

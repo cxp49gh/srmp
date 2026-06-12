@@ -1427,6 +1427,9 @@ def _match_capability(
     concrete_match = False
     context_policy = capability.get("contextPolicy") or {}
 
+    if _should_keep_plain_knowledge_question_on_knowledge_capability(capability, fallback_intent, action, message):
+        return 0, [], ""
+
     if _should_defer_to_business_scope(context_policy, request, mode, obj, message):
         return 0, [], ""
 
@@ -1501,6 +1504,42 @@ def _should_defer_to_business_scope(
     if explicit_phrases and not any(phrase in message for phrase in explicit_phrases):
         return False
     return _has_business_scope(request, mode, obj)
+
+
+def _should_keep_plain_knowledge_question_on_knowledge_capability(
+    capability: Dict[str, Any],
+    fallback_intent: str,
+    action: str,
+    message: str,
+) -> bool:
+    if str(fallback_intent or "").strip().upper() != "KNOWLEDGE_QA":
+        return False
+    if action and action not in {"CHAT", "GENERAL_CHAT"}:
+        return False
+    if str(capability.get("intent") or "").strip().upper() == "KNOWLEDGE_QA":
+        return False
+    if str(capability.get("category") or "").strip().upper() == "KNOWLEDGE":
+        return False
+    return not _has_explicit_business_question_scope(message)
+
+
+def _has_explicit_business_question_scope(message: str) -> bool:
+    phrases = [
+        "结合当前",
+        "结合地图",
+        "当前路线",
+        "当前线路",
+        "当前对象",
+        "这条路线",
+        "这条线路",
+        "该路线",
+        "该线路",
+        "这个对象",
+        "为什么低",
+        "偏低",
+        "低分原因",
+    ]
+    return any(phrase in (message or "") for phrase in phrases)
 
 
 def _has_business_scope(request: MapAiAgentRequest, mode: str, obj: Dict[str, Any]) -> bool:

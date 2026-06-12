@@ -31,6 +31,27 @@ class GovernancePlanningTest(unittest.TestCase):
         self.assertEqual("knowledge.metric_explain", capability["capabilityId"])
         self.assertEqual(["knowledge.retrieve"], [item.toolName for item in calls])
 
+    def test_metric_question_with_route_object_still_uses_knowledge_tools_only(self):
+        request = MapAiAgentRequest(
+            action="CHAT",
+            message="解释 PCI 指标",
+            mapContext=MapAiContext(
+                mode="ROUTE",
+                routeCode="Y016140727",
+                year=2026,
+                mapObject={
+                    "objectType": "ROAD_ROUTE",
+                    "objectId": "Y016140727",
+                    "routeCode": "Y016140727",
+                },
+            ),
+            options={"useKnowledge": True, "topK": 3},
+        )
+        capability, calls = self._planned(request)
+
+        self.assertEqual("knowledge.metric_explain", capability["capabilityId"])
+        self.assertEqual(["knowledge.retrieve"], [item.toolName for item in calls])
+
     def test_route_analysis_uses_policy_business_tools_and_knowledge(self):
         request = MapAiAgentRequest(
             action="ANALYZE_ROUTE",
