@@ -218,6 +218,30 @@ public class AiSolutionTemplatePipelineServiceImplTest {
     }
 
     @Test
+    public void buildVariablesFillsRouteReportRouteCodeWhenRouteScopeHasNoSingleRoute() throws Exception {
+        AiSolutionTemplatePipelineServiceImpl service = new AiSolutionTemplatePipelineServiceImpl();
+        SolutionTemplateContext context = mapObjectContext("ROAD_ROUTE", "ROUTE_REPORT");
+        context.setRouteCode("");
+        context.setTitle("当前路线范围路线技术状况报告草稿");
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("objectType", "ROAD_ROUTE");
+        context.setObjectSummary(summary);
+
+        Method method = AiSolutionTemplatePipelineServiceImpl.class
+                .getDeclaredMethod("buildVariables", com.smartroad.srmp.agent.trace.AiTraceContext.class, SolutionTemplateContext.class);
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> variables = (Map<String, Object>) method.invoke(service, null, context);
+
+        String template = "# {{routeCode}} 路线技术状况报告草稿\n\n{{routeSummary}}\n";
+        MarkdownTemplateRenderer.RenderResult rendered = new MarkdownTemplateRenderer().renderWithCheck(template, variables);
+
+        assertTrue(rendered.getMissingVariables().isEmpty());
+        assertFalse(rendered.getRenderedMarkdown().contains("{{routeCode}}"));
+        assertTrue(rendered.getRenderedMarkdown().contains("当前路线范围 路线技术状况报告草稿"));
+    }
+
+    @Test
     public void buildVariablesMarksMissingDiseaseSeverityWithoutLeakingTemplateVariable() throws Exception {
         AiSolutionTemplatePipelineServiceImpl service = new AiSolutionTemplatePipelineServiceImpl();
         SolutionTemplateContext context = mapObjectContext("DISEASE", "DISEASE_TREATMENT");

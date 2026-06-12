@@ -691,17 +691,25 @@ const resultActions = computed<AnalysisResultAction[]>(() => {
   if (contextMode.value === 'REGION') {
     return [{
       type: 'REGION_SOLUTION',
-      label: '生成区域建议',
+      label: '生成区域养护建议',
       buttonType: 'success',
       disabled: !activeRegionContext.value || regionBusy.value
     }]
   }
-  return [{
-    type: 'WEAK_SECTIONS',
-    label: '查找次差路段',
-    buttonType: 'info',
-    disabled: loading.value
-  }]
+  return [
+    {
+      type: 'ROUTE_REPORT',
+      label: '生成路线养护报告',
+      buttonType: 'success',
+      disabled: loading.value || solutionLoading.value
+    },
+    {
+      type: 'WEAK_SECTIONS',
+      label: '查找次差路段',
+      buttonType: 'info',
+      disabled: loading.value
+    }
+  ]
 })
 
 const operationHint = computed(() => {
@@ -715,8 +723,8 @@ const operationHint = computed(() => {
     }
     return '分析对象用于 AI 解释；生成建议会生成结构化结果，预览后可保存为方案草稿。'
   }
-  if (activeRegionContext.value) return '当前为框选区域模式，只展示区域分析和区域方案动作；点击地图对象后会自动切换为对象模式。'
-  return '当前为路线范围模式，页面只展示路线分析动作；点击对象或框选区域后，操作区会自动切换。'
+  if (activeRegionContext.value) return '当前为框选区域模式，可先分析区域，再生成区域养护建议；点击地图对象后会自动切换为对象模式。'
+  return '当前为路线范围模式，可先分析路线，再生成路线养护报告或查找次差路段；点击对象或框选区域后会自动切换。'
 })
 
 function normalizeObjectType(obj: any) {
@@ -1168,7 +1176,7 @@ function currentEvidenceSnapshotInput() {
 
 async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
   const obj: any = activeMapObject.value
-  if (!obj) {
+  if (!obj && solutionType !== 'ROUTE_REPORT') {
     ElMessage.warning('请先在地图上选择一个对象')
     return
   }
@@ -1185,14 +1193,14 @@ async function generateSolutionDraft(solutionType: MapObjectSolutionType) {
     const snapshotInput = currentEvidenceSnapshotInput()
     const res = await mapAgentRun({
       action: solutionType === 'ROUTE_REPORT' ? 'GENERATE_ROUTE_REPORT' : 'GENERATE_OBJECT_SOLUTION',
-      message: '生成当前对象的结构化养护建议',
-      mapContext: buildMapAiContext('生成当前对象的结构化养护建议'),
+      message: solutionType === 'ROUTE_REPORT' ? '生成当前路线养护报告' : '生成当前对象的结构化养护建议',
+      mapContext: buildMapAiContext(solutionType === 'ROUTE_REPORT' ? '生成当前路线养护报告' : '生成当前对象的结构化养护建议'),
       actionInput: {
-        objectType: normalizeObjectType(obj),
-        objectId: String(obj.objectId || obj.object_id || obj.id || obj.featureId || ''),
-        routeCode: String(obj.routeCode || obj.route_code || query.routeCode || ''),
+        objectType: obj ? normalizeObjectType(obj) : 'ROAD_ROUTE',
+        objectId: obj ? String(obj.objectId || obj.object_id || obj.id || obj.featureId || '') : '',
+        routeCode: String(obj?.routeCode || obj?.route_code || query.routeCode || props.context?.routeCode || ''),
         solutionType,
-        mapObject: obj,
+        ...(obj ? { mapObject: obj } : {}),
         ...snapshotInput
       },
       options: { ...options, requireAi: true, traceId }

@@ -357,12 +357,24 @@ public class AiSolutionTemplatePipelineServiceImpl implements AiSolutionTemplate
     private void normalizeMapObjectIdentityVariables(Map<String, Object> variables) {
         String objectType = safe(variables.get("objectType")).toUpperCase();
         String solutionType = safe(variables.get("solutionType")).toUpperCase();
+        if (isRouteReportIdentityContext(objectType, solutionType)) {
+            normalizeRouteReportIdentityVariables(variables);
+        }
         if (isAssessmentIdentityContext(objectType, solutionType)) {
             normalizeAssessmentIdentityVariables(variables);
         }
         if (isDiseaseIdentityContext(objectType, solutionType)) {
             normalizeDiseaseIdentityVariables(variables);
         }
+    }
+
+    private boolean isRouteReportIdentityContext(String objectType, String solutionType) {
+        return "ROAD_ROUTE".equals(objectType)
+                || "ROUTE_REPORT".equals(solutionType);
+    }
+
+    private void normalizeRouteReportIdentityVariables(Map<String, Object> variables) {
+        putIfBlank(variables, "routeCode", "当前路线范围");
     }
 
     private boolean isAssessmentIdentityContext(String objectType, String solutionType) {

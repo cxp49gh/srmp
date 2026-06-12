@@ -647,7 +647,7 @@ public class MapObjectSolutionServiceImpl implements MapObjectSolutionService {
     }
 
     private String buildTitle(MapObjectSolutionType solutionType, Map<String, Object> summary) {
-        String route = stringValue(summary.get("routeCode"), "当前对象");
+        String route = stringValue(summary.get("routeCode"), solutionType == MapObjectSolutionType.ROUTE_REPORT ? "当前路线范围" : "当前对象");
         String stake = stringValue(summary.get("stakeRange"), "");
         String disease = stringValue(summary.get("diseaseName"), "");
         StringBuilder title = new StringBuilder();

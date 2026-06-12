@@ -233,6 +233,27 @@ public class MapObjectSolutionServiceImplTest {
         assertFalse(response.getMarkdown().contains("0.926 km"));
     }
 
+    @Test
+    public void routeReportTitleUsesRouteScopeWhenNoSingleRouteCode() throws Exception {
+        MapObjectSolutionServiceImpl service = new MapObjectSolutionServiceImpl();
+        setField(service, "mapObjectContextService", new FakeMapObjectContextService());
+        setField(service, "qualityChecker", new MapObjectSolutionQualityChecker());
+        setField(service, "templatePipelineService", new PassthroughTemplatePipelineService());
+        setField(service, "aiTraceService", new FakeAiTraceService());
+        setField(service, "llmClient", new FakeLlmClient(""));
+
+        MapObjectSolutionRequest request = new MapObjectSolutionRequest();
+        request.setTenantId("default");
+        request.setObjectType("ROAD_ROUTE");
+        request.setSolutionType("ROUTE_REPORT");
+        request.setMapObject(mapOf("objectType", "ROAD_ROUTE"));
+
+        MapObjectSolutionResponse response = service.generate(request);
+
+        assertEquals("当前路线范围路线技术状况报告草稿", response.getTitle());
+        assertFalse(response.getTitle().contains("当前对象"));
+    }
+
     private Map<String, Object> assessmentObject() {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("objectType", "ASSESSMENT_RESULT");

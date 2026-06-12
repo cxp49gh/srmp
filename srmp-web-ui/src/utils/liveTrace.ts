@@ -19,6 +19,7 @@ export interface LiveTraceSnapshot {
   toolSummary: { planned: number; completed: number; success: number; failed: number }
   sourceSummary: { business: number; knowledge: number; outline: number }
   answerMeta: Record<string, any>
+  finalTrace?: Record<string, any>
   error?: string
   costMs?: number
 }
@@ -53,6 +54,7 @@ export function normalizeLiveTraceSnapshot(input: any): LiveTraceSnapshot {
       outline: numberValue(sourceSummary.outline)
     },
     answerMeta: raw.answerMeta && typeof raw.answerMeta === 'object' ? raw.answerMeta : {},
+    finalTrace: raw.finalTrace && typeof raw.finalTrace === 'object' ? raw.finalTrace : undefined,
     error: stringValue(raw.error || raw.errorMessage),
     costMs: optionalNumber(raw.costMs)
   }
@@ -68,11 +70,12 @@ export function buildLiveTraceSummary(snapshot: Partial<LiveTraceSnapshot>) {
   if (source.business) sourceParts.push(`业务 ${source.business}`)
   if (source.knowledge) sourceParts.push(`知识库 ${source.knowledge}`)
   if (source.outline) sourceParts.push(`Outline ${source.outline}`)
+  const reuse = extractEvidenceReuse(snapshot)
   return {
     currentLabel: current?.label || current?.name || '',
     currentStatus: current?.status || snapshot.status || '',
     recentSteps: compactSteps.slice(-4),
-    toolLabel: formatToolLabel(tool),
+    toolLabel: formatEvidenceOrToolLabel(tool, reuse),
     sourceLabel: sourceParts.join('｜'),
     error: snapshot.error || current?.error || ''
   }
@@ -129,6 +132,66 @@ function formatToolLabel(tool: { planned?: number; completed?: number; success?:
   const parts = [`工具 ${completed}/${planned}`, `成功 ${success}`]
   if (failed > 0) parts.push(`失败 ${failed}`)
   return parts.join(' ')
+}
+
+function formatEvidenceOrToolLabel(
+  tool: { planned?: number; completed?: number; success?: number; failed?: number },
+  reuse: { status?: string; reusedCount?: number; supplementalCount?: number }
+): string {
+  const status = String(reuse.status || '').toUpperCase()
+  if (status === 'REUSED') {
+    const count = reuse.reusedCount || numberValue(tool.completed) || numberValue(tool.success)
+    return count ? `复用分析证据 ${count} 项` : '复用分析证据'
+  }
+  if (status === 'PARTIAL_REUSED') {
+    const parts = []
+    if (reuse.reusedCount) parts.push(`复用 ${reuse.reusedCount} 项`)
+    if (reuse.supplementalCount) parts.push(`补充查询 ${reuse.supplementalCount} 项`)
+    return parts.length ? parts.join('，') : '部分复用分析证据'
+  }
+  return formatToolLabel(tool)
+}
+
+function extractEvidenceReuse(snapshot: Partial<LiveTraceSnapshot>): { status?: string; reusedCount?: number; supplementalCount?: number } {
+  const answerMeta = snapshot.answerMeta || {}
+  const finalTrace = snapshot.finalTrace || {}
+  const reuse = firstRecord(
+    finalTrace.evidenceReuse,
+    finalTrace.evidence_reuse,
+    findStepEvidenceReuse(snapshot.steps || []),
+    answerMeta.evidenceReuse,
+    answerMeta.evidence_reuse
+  )
+  const status = stringValue(
+    answerMeta.evidenceReuseStatus ||
+    answerMeta.evidence_reuse_status ||
+    reuse.status
+  )
+  return {
+    status,
+    reusedCount: arrayLength(reuse.reusedToolNames || reuse.reused_tool_names),
+    supplementalCount: arrayLength(reuse.supplementalToolNames || reuse.supplemental_tool_names)
+  }
+}
+
+function findStepEvidenceReuse(steps: LiveTraceStep[]): Record<string, any> {
+  for (let i = steps.length - 1; i >= 0; i -= 1) {
+    const data = steps[i]?.data
+    const reuse = data?.evidenceReuse || data?.evidence_reuse
+    if (reuse && typeof reuse === 'object') return reuse
+  }
+  return {}
+}
+
+function firstRecord(...values: any[]): Record<string, any> {
+  for (const value of values) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value
+  }
+  return {}
+}
+
+function arrayLength(value: any): number {
+  return Array.isArray(value) ? value.length : 0
 }
 
 function stringValue(value: any): string | undefined {
