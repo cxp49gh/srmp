@@ -7,6 +7,7 @@ import com.smartroad.srmp.agent.solution.dto.AiSolutionTemplateRenderPreviewRequ
 import com.smartroad.srmp.agent.solution.dto.AiSolutionTemplateRequest;
 import com.smartroad.srmp.agent.solution.dto.AiSolutionTemplateStatusRequest;
 import com.smartroad.srmp.agent.solution.dto.AiSolutionTemplateVersionRequest;
+import com.smartroad.srmp.agent.solution.service.AiSolutionTemplateContractService;
 import com.smartroad.srmp.agent.solution.service.AiSolutionTemplateService;
 import com.smartroad.srmp.common.core.R;
 import org.springframework.web.bind.annotation.*;
@@ -22,6 +23,9 @@ public class AiSolutionTemplateController {
     @Resource
     private AiSolutionTemplateService aiSolutionTemplateService;
 
+    @Resource
+    private AiSolutionTemplateContractService aiSolutionTemplateContractService;
+
     @PostMapping
     public R<Map<String, Object>> create(@RequestBody AiSolutionTemplateRequest request) {
         return R.ok(aiSolutionTemplateService.create(request));
@@ -30,6 +34,11 @@ public class AiSolutionTemplateController {
     @PostMapping("/list")
     public R<List<Map<String, Object>>> list(@RequestBody(required = false) AiSolutionTemplateQuery query) {
         return R.ok(aiSolutionTemplateService.list(query));
+    }
+
+    @GetMapping("/contracts")
+    public R<Map<String, Object>> contracts() {
+        return R.ok(aiSolutionTemplateContractService.contracts());
     }
 
     @GetMapping("/{id}")

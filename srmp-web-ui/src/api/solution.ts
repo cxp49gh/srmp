@@ -142,6 +142,10 @@ export function getSolutionTemplateVersions(id: string): Promise<Record<string, 
   return request.get(`/api/ai/solution/templates/${id}/versions`)
 }
 
+export function getSolutionTemplateContracts(): Promise<Record<string, any>> {
+  return request.get('/api/ai/solution/templates/contracts')
+}
+
 export function importTemplateFromKnowledge(data: AiSolutionTemplateImportRequest): Promise<Record<string, any>> {
   return request.post('/api/ai/solution/templates/import-from-knowledge', data)
 }

@@ -5,9 +5,44 @@
         <template #header>
           <div class="card-header">
             <span>模板列表</span>
-            <el-button size="small" @click="loadTemplates">刷新</el-button>
+            <el-button size="small" @click="loadInitial">刷新</el-button>
           </div>
         </template>
+
+        <section class="contract-panel">
+          <div class="contract-head">
+            <div>
+              <strong>契约体检</strong>
+              <span>能力生成入口与默认模板一致性</span>
+            </div>
+            <el-button size="small" text :loading="contractLoading" @click="loadContracts">刷新</el-button>
+          </div>
+          <div class="contract-summary">
+            <span><em>总数</em><strong>{{ contractSummary.total || 0 }}</strong></span>
+            <span><em>正常</em><strong>{{ contractSummary.ok || 0 }}</strong></span>
+            <span><em>提醒</em><strong>{{ contractSummary.warn || 0 }}</strong></span>
+            <span><em>错误</em><strong>{{ contractSummary.error || 0 }}</strong></span>
+          </div>
+          <div v-if="contractRows.length > 0" class="contract-list">
+            <button
+              v-for="row in contractRows"
+              :key="row.capabilityId"
+              type="button"
+              class="contract-row"
+              @click="filterByContract(row)"
+            >
+              <el-tag size="small" :type="contractStatusType(row.status)" effect="plain">
+                {{ contractStatusLabel(row.status) }}
+              </el-tag>
+              <div>
+                <strong>{{ row.label }}</strong>
+                <p>{{ row.templateCode }}</p>
+                <small>{{ contractProblemText(row) }}</small>
+              </div>
+            </button>
+          </div>
+          <el-skeleton v-else-if="contractLoading" :rows="3" animated />
+        </section>
 
         <el-form :inline="true" class="query-form">
           <el-form-item>
@@ -122,9 +157,19 @@
           </el-form-item>
           <el-form-item>
             <el-button type="primary" :loading="saving" @click="createTemplate">保存模板</el-button>
-            <el-button @click="fillSectionPlanDemo">路段计划</el-button>
-            <el-button @click="fillEvaluationAdviceDemo">评定建议</el-button>
-            <el-button @click="fillLowScoreTreatmentDemo">低分处置</el-button>
+            <el-dropdown trigger="click" @command="fillCanonicalTemplate">
+              <el-button>填充标准模板</el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="routeReport">路线报告</el-dropdown-item>
+                  <el-dropdown-item command="sectionPlan">路段计划</el-dropdown-item>
+                  <el-dropdown-item command="diseaseTreatment">病害处置</el-dropdown-item>
+                  <el-dropdown-item command="diseaseReview">病害复核</el-dropdown-item>
+                  <el-dropdown-item command="evaluationAdvice">评定建议</el-dropdown-item>
+                  <el-dropdown-item command="regionAdvice">区域建议</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </el-form-item>
         </el-form>
 
@@ -209,6 +254,7 @@ import {
   createSolutionTemplateVersion,
   createSolutionTemplate,
   getSolutionTemplate,
+  getSolutionTemplateContracts,
   getSolutionTemplateVersions,
   importTemplateFromKnowledge,
   listSolutionTemplates,
@@ -259,6 +305,8 @@ const importing = ref(false)
 const versionSaving = ref(false)
 const previewVisible = ref(false)
 const previewResult = ref<Record<string, any> | null>(null)
+const contractLoading = ref(false)
+const contractResult = ref<Record<string, any> | null>(null)
 
 const form = reactive({
   templateName: '',
@@ -296,10 +344,42 @@ const variables = computed(() => {
   }
 })
 
-onMounted(loadTemplates)
+const contractRows = computed<Record<string, any>[]>(() => {
+  const rows = contractResult.value?.contracts
+  return Array.isArray(rows) ? rows : []
+})
+
+const contractSummary = computed<Record<string, any>>(() => {
+  return contractResult.value?.summary || { total: 0, ok: 0, warn: 0, error: 0 }
+})
+
+onMounted(loadInitial)
+
+async function loadInitial() {
+  await Promise.all([loadTemplates(), loadContracts()])
+}
 
 async function loadTemplates() {
   templates.value = await listSolutionTemplates(query)
+}
+
+async function loadContracts() {
+  contractLoading.value = true
+  try {
+    contractResult.value = await getSolutionTemplateContracts()
+  } finally {
+    contractLoading.value = false
+  }
+}
+
+async function filterByContract(row: Record<string, any>) {
+  query.keyword = String(row.templateCode || '')
+  query.solutionType = String(row.solutionType || '')
+  query.originType = String(row.originType || '')
+  query.objectType = String(row.objectType || '')
+  query.status = ''
+  query.isDefault = undefined
+  await loadTemplates()
 }
 
 async function selectTemplate(item: Record<string, any>) {
@@ -307,6 +387,52 @@ async function selectTemplate(item: Record<string, any>) {
   selectedDetail.value = await getSolutionTemplate(item.id)
   versions.value = await getSolutionTemplateVersions(item.id)
   resetVersionForm()
+}
+
+function fillCanonicalTemplate(command: string) {
+  const actions: Record<string, () => void> = {
+    routeReport: fillRouteReportDemo,
+    sectionPlan: fillSectionPlanDemo,
+    diseaseTreatment: fillDiseaseTreatmentDemo,
+    diseaseReview: fillDiseaseReviewDemo,
+    evaluationAdvice: fillEvaluationAdviceDemo,
+    regionAdvice: fillRegionAdviceDemo
+  }
+  actions[command]?.()
+}
+
+function fillRouteReportDemo() {
+  applyTemplatePreset({
+    templateName: '路线技术状况报告默认模板',
+    templateCode: 'route_report_default',
+    solutionType: 'ROUTE_REPORT',
+    originType: 'MAP_OBJECT',
+    objectType: 'ROAD_ROUTE',
+    priority: 30,
+    changeNote: '一张图路线养护报告模板',
+    content: `# {{routeCode}} 路线技术状况报告草稿
+
+## 一、路线概况
+{{routeSummary}}
+
+## 二、评定结果
+{{assessmentSummary}}
+
+## 三、主要病害
+{{diseaseSummary}}
+
+## 四、低分路段
+{{lowScoreSections}}
+
+## 五、问题分析
+{{problemAnalysis}}
+
+## 六、养护建议
+{{maintenanceSuggestion}}
+
+## 七、风险提示
+{{riskNotice}}`
+  })
 }
 
 function fillSectionPlanDemo() {
@@ -339,6 +465,70 @@ function fillSectionPlanDemo() {
 {{businessEvidenceSummary}}
 
 ## 七、风险提示
+{{riskNotice}}`
+  })
+}
+
+function fillDiseaseTreatmentDemo() {
+  applyTemplatePreset({
+    templateName: '地图病害处置建议默认模板',
+    templateCode: 'map_object_disease_treatment_default',
+    solutionType: 'DISEASE_TREATMENT',
+    originType: 'MAP_OBJECT',
+    objectType: 'DISEASE',
+    priority: 30,
+    changeNote: '一张图病害处置建议模板',
+    content: `# {{routeCode}} 病害处置建议
+
+## 一、病害概况
+- 对象编号：{{objectId}}
+- 病害类型：{{diseaseName}}
+- 严重程度：{{severity}}
+- 位置范围：{{stakeRange}}
+- 工程量：{{quantity}}{{measureUnit}}
+
+## 二、处治建议
+{{treatmentAdvice}}
+
+## 三、养护组织建议
+{{maintenanceSuggestion}}
+
+## 四、业务证据
+{{businessEvidenceSummary}}
+
+## 五、风险提示
+{{riskNotice}}`
+  })
+}
+
+function fillDiseaseReviewDemo() {
+  applyTemplatePreset({
+    templateName: '地图病害复核意见默认模板',
+    templateCode: 'map_object_disease_review_default',
+    solutionType: 'DISEASE_REVIEW',
+    originType: 'MAP_OBJECT',
+    objectType: 'DISEASE',
+    priority: 35,
+    changeNote: '一张图病害复核意见模板',
+    content: `# {{routeCode}} 病害复核意见
+
+## 一、病害对象
+- 对象编号：{{objectId}}
+- 病害类型：{{diseaseName}}
+- 严重程度：{{severity}}
+- 位置范围：{{stakeRange}}
+- 工程量：{{quantity}}{{measureUnit}}
+
+## 二、复核判断
+{{problemAnalysis}}
+
+## 三、现场复核重点
+{{maintenanceSuggestion}}
+
+## 四、业务证据
+{{businessEvidenceSummary}}
+
+## 五、风险提示
 {{riskNotice}}`
   })
 }
@@ -382,41 +572,35 @@ function fillEvaluationAdviceDemo() {
   })
 }
 
-function fillLowScoreTreatmentDemo() {
+function fillRegionAdviceDemo() {
   applyTemplatePreset({
-    templateName: '低分评定处置建议默认模板',
-    templateCode: 'map_object_low_score_treatment_default',
-    solutionType: 'LOW_SCORE_TREATMENT',
-    originType: 'MAP_OBJECT',
-    objectType: 'ASSESSMENT_RESULT',
-    priority: 45,
-    changeNote: '一张图低分评定结果处置模板',
-    content: `# {{routeCode}} 低分评定处置建议
+    templateName: '框选区域养护建议默认模板',
+    templateCode: 'map_region_maintenance_advice_default',
+    solutionType: 'REGION_MAINTENANCE_SUGGESTION',
+    originType: 'MAP_REGION',
+    objectType: 'MAP_REGION',
+    priority: 30,
+    changeNote: '一张图框选区域养护建议模板',
+    content: `# {{routeCode}} 框选区域养护建议
 
-## 一、低分对象
-- 桩号：{{stakeRange}}
-- 评定单元：{{unitCode}}
-- MQI：{{mqi}}
-- PQI：{{pqi}}
-- PCI：{{pci}}
-- 等级：{{grade}}
+## 一、区域统计摘要
+- 区域面积：{{areaKm2}} km2
+- 覆盖路线：{{routeCount}} 条
+- 覆盖路段：{{sectionCount}} 段
+- 评定单元：{{unitCount}} 个
+- 病害数量：{{diseaseCount}} 处，其中重度 {{heavyDiseaseCount}} 处、中度 {{mediumDiseaseCount}} 处
+- 平均 MQI：{{avgMqi}}，平均 PQI：{{avgPqi}}，平均 PCI：{{avgPci}}
 
-## 二、低分原因判断
-{{problemAnalysis}}
+## 二、热点识别
+{{hotspotSummary}}
 
-## 三、关联病害
-{{diseaseSummary}}
+## 三、区域综合判断
+{{regionSummary}}
 
-## 四、处置策略
+## 四、养护建议
 {{maintenanceSuggestion}}
 
-## 五、重点范围
-{{lowScoreSections}}
-
-## 六、业务证据
-{{businessEvidenceSummary}}
-
-## 七、风险提示
+## 五、风险提示
 {{riskNotice}}`
   })
 }
@@ -447,7 +631,7 @@ async function createTemplate() {
       category: 'SOLUTION_TEMPLATE'
     })
     ElMessage.success('模板已保存')
-    await loadTemplates()
+    await Promise.all([loadTemplates(), loadContracts()])
     await selectTemplate(data)
   } finally {
     saving.value = false
@@ -463,7 +647,7 @@ async function importTemplate() {
   try {
     const data = await importTemplateFromKnowledge(importForm)
     ElMessage.success('已登记为方案模板')
-    await loadTemplates()
+    await Promise.all([loadTemplates(), loadContracts()])
     await selectTemplate(data)
   } finally {
     importing.value = false
@@ -496,7 +680,7 @@ async function previewTemplate(item: Record<string, any>) {
 async function setAsDefault(item: Record<string, any>) {
   await setDefaultSolutionTemplate(item.id)
   ElMessage.success('已设为默认模板')
-  await loadTemplates()
+  await Promise.all([loadTemplates(), loadContracts()])
   if (selected.value?.id === item.id) {
     await selectTemplate(item)
   }
@@ -506,7 +690,7 @@ async function toggleStatus(item: Record<string, any>) {
   const next = item.status === 'ENABLED' ? 'DISABLED' : 'ENABLED'
   await updateSolutionTemplateStatus(item.id, next)
   ElMessage.success(next === 'ENABLED' ? '模板已启用' : '模板已停用')
-  await loadTemplates()
+  await Promise.all([loadTemplates(), loadContracts()])
   if (selected.value?.id === item.id) {
     await selectTemplate({ ...item, status: next })
   }
@@ -522,7 +706,7 @@ async function createTemplateVersion() {
   try {
     const data = await createSolutionTemplateVersion(selectedDetail.value.id, { ...versionForm })
     ElMessage.success('模板新版本已保存')
-    await loadTemplates()
+    await Promise.all([loadTemplates(), loadContracts()])
     await selectTemplate(data)
   } finally {
     versionSaving.value = false
@@ -646,6 +830,26 @@ function formatTemplateScope(item: Record<string, any>) {
   ].join(' / ')
 }
 
+function contractStatusLabel(status: string) {
+  if (status === 'ERROR') return '错误'
+  if (status === 'WARN') return '提醒'
+  return '正常'
+}
+
+function contractStatusType(status: string) {
+  if (status === 'ERROR') return 'danger'
+  if (status === 'WARN') return 'warning'
+  return 'success'
+}
+
+function contractProblemText(row: Record<string, any>) {
+  const checks = Array.isArray(row.checks) ? row.checks : []
+  const failed = checks.find((item: Record<string, any>) => ['ERROR', 'WARN'].includes(String(item.status || '')))
+  if (failed?.message) return String(failed.message)
+  const template = row.template || {}
+  return template.templateName ? String(template.templateName) : `${row.originType} / ${row.objectType} / ${row.solutionType}`
+}
+
 function suggestNextVersion(version: string) {
   const matched = /^v(\d+)$/i.exec(version)
   if (!matched) return ''
@@ -686,6 +890,109 @@ function suggestNextVersion(version: string) {
 
 .query-form {
   margin-bottom: 12px;
+}
+
+.contract-panel {
+  margin-bottom: 14px;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.contract-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.contract-head strong {
+  display: block;
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.contract-head span {
+  display: block;
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.contract-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.contract-summary span {
+  min-width: 0;
+  padding: 6px;
+  border-radius: 6px;
+  background: #fff;
+  text-align: center;
+}
+
+.contract-summary em {
+  display: block;
+  color: #64748b;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.contract-summary strong {
+  display: block;
+  color: #0f172a;
+  font-size: 15px;
+  line-height: 18px;
+}
+
+.contract-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.contract-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.contract-row:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.contract-row strong {
+  display: block;
+  color: #0f172a;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.contract-row p,
+.contract-row small {
+  display: block;
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .template-item,

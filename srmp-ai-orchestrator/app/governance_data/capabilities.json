@@ -420,7 +420,7 @@
         "prohibited": ["gis.queryRegionSummary"]
       },
       "templateExpectation": {
-        "solutionType": "DISEASE_TREATMENT"
+        "templateCode": "map_object_disease_treatment_default"
       },
       "examples": []
     },
