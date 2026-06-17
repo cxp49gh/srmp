@@ -8,6 +8,7 @@ import com.smartroad.srmp.agent.outline.dto.OutlineCollectionDTO;
 import com.smartroad.srmp.agent.outline.dto.OutlineDocumentDTO;
 import com.smartroad.srmp.agent.outline.dto.OutlineSyncRequest;
 import com.smartroad.srmp.agent.outline.service.OutlineSyncService;
+import com.smartroad.srmp.agent.outline.support.OutlineKnowledgeDocumentPreprocessor;
 import com.smartroad.srmp.tenant.context.TenantContextHolder;
 import org.springframework.http.*;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -172,6 +173,14 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
                         skipped++;
                         continue;
                     }
+                    OutlineKnowledgeDocumentPreprocessor.PreparedDocument prepared =
+                            OutlineKnowledgeDocumentPreprocessor.prepare(detail.getText());
+                    if (!prepared.isRagEnabled()) {
+                        int removedChunks = dryRun ? 0 : deactivateOutlineKnowledgeDocument(tenantId, detail.getId());
+                        insertDocDetail(taskId, tenantId, detail, "SKIP", "SKIPPED", "ragEnabled=false，不进入 RAG", null, null, removedChunks, null, null, "已按 SRMP 元数据跳过 RAG 入库");
+                        skipped++;
+                        continue;
+                    }
                     Map<String, Object> ingestResult;
                     if (dryRun) {
                         Map<String, Object> dryRunSkipped = new LinkedHashMap<>();
@@ -179,7 +188,7 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
                         dryRunSkipped.put("skipReason", "dryRun 模式不写入知识库");
                         ingestResult = dryRunSkipped;
                     } else {
-                        ingestResult = upsertOutlineDocumentWithResult(tenantId, detail, force);
+                        ingestResult = upsertOutlineDocumentWithResult(tenantId, detail, prepared, force);
                     }
                     if (ingestResult == null) {
                         insertDocDetail(taskId, tenantId, detail, "UPSERT", "FAILED", null, "ingest result is null", null, 0, null, null, null);
@@ -267,8 +276,10 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
         );
     }
 
-    private Map<String, Object> upsertOutlineDocumentWithResult(String tenantId, OutlineDocumentDTO doc, boolean force) {
-        if (!notBlank(doc.getId()) || !notBlank(doc.getText())) {
+    private Map<String, Object> upsertOutlineDocumentWithResult(String tenantId, OutlineDocumentDTO doc,
+                                                                OutlineKnowledgeDocumentPreprocessor.PreparedDocument prepared,
+                                                                boolean force) {
+        if (!notBlank(doc.getId()) || prepared == null || !notBlank(prepared.getSearchableText())) {
             return null;
         }
         Map<String, Object> metadata = new LinkedHashMap<>();
@@ -278,13 +289,14 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
         metadata.put("outlineCollectionId", doc.getCollectionId());
         metadata.put("outlineUpdatedAt", doc.getUpdatedAt());
         metadata.put("syncSource", "OUTLINE");
+        metadata.putAll(prepared.getMetadata());
 
         AiKnowledgeIngestMarkdownRequest ingestRequest = new AiKnowledgeIngestMarkdownRequest();
         ingestRequest.setTenantId(tenantId);
         ingestRequest.setTitle(safe(doc.getTitle(), "未命名 Outline 文档"));
         ingestRequest.setSourceType("OUTLINE");
         ingestRequest.setSourceId(doc.getId());
-        ingestRequest.setContent(doc.getText());
+        ingestRequest.setContent(prepared.getSearchableText());
         ingestRequest.setUrl(doc.getUrl());
         ingestRequest.setMetadata(metadata);
         ingestRequest.setForce(force);
@@ -292,6 +304,36 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
         ingestRequest.setFailOnEmbeddingError(false);
 
         return aiKnowledgeIngestService.ingestMarkdown(ingestRequest);
+    }
+
+    private int deactivateOutlineKnowledgeDocument(String tenantId, String outlineDocumentId) {
+        if (!notBlank(tenantId) || !notBlank(outlineDocumentId)) {
+            return 0;
+        }
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("tenantId", tenantId)
+                .addValue("sourceType", "OUTLINE")
+                .addValue("sourceId", outlineDocumentId);
+        List<String> documentIds = namedParameterJdbcTemplate.queryForList(
+                "select id from ai_knowledge_document where tenant_id=:tenantId and source_type=:sourceType and source_id=:sourceId and status='ACTIVE'",
+                params,
+                String.class
+        );
+        if (documentIds == null || documentIds.isEmpty()) {
+            return 0;
+        }
+        MapSqlParameterSource update = new MapSqlParameterSource()
+                .addValue("tenantId", tenantId)
+                .addValue("documentIds", documentIds);
+        int removedChunks = namedParameterJdbcTemplate.update(
+                "delete from ai_knowledge_chunk where tenant_id=:tenantId and document_id in (:documentIds)",
+                update
+        );
+        namedParameterJdbcTemplate.update(
+                "update ai_knowledge_document set status='INACTIVE', updated_at=now() where tenant_id=:tenantId and id in (:documentIds)",
+                update
+        );
+        return removedChunks;
     }
 
     @Override
@@ -357,7 +399,17 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
                     failed++;
                     continue;
                 }
-                Map<String, Object> ingestResult = upsertOutlineDocumentWithResult(tenantId, docDetail, force);
+                OutlineKnowledgeDocumentPreprocessor.PreparedDocument prepared =
+                        OutlineKnowledgeDocumentPreprocessor.prepare(docDetail.getText());
+                Map<String, Object> ingestResult;
+                if (!prepared.isRagEnabled()) {
+                    int removedChunks = deactivateOutlineKnowledgeDocument(tenantId, docDetail.getId());
+                    ingestResult = new LinkedHashMap<>();
+                    ingestResult.put("skipped", true);
+                    ingestResult.put("skipReason", "ragEnabled=false，不进入 RAG，已清理 chunk " + removedChunks);
+                } else {
+                    ingestResult = upsertOutlineDocumentWithResult(tenantId, docDetail, prepared, force);
+                }
                 if (ingestResult == null) {
                     failed++;
                 } else if (Boolean.TRUE.equals(ingestResult.get("skipped"))) {
@@ -379,34 +431,6 @@ public class OutlineSyncServiceImpl implements OutlineSyncService {
     private OutlineDocumentDTO fetchDocumentDetail(String id) {
         JsonNode root = post("/api/documents.info", Collections.singletonMap("id", id));
         return toDocumentDTO(root == null ? null : root.path("data"));
-    }
-
-    private boolean upsertOutlineDocument(String tenantId, OutlineDocumentDTO doc, boolean force) {
-        if (!notBlank(doc.getId()) || !notBlank(doc.getText())) {
-            return false;
-        }
-        Map<String, Object> metadata = new LinkedHashMap<>();
-        metadata.put("url", doc.getUrl());
-        metadata.put("sourceUrl", doc.getUrl());
-        metadata.put("outlineDocumentId", doc.getId());
-        metadata.put("outlineCollectionId", doc.getCollectionId());
-        metadata.put("outlineUpdatedAt", doc.getUpdatedAt());
-        metadata.put("syncSource", "OUTLINE");
-
-        AiKnowledgeIngestMarkdownRequest ingestRequest = new AiKnowledgeIngestMarkdownRequest();
-        ingestRequest.setTenantId(tenantId);
-        ingestRequest.setTitle(safe(doc.getTitle(), "未命名 Outline 文档"));
-        ingestRequest.setSourceType("OUTLINE");
-        ingestRequest.setSourceId(doc.getId());
-        ingestRequest.setContent(doc.getText());
-        ingestRequest.setUrl(doc.getUrl());
-        ingestRequest.setMetadata(metadata);
-        ingestRequest.setForce(force);
-        ingestRequest.setVectorize(true);
-        ingestRequest.setFailOnEmbeddingError(false);
-
-        Map<String, Object> result = aiKnowledgeIngestService.ingestMarkdown(ingestRequest);
-        return result == null || !Boolean.TRUE.equals(result.get("skipped"));
     }
 
     private boolean shouldSkipOutlineSystemDoc(OutlineDocumentDTO doc) {

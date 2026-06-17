@@ -133,7 +133,7 @@ public class AiKnowledgeRetrieverServiceImpl implements AiKnowledgeRetrieverServ
         String sql = "select c.id chunk_id, c.document_id, c.title, c.section_title, c.source_type, c.source_id, c.content, c.metadata, " +
                 "(c.embedding <=> cast(:embedding as vector)) as distance " +
                 "from ai_knowledge_chunk c join ai_knowledge_document d on d.id=c.document_id and d.tenant_id=c.tenant_id " +
-                "where c.tenant_id=:tenantId and d.status='ACTIVE' and c.embedding is not null " + sourceTypeFilter(request) +
+                "where c.tenant_id=:tenantId and d.status='ACTIVE' and c.embedding is not null " + sourceTypeFilter(request) + metadataFilterSql(request) +
                 " order by c.embedding <=> cast(:embedding as vector) limit :limit";
         return namedParameterJdbcTemplate.query(sql, p, (rs, rowNum) -> mapVectorHit(rs));
     }
@@ -142,7 +142,7 @@ public class AiKnowledgeRetrieverServiceImpl implements AiKnowledgeRetrieverServ
         MapSqlParameterSource p = baseParams(request, topK);
         p.addValue("kw", "%" + query.toLowerCase() + "%");
         String sql = baseSelect() +
-                " where c.tenant_id=:tenantId and d.status='ACTIVE' " + sourceTypeFilter(request) +
+                " where c.tenant_id=:tenantId and d.status='ACTIVE' " + sourceTypeFilter(request) + metadataFilterSql(request) +
                 " and (lower(c.content) like :kw or lower(coalesce(c.title,'')) like :kw or lower(coalesce(c.section_title,'')) like :kw) " +
                 " order by c.updated_at desc limit :limit";
         return namedParameterJdbcTemplate.query(sql, p, (rs, rowNum) -> mapKeywordHit(rs));
@@ -166,6 +166,7 @@ public class AiKnowledgeRetrieverServiceImpl implements AiKnowledgeRetrieverServ
         if (!sourceTypes.isEmpty()) {
             p.addValue("sourceTypes", sourceTypes);
         }
+        addMetadataParams(p, request == null ? null : request.getFilters());
         return p;
     }
 
@@ -270,6 +271,85 @@ public class AiKnowledgeRetrieverServiceImpl implements AiKnowledgeRetrieverServ
             return "no embedded chunks";
         }
         return "";
+    }
+
+    static String metadataFilterSqlForTest(Map<String, Object> filters) {
+        return metadataFilterSql(filters);
+    }
+
+    private static String metadataFilterSql(AiKnowledgeSearchRequest request) {
+        return metadataFilterSql(request == null ? null : request.getFilters());
+    }
+
+    private static String metadataFilterSql(Map<String, Object> filters) {
+        StringBuilder sql = new StringBuilder();
+        appendMetadataArrayFilter(sql, filters, "capabilityIds", "capabilityIds", "capabilityId");
+        appendMetadataArrayFilter(sql, filters, "objectTypes", "objectTypes", "objectType");
+        appendMetadataArrayFilter(sql, filters, "solutionTypes", "solutionTypes", "solutionType");
+        appendMetadataArrayFilter(sql, filters, "domains", "domains", "domain");
+        return sql.toString();
+    }
+
+    private static void appendMetadataArrayFilter(StringBuilder sql, Map<String, Object> filters, String paramName, String arrayKey, String scalarKey) {
+        List<String> values = filterValues(filters, arrayKey, scalarKey);
+        if (values.isEmpty()) {
+            return;
+        }
+        sql.append(" and (");
+        sql.append("(jsonb_typeof(c.metadata -> '").append(arrayKey).append("')='array' and exists (");
+        sql.append("select 1 from jsonb_array_elements_text(c.metadata -> '").append(arrayKey).append("') as item(value) ");
+        sql.append("where item.value in (:").append(paramName).append(")))");
+        sql.append(" or c.metadata ->> '").append(scalarKey).append("' in (:").append(paramName).append(")");
+        sql.append(") ");
+    }
+
+    private static void addMetadataParams(MapSqlParameterSource p, Map<String, Object> filters) {
+        addMetadataParam(p, filters, "capabilityIds", "capabilityIds", "capabilityId");
+        addMetadataParam(p, filters, "objectTypes", "objectTypes", "objectType");
+        addMetadataParam(p, filters, "solutionTypes", "solutionTypes", "solutionType");
+        addMetadataParam(p, filters, "domains", "domains", "domain");
+    }
+
+    private static void addMetadataParam(MapSqlParameterSource p, Map<String, Object> filters, String paramName, String... keys) {
+        List<String> values = filterValues(filters, keys);
+        if (!values.isEmpty()) {
+            p.addValue(paramName, values);
+        }
+    }
+
+    private static List<String> filterValues(Map<String, Object> filters, String... keys) {
+        if (filters == null || filters.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Set<String> values = new LinkedHashSet<>();
+        for (String key : keys) {
+            Object value = filters.get(key);
+            addFilterValue(values, value);
+        }
+        return new ArrayList<>(values);
+    }
+
+    private static void addFilterValue(Set<String> values, Object value) {
+        if (value == null) {
+            return;
+        }
+        if (value instanceof Collection) {
+            for (Object item : (Collection<?>) value) {
+                addFilterValue(values, item);
+            }
+            return;
+        }
+        if (value.getClass().isArray()) {
+            int length = java.lang.reflect.Array.getLength(value);
+            for (int i = 0; i < length; i++) {
+                addFilterValue(values, java.lang.reflect.Array.get(value, i));
+            }
+            return;
+        }
+        String text = String.valueOf(value).trim();
+        if (text.length() > 0) {
+            values.add(text);
+        }
     }
 
     private long queryLong(String sql, MapSqlParameterSource p) {

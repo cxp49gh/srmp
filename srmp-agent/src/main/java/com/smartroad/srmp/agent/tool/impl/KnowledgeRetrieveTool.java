@@ -10,6 +10,7 @@ import com.smartroad.srmp.agent.tool.AiToolResult;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.Resource;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Component
@@ -49,6 +50,7 @@ public class KnowledgeRetrieveTool implements AiTool {
             }
 
             AiKnowledgeSearchResponse response = aiKnowledgeRetrieverService.search(request);
+            response.setRequest(requestSummary(request));
             int count = response.getHits() == null ? 0 : response.getHits().size();
 
             String summary = "知识库命中 " + count + " 条";
@@ -102,5 +104,20 @@ public class KnowledgeRetrieveTool implements AiTool {
 
     private Integer toInt(Object value, int defaultValue) {
         try { return value == null ? defaultValue : Integer.valueOf(String.valueOf(value)); } catch (Exception e) { return defaultValue; }
+    }
+
+    private Map<String, Object> requestSummary(AiKnowledgeSearchRequest request) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("tenantId", request.getTenantId());
+        summary.put("query", request.getOriginalQuery());
+        summary.put("rewrittenQuery", request.getRewrittenQuery());
+        summary.put("topK", request.getTopK());
+        if (request.getFilters() != null && !request.getFilters().isEmpty()) {
+            summary.put("filters", request.getFilters());
+        }
+        if (request.getSourceTypes() != null && !request.getSourceTypes().isEmpty()) {
+            summary.put("sourceTypes", request.getSourceTypes());
+        }
+        return summary;
     }
 }

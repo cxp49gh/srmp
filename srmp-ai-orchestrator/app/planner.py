@@ -43,9 +43,9 @@ def plan_tools(
     if intent == "SOLUTION_GENERATE":
         add(calls, "solution.generateDraft", context_args(ctx, {"intent": intent}), "生成方案草稿能力预检查")
     if should_use_knowledge(request.options, intent):
-        add(calls, "knowledge.retrieve", {"query": build_query(request, intent), "topK": option_int(request, "topK", 5)}, "知识库检索处置规则")
+        add(calls, "knowledge.retrieve", knowledge_args(request, intent, capability), "知识库检索处置规则")
     if not calls:
-        add(calls, "knowledge.retrieve", {"query": build_query(request, intent), "topK": option_int(request, "topK", 5)}, "默认知识库问答")
+        add(calls, "knowledge.retrieve", knowledge_args(request, intent, capability), "默认知识库问答")
     return dedupe_and_limit(calls)
 
 
@@ -98,7 +98,7 @@ def add_capability_tool(calls: List[ToolCall], request: MapAiAgentRequest, inten
         add(calls, tool_name, stake_args(ctx, obj, {"limit": 50}), reason)
         return
     if tool_name == "knowledge.retrieve":
-        add(calls, tool_name, {"query": build_query(request, intent), "topK": option_int(request, "topK", 5)}, reason)
+        add(calls, tool_name, knowledge_args(request, intent, capability), reason)
         return
     if tool_name == "template.match":
         add(calls, tool_name, {"intent": intent, "routeCode": ctx.routeCode if ctx else None, "year": ctx.year if ctx else None}, reason)
@@ -137,6 +137,67 @@ def should_use_knowledge(options: Dict[str, Any], intent: str) -> bool:
     if options and "useKnowledge" in options:
         return str(options.get("useKnowledge")).lower() not in {"false", "0", "no", "off"}
     return intent in {"KNOWLEDGE_QA", "SOLUTION_GENERATE", "OBJECT_ANALYSIS", "REGION_ANALYSIS", "ROUTE_ANALYSIS", "TEMPLATE_VERIFY", "GENERAL_CHAT", "NEARBY_ANALYSIS"}
+
+
+def knowledge_args(request: MapAiAgentRequest, intent: str, capability: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    args: Dict[str, Any] = {"query": build_query(request, intent), "topK": option_int(request, "topK", 5)}
+    filters = knowledge_filters(request, capability)
+    if filters:
+        args["filters"] = filters
+    return args
+
+
+def knowledge_filters(request: MapAiAgentRequest, capability: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(capability, dict):
+        return {}
+    capability_id = str(capability.get("capabilityId") or "").strip()
+    if not capability_id or capability_id.startswith("legacy."):
+        return {}
+
+    filters: Dict[str, Any] = {"capabilityIds": [capability_id]}
+    category = str(capability.get("category") or "").upper()
+    if category == "SOLUTION":
+        solution_types = _unique_strings([
+            capability.get("solutionType"),
+            (request.actionInput or {}).get("solutionType"),
+            (request.options or {}).get("solutionType"),
+        ])
+        if solution_types:
+            filters["solutionTypes"] = solution_types
+        object_type = _current_object_type(request)
+        if object_type:
+            filters["objectTypes"] = [object_type]
+    elif category == "MAP_ANALYSIS":
+        object_type = _current_object_type(request)
+        if object_type:
+            filters["objectTypes"] = [object_type]
+    return filters
+
+
+def _current_object_type(request: MapAiAgentRequest) -> Optional[str]:
+    ctx = request.mapContext
+    obj = ctx.mapObject if ctx and ctx.mapObject else request.mapObject or {}
+    object_type = normalize_object_type(first(obj, "objectType", "object_type", "type", "layerType"))
+    if object_type:
+        return object_type
+    mode = str(ctx.mode or "").upper() if ctx and ctx.mode else ""
+    if mode == "ROUTE":
+        return "ROAD_ROUTE"
+    return None
+
+
+def _unique_strings(values: List[Any]) -> List[str]:
+    result: List[str] = []
+    for value in values:
+        if isinstance(value, list):
+            for item in _unique_strings(value):
+                if item not in result:
+                    result.append(item)
+            continue
+        text = str(value or "").strip()
+        if text and text not in result:
+            result.append(text)
+    return result
 
 
 def add(calls: List[ToolCall], tool_name: str, args: Dict[str, Any], reason: str) -> None:

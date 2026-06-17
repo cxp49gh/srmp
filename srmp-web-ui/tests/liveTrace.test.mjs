@@ -373,6 +373,42 @@ test('AiTrace snapshot reads knowledge fallback from persisted rawResult data', 
   assert.equal(snapshot.repairActions[0].key, 'VECTORIZE_OUTLINE')
 })
 
+test('AiTrace snapshot keeps knowledge retrieval request filters for troubleshooting', () => {
+  const snapshot = toAiExecutionSnapshot({
+    record: {
+      traceId: 'trace-knowledge-filters',
+      status: 'SUCCESS',
+      toolResults: [
+        {
+          toolName: 'knowledge.retrieve',
+          success: true,
+          count: 5,
+          data: {
+            request: {
+              query: '解释 PCI 指标',
+              rewrittenQuery: '解释 PCI 指标 道路养护',
+              topK: 5,
+              filters: {
+                capabilityIds: ['knowledge.metric_explain'],
+                solutionTypes: ['ROUTE_REPORT'],
+                objectTypes: ['ROAD_ROUTE']
+              }
+            }
+          }
+        }
+      ]
+    },
+    answerMeta: { llmStatus: 'SUCCESS', llmSuccess: true }
+  })
+
+  assert.equal(snapshot.tools[0].name, 'knowledge.retrieve')
+  assert.equal(snapshot.tools[0].retrieval.query, '解释 PCI 指标')
+  assert.equal(snapshot.tools[0].retrieval.rewrittenQuery, '解释 PCI 指标 道路养护')
+  assert.deepEqual(snapshot.tools[0].retrieval.filters.capabilityIds, ['knowledge.metric_explain'])
+  assert.deepEqual(snapshot.tools[0].retrieval.filters.solutionTypes, ['ROUTE_REPORT'])
+  assert.deepEqual(snapshot.tools[0].retrieval.filters.objectTypes, ['ROAD_ROUTE'])
+})
+
 test('AiTrace snapshot normalizes plan execution for planned vs actual troubleshooting', () => {
   const snapshot = toAiExecutionSnapshot({
     trace: {

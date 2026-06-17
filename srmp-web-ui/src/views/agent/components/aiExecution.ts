@@ -18,6 +18,14 @@ export interface AiExecutionTool {
   error?: string
   fallbackReason?: string
   diagnostic?: string
+  retrieval?: {
+    query?: string
+    originalQuery?: string
+    rewrittenQuery?: string
+    topK?: number
+    filters: Record<string, any>
+    sourceTypes: string[]
+  }
 }
 
 export interface AiExecutionRepairAction {
@@ -504,6 +512,7 @@ function normalizeTools(tools: any[]): AiExecutionTool[] {
     const success = item.success !== false && status !== 'FAILED' && status !== 'ERROR'
     const fallbackReason = stringValue(item.fallbackReason || item.fallback_reason || item.reason || data.fallbackReason || data.fallback_reason || data.reason)
     const diagnostic = knowledgeFallbackDisplayText(fallbackReason)
+    const retrieval = normalizeRetrievalRequest(firstRecord(item.request, item.args, data.request, data.request_summary, rawResult.request, rawResult.args))
     return {
       name,
       success,
@@ -511,9 +520,29 @@ function normalizeTools(tools: any[]): AiExecutionTool[] {
       costMs: numberValue(item.costMs ?? item.cost_ms ?? item.elapsedMs ?? data.costMs ?? data.cost_ms ?? rawResult.costMs ?? rawResult.cost_ms),
       error: stringValue(item.error || item.errorMessage || item.message),
       fallbackReason,
-      diagnostic
+      diagnostic,
+      retrieval
     }
   })
+}
+
+function normalizeRetrievalRequest(value: Record<string, any>): AiExecutionTool['retrieval'] | undefined {
+  if (!Object.keys(value).length) return undefined
+  const filters = firstRecord(value.filters, value.filter)
+  const sourceTypes = stringList(value.sourceTypes || value.source_types)
+  const topK = numberValue(value.topK ?? value.top_k)
+  const retrieval = {
+    query: stringValue(value.query),
+    originalQuery: stringValue(value.originalQuery, value.original_query),
+    rewrittenQuery: stringValue(value.rewrittenQuery, value.rewritten_query),
+    topK,
+    filters,
+    sourceTypes
+  }
+  if (!retrieval.query && !retrieval.originalQuery && !retrieval.rewrittenQuery && topK === undefined && !Object.keys(filters).length && !sourceTypes.length) {
+    return undefined
+  }
+  return retrieval
 }
 
 function buildWarnings(

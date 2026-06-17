@@ -236,6 +236,10 @@
             <span v-if="tool.costMs !== undefined" class="muted">{{ tool.costMs }}ms</span>
             <span v-if="tool.diagnostic" class="diagnostic">{{ tool.diagnostic }}</span>
             <span v-if="tool.error" class="error">{{ tool.error }}</span>
+            <div v-if="tool.retrieval" class="tool-retrieval">
+              <span v-if="retrievalFilterText(tool)">过滤：{{ retrievalFilterText(tool) }}</span>
+              <span v-if="retrievalQueryText(tool)">检索词：{{ retrievalQueryText(tool) }}</span>
+            </div>
           </div>
           <div v-if="snapshot.evidence.sources.length" class="source-summary">
             来源 {{ snapshot.evidence.sources.length }} 条；知识库 {{ snapshot.evidence.knowledgeCount || 0 }}；业务 {{ snapshot.evidence.businessCount || 0 }}；Outline {{ snapshot.evidence.outlineCount || 0 }}
@@ -421,6 +425,28 @@ function sourceKey(source: Record<string, any>) {
   return [sourceType(source), sourceTitle(source), sourceMeta(source), sourceExcerpt(source)].filter(Boolean).join('|')
 }
 
+function retrievalFilterText(tool: Record<string, any>) {
+  const filters = tool.retrieval?.filters || {}
+  const parts = [
+    listLabel('能力', filters.capabilityIds || filters.capability_ids),
+    listLabel('方案', filters.solutionTypes || filters.solution_types),
+    listLabel('对象', filters.objectTypes || filters.object_types),
+    listLabel('领域', filters.domains),
+    listLabel('来源', tool.retrieval?.sourceTypes || tool.retrieval?.source_types)
+  ].filter(Boolean)
+  return parts.join('；')
+}
+
+function retrievalQueryText(tool: Record<string, any>) {
+  return stringValue(tool.retrieval?.rewrittenQuery, tool.retrieval?.rewritten_query, tool.retrieval?.query, tool.retrieval?.originalQuery, tool.retrieval?.original_query)
+}
+
+function listLabel(label: string, value: any) {
+  const list = Array.isArray(value) ? value : (value ? [value] : [])
+  const text = list.map((item) => String(item || '').trim()).filter(Boolean).join(', ')
+  return text ? `${label} ${text}` : ''
+}
+
 function stringValue(...values: any[]) {
   for (const value of values) {
     if (value !== undefined && value !== null && String(value).trim().length) return String(value)
@@ -603,6 +629,16 @@ function stringValue(...values: any[]) {
   gap: 8px;
   padding: 6px 0;
   border-bottom: 1px solid #eef2f7;
+}
+
+.tool-retrieval {
+  flex-basis: 100%;
+  display: grid;
+  gap: 4px;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-word;
 }
 
 .source-summary {

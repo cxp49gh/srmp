@@ -4,12 +4,14 @@ import lombok.Data;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Data
 public class AiKnowledgeSearchResponse {
     private String query;
     private String originalQuery;
     private String rewrittenQuery;
+    private Map<String, Object> request;
 
     private List<AiKnowledgeSearchHit> hits = new ArrayList<>();
 

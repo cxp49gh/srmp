@@ -30,6 +30,9 @@ class GovernancePlanningTest(unittest.TestCase):
 
         self.assertEqual("knowledge.metric_explain", capability["capabilityId"])
         self.assertEqual(["knowledge.retrieve"], [item.toolName for item in calls])
+        retrieve = self._call(calls, "knowledge.retrieve")
+        self.assertEqual(["knowledge.metric_explain"], retrieve.args["filters"]["capabilityIds"])
+        self.assertNotIn("objectTypes", retrieve.args["filters"])
 
     def test_metric_question_with_route_object_still_uses_knowledge_tools_only(self):
         request = MapAiAgentRequest(
@@ -89,6 +92,9 @@ class GovernancePlanningTest(unittest.TestCase):
         self.assertIn("gis.queryDiseases", names)
         self.assertIn("knowledge.retrieve", names)
         self.assertIn("solution.generateDraft", names)
+        retrieve = next(item for item in result["toolPlan"] if item["toolName"] == "knowledge.retrieve")
+        self.assertEqual(["solution.route_report"], retrieve["args"]["filters"]["capabilityIds"])
+        self.assertEqual(["ROUTE_REPORT"], retrieve["args"]["filters"]["solutionTypes"])
 
     def test_metric_question_with_explicit_route_context_uses_route_policy(self):
         request = MapAiAgentRequest(
