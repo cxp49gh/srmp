@@ -17,6 +17,10 @@ def plan_tools(
     action = str(request.action or (request.options or {}).get("action") or "").upper()
     calls: List[ToolCall] = []
 
+    followup = followup_source(ctx)
+    if followup:
+        return plan_followup_tools(request, followup)
+
     if should_use_capability_policy(capability, intent):
         plan_capability_tools(calls, request, intent, capability or {})
         if calls:
@@ -47,6 +51,141 @@ def plan_tools(
     if not calls:
         add(calls, "knowledge.retrieve", knowledge_args(request, intent, capability), "默认知识库问答")
     return dedupe_and_limit(calls)
+
+
+def followup_source(ctx: Optional[MapAiContext]) -> Dict[str, Any]:
+    if not ctx:
+        return {}
+    direct = getattr(ctx, "followupSource", None)
+    if isinstance(direct, dict):
+        return direct
+    extra = ctx.extra if isinstance(ctx.extra, dict) else {}
+    nested = first_value(extra, "followupSource", "followup_source")
+    if isinstance(nested, dict):
+        return nested
+    raw_context = first_dict(extra, "rawContext", "raw_context")
+    nested = first_value(raw_context, "followupSource", "followup_source")
+    return nested if isinstance(nested, dict) else {}
+
+
+def plan_followup_tools(
+    request: MapAiAgentRequest,
+    source: Dict[str, Any],
+) -> List[ToolCall]:
+    calls: List[ToolCall] = []
+    binding_type = str(source.get("bindingType") or source.get("binding_type") or "NONE").strip().upper()
+    binding_status = str(source.get("bindingStatus") or source.get("binding_status") or "UNVERIFIED").strip().upper()
+    target = source.get("mapTarget") or source.get("map_target")
+    target = target if isinstance(target, dict) else {}
+
+    if binding_status not in {"VALID", "UNVERIFIED"} or binding_type not in {"OBJECT", "RANGE"}:
+        _add_followup_knowledge(calls, request)
+        return dedupe_and_limit(calls)
+
+    if binding_type == "OBJECT":
+        object_type = normalize_object_type(
+            str(first_value(target, "objectType", "object_type") or "")
+        )
+        object_id = first_value(target, "objectId", "object_id")
+        if not object_type or object_id in (None, ""):
+            _add_followup_knowledge(calls, request)
+            return dedupe_and_limit(calls)
+        args = followup_target_args(request, target, {"limit": 20})
+        if object_type == "DISEASE":
+            add(calls, "gis.queryNearbyObjects", args, "查询来源病害周边对象")
+        elif object_type in {"ASSESSMENT_RESULT", "EVALUATION_UNIT"}:
+            add(calls, "gis.queryAssessmentResults", args, "查询来源评定结果")
+            if _has_complete_stake_range(target):
+                add(
+                    calls,
+                    "gis.queryDiseasesByStakeRange",
+                    {**args, "limit": 50},
+                    "查询来源评定范围内病害",
+                )
+        elif object_type == "ROAD_SECTION":
+            add(calls, "gis.queryAssessmentResults", args, "查询来源路段评定结果")
+            add(calls, "gis.queryDiseases", {**args, "limit": 50}, "查询来源路段病害")
+            if _has_complete_stake_range(target):
+                add(
+                    calls,
+                    "gis.queryDiseasesByStakeRange",
+                    {**args, "limit": 50},
+                    "查询来源路段桩号范围内病害",
+                )
+        elif object_type == "ROAD_ROUTE":
+            add(calls, "gis.queryRegionSummary", {**args, "limit": 50}, "查询来源路线统计")
+            add(calls, "gis.queryAssessmentResults", {**args, "limit": 50}, "查询来源路线评定结果")
+            add(calls, "gis.queryDiseases", {**args, "limit": 50}, "查询来源路线病害")
+        elif object_type == "MAP_REGION":
+            add(calls, "gis.queryRegionSummary", {**args, "limit": 50}, "查询来源区域统计")
+    else:
+        args = followup_target_args(request, target, {"limit": 50})
+        geometry = first_value(target, "geometry")
+        bbox = first_value(target, "bbox")
+        route_code = first_value(target, "routeCode", "route_code")
+        start_stake = first_value(target, "startStake", "start_stake")
+        end_stake = first_value(target, "endStake", "end_stake")
+        if geometry not in (None, "", [], {}) or bbox not in (None, "", [], {}):
+            add(calls, "gis.queryRegionSummary", args, "查询来源空间范围统计")
+        elif route_code not in (None, "") and start_stake is not None and end_stake is not None:
+            add(calls, "gis.queryAssessmentResults", args, "查询来源桩号范围评定结果")
+            add(calls, "gis.queryDiseasesByStakeRange", args, "查询来源桩号范围病害")
+
+    _add_followup_knowledge(calls, request)
+    return dedupe_and_limit(calls)
+
+
+def followup_target_args(
+    request: MapAiAgentRequest,
+    target: Dict[str, Any],
+    extra: Dict[str, Any],
+) -> Dict[str, Any]:
+    ctx = request.mapContext
+    extra_context = ctx.extra if ctx and isinstance(ctx.extra, dict) else {}
+    raw_context = first_dict(extra_context, "rawContext", "raw_context")
+    query = first_dict(raw_context, "query")
+    start_stake = first_value(target, "startStake", "start_stake", "stakeStart", "stake_start")
+    end_stake = first_value(target, "endStake", "end_stake", "stakeEnd", "stake_end")
+    args = {
+        "tenantId": ctx.tenantId if ctx else None,
+        "projectId": first_value(extra_context, "projectId", "project_id")
+        or first_value(query, "projectId", "project_id")
+        or first_value(raw_context, "projectId", "project_id"),
+        "year": ctx.year if ctx else None,
+        "sectionTier": first_value(query, "sectionTier", "section_tier")
+        or first_value(extra_context, "sectionTier", "section_tier"),
+        "contextScope": "SOURCE_BINDING",
+        "objectType": first_value(target, "objectType", "object_type"),
+        "objectId": first_value(target, "objectId", "object_id"),
+        "routeCode": first_value(target, "routeCode", "route_code"),
+        "stakeStart": start_stake,
+        "stakeEnd": end_stake,
+        "startStake": start_stake,
+        "endStake": end_stake,
+        "geometry": first_value(target, "geometry"),
+        "bbox": first_value(target, "bbox"),
+    }
+    args.update(extra)
+    return compact(args)
+
+
+def _has_complete_stake_range(target: Dict[str, Any]) -> bool:
+    route_code = first_value(target, "routeCode", "route_code")
+    start_stake = first_value(target, "startStake", "start_stake", "stakeStart", "stake_start")
+    end_stake = first_value(target, "endStake", "end_stake", "stakeEnd", "stake_end")
+    return route_code not in (None, "") and start_stake is not None and end_stake is not None
+
+
+def _add_followup_knowledge(
+    calls: List[ToolCall],
+    request: MapAiAgentRequest,
+) -> None:
+    add(
+        calls,
+        "knowledge.retrieve",
+        knowledge_args(request, "KNOWLEDGE_QA"),
+        "围绕来源内容继续解释",
+    )
 
 
 def should_use_capability_policy(capability: Optional[Dict[str, Any]], intent: str) -> bool:
@@ -268,6 +407,17 @@ def stake_args(ctx: Optional[MapAiContext], obj: Dict[str, Any], extra: Dict[str
 
 def build_query(request: MapAiAgentRequest, intent: str) -> str:
     ctx = request.mapContext
+    source = followup_source(ctx)
+    if source:
+        parts = [
+            request.message or "",
+            intent,
+            str(source.get("sourceTitle") or source.get("source_title") or ""),
+            str(source.get("contentExcerpt") or source.get("content_excerpt") or ""),
+            "道路养护",
+            "来源解释",
+        ]
+        return " ".join([part for part in parts if part])
     parts = [request.message or "", intent]
     if ctx:
         parts.extend([str(ctx.routeCode or ""), str(ctx.year or ""), str(ctx.mode or "")])
