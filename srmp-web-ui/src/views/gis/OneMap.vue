@@ -139,6 +139,7 @@ import LegendPanel from './components/LegendPanel.vue'
 import SolutionPreviewDialog from './components/SolutionPreviewDialog.vue'
 import AiTraceDrawer from '../agent/components/AiTraceDrawer.vue'
 import { buildRegionUnifiedContext, buildUnifiedAnalysisTargets, hasLocatableTarget, sourceToMapTarget, type GisSourceMapTarget } from '../../utils/gisUnifiedContext'
+import { sourceLayerKey, sourceTargetQuery, type SourceLayerKey } from '../../utils/gisSourceLayer'
 import { createLatestRequestGuard } from '../../utils/latestRequestGuard'
 import { createWebTraceId, normalizeLiveTraceSnapshot, shouldPauseLiveTracePolling, type LiveTraceSnapshot } from '../../utils/liveTrace'
 
@@ -177,7 +178,7 @@ applyProjectIdFromRoute()
 
 const layers = reactive<LayerState>({
   roadRoute: true,
-  roadSection: false,
+  roadSection: true,
   disease: true,
   assessment: true
 })
@@ -1497,13 +1498,51 @@ function sourceExcerptText(source: Record<string, any>) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 260)
 }
 
-function handleLocateAiSource(source: Record<string, any> | GisSourceMapTarget) {
+async function handleLocateAiSource(source: Record<string, any> | GisSourceMapTarget) {
   const target = normalizeIncomingMapTarget(source)
   if (locateMapTarget(target)) {
     ElMessage.success('已定位到来源关联的地图对象/区域')
-  } else {
-    ElMessage.warning('该来源暂未携带可定位的对象编号、路线桩号、bbox 或 geometry；需要后端 sources 补齐地图关联字段')
+    return
   }
+
+  const layerKey = sourceLayerKey(target)
+  if (!layerKey) {
+    ElMessage.warning('该来源暂未携带可加载的对象类型、对象编号、路线桩号、bbox 或 geometry')
+    return
+  }
+  if (!hasProjectSelected()) {
+    ElMessage.warning('请先选择项目，再定位来源关联的地图对象')
+    return
+  }
+
+  try {
+    await ensureSourceTargetLayer(target)
+    if (locateMapTarget(target)) {
+      ElMessage.success(`已加载${layerKeyText(layerKey)}图层并定位到来源对象`)
+      return
+    }
+    ElMessage.warning(`已加载${layerKeyText(layerKey)}图层，但当前项目中未找到该来源对象`)
+  } catch (error: any) {
+    ElMessage.error(errorMessage(error))
+  }
+}
+
+async function ensureSourceTargetLayer(target: GisSourceMapTarget) {
+  const layerKey = sourceLayerKey(target)
+  if (!layerKey) return false
+  layers[layerKey] = true
+  const params = sourceTargetQuery(layerQuery(), target) as GisLayerQuery
+  if (layerKey === 'disease') params.zoom = ZOOM_DISEASE_DETAIL_MIN
+  const signature = stableLayerSignature({ layerKey, sourceTarget: params })
+  await loadLayerSafely(layerKey, () => sourceLayerLoader(layerKey, params), signature)
+  return true
+}
+
+function sourceLayerLoader(layerKey: SourceLayerKey, params: GisLayerQuery) {
+  if (layerKey === 'roadRoute') return getRoadRoutes(params)
+  if (layerKey === 'roadSection') return getRoadSections(params)
+  if (layerKey === 'disease') return getDiseases(params)
+  return getAssessmentResults(params)
 }
 
 function normalizeIncomingMapTarget(source: Record<string, any> | GisSourceMapTarget): GisSourceMapTarget {

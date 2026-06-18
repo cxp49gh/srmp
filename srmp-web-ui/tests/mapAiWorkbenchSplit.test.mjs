@@ -308,6 +308,17 @@ test('assistant evidence actions distinguish map targets from plain references',
   assert.match(oneMapContent, /暂无地图定位信息/)
 })
 
+test('one map enables road sections by default and loads missing source layers before locating', () => {
+  const oneMapContent = read('src/views/gis/OneMap.vue')
+
+  assert.match(oneMapContent, /const layers = reactive<LayerState>\(\{[\s\S]*roadRoute: true,[\s\S]*roadSection: true,/)
+  assert.match(oneMapContent, /async function handleLocateAiSource/)
+  assert.match(oneMapContent, /await ensureSourceTargetLayer\(target\)/)
+  assert.match(oneMapContent, /function sourceLayerLoader\(layerKey: SourceLayerKey, params: GisLayerQuery\)/)
+  assert.match(oneMapContent, /await loadLayerSafely\(layerKey, \(\) => sourceLayerLoader\(layerKey, params\), signature\)/)
+  assert.match(oneMapContent, /if \(locateMapTarget\(target\)\)[\s\S]*await ensureSourceTargetLayer\(target\)[\s\S]*locateMapTarget\(target\)/)
+})
+
 test('assistant collapsed detail summary avoids technical runtime labels', () => {
   const content = read('src/views/gis/components/map-ai/MapAiConversation.vue')
 
