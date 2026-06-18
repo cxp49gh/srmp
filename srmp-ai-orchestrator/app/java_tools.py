@@ -5,6 +5,7 @@ import httpx
 
 from .config import settings
 from .schemas import MapAiAgentRequest, ToolCall, ToolResult
+from .source_binding import normalize_source
 
 WRITE_HINTS = ("save", "delete", "update", "create", "archive")
 OK_CODES = {"0", "200", "SUCCESS", "success", "OK", "ok"}
@@ -249,7 +250,14 @@ def extract_knowledge_sources(tool_results: List[ToolResult]) -> List[Dict[str, 
         data = result.data
         candidates = _extract_source_candidates(data)
         if candidates:
-            return [_normalize_source(hit, idx) for idx, hit in enumerate(candidates) if isinstance(hit, dict)]
+            return [
+                normalize_source(
+                    _knowledge_source(hit, idx),
+                    origin="EXPLICIT_METADATA",
+                )
+                for idx, hit in enumerate(candidates)
+                if isinstance(hit, dict)
+            ]
     return []
 
 
@@ -260,12 +268,42 @@ def extract_business_sources(tool_results: List[ToolResult], limit_per_tool: int
             continue
         default_object_type = BUSINESS_SOURCE_TOOL_TYPES.get(result.toolName, "")
         candidates = _extract_source_candidates(result.data)
-        if not candidates and isinstance(result.data, dict) and result.toolName == "gis.queryRegionSummary":
-            candidates = [result.data]
+        query_scope = _extract_query_scope(result.data)
         for idx, item in enumerate(candidates[: max(1, limit_per_tool)]):
             if not isinstance(item, dict):
                 continue
-            sources.append(_normalize_business_source(item, result, default_object_type, idx))
+            sources.append(
+                normalize_source(
+                    _business_source_candidate(
+                        item,
+                        query_scope,
+                        result,
+                        default_object_type,
+                        idx,
+                    ),
+                    origin="BUSINESS_QUERY",
+                )
+            )
+        if candidates:
+            continue
+        if result.toolName == "gis.queryRegionSummary":
+            sources.append(
+                normalize_source(
+                    _region_summary_candidate(result),
+                    origin="BUSINESS_QUERY",
+                )
+            )
+        if query_scope:
+            sources.append(
+                normalize_source(
+                    _business_scope_candidate(
+                        query_scope,
+                        result,
+                        default_object_type,
+                    ),
+                    origin="BUSINESS_QUERY",
+                )
+            )
     return _dedupe_sources(sources)
 
 
@@ -300,7 +338,7 @@ def _extract_source_candidates(data: Any) -> List[Dict[str, Any]]:
     return []
 
 
-def _normalize_source(hit: Dict[str, Any], idx: int) -> Dict[str, Any]:
+def _knowledge_source(hit: Dict[str, Any], idx: int) -> Dict[str, Any]:
     title = _first(hit, "title", "documentTitle", "docTitle", "name", "sourceName") or f"知识片段 {idx + 1}"
     chunk_id = _first(hit, "chunkId", "chunk_id", "id", "knowledgeId")
     document_id = _first(hit, "documentId", "document_id", "docId")
@@ -324,15 +362,55 @@ def _normalize_source(hit: Dict[str, Any], idx: int) -> Dict[str, Any]:
         "contentExcerpt": content_excerpt,
         "metadata": metadata,
     }
-    return _with_source_context(source, hit, "KNOWLEDGE", idx)
+    return _compact(source)
 
 
-def _normalize_business_source(item: Dict[str, Any], result: ToolResult, default_object_type: str, idx: int) -> Dict[str, Any]:
+def _business_source_candidate(
+    item: Dict[str, Any],
+    query_scope: Dict[str, Any],
+    result: ToolResult,
+    default_object_type: str,
+    idx: int,
+) -> Dict[str, Any]:
     object_type = _infer_business_object_type(item, default_object_type)
+    if not object_type:
+        object_type = _normalize_object_type(
+            _first(query_scope, "objectType", "object_type", "type", "layerType")
+        )
     object_id = _first(item, "objectId", "object_id", "id", "sourceId", "source_id")
-    route_code = _first(item, "routeCode", "route_code", "route", "routeNo", "route_no")
-    start_stake = _first(item, "startStake", "start_stake", "stakeStart", "stake_start", "beginStake", "begin_stake")
-    end_stake = _first(item, "endStake", "end_stake", "stakeEnd", "stake_end", "finishStake", "finish_stake")
+    if object_id in (None, ""):
+        object_id = _first(query_scope, "objectId", "object_id", "id")
+    route_code = _business_candidate_value(
+        item,
+        query_scope,
+        "routeCode",
+        "route_code",
+        "route",
+        "routeNo",
+        "route_no",
+    )
+    start_stake = _business_candidate_value(
+        item,
+        query_scope,
+        "startStake",
+        "start_stake",
+        "stakeStart",
+        "stake_start",
+        "beginStake",
+        "begin_stake",
+    )
+    end_stake = _business_candidate_value(
+        item,
+        query_scope,
+        "endStake",
+        "end_stake",
+        "stakeEnd",
+        "stake_end",
+        "finishStake",
+        "finish_stake",
+    )
+    geometry = _business_candidate_value(item, query_scope, "geometry")
+    bbox = _business_candidate_value(item, query_scope, "bbox")
     title = _business_source_title(item, result.toolName, object_type, idx)
     content = _business_source_content(item, result)
     source = {
@@ -346,6 +424,8 @@ def _normalize_business_source(item: Dict[str, Any], result: ToolResult, default
         "routeCode": route_code,
         "startStake": start_stake,
         "endStake": end_stake,
+        "geometry": geometry,
+        "bbox": bbox,
         "sourceId": str(object_id) if object_id not in (None, "") else f"{result.toolName}:{idx}",
         "content": content,
         "contentExcerpt": content,
@@ -356,73 +436,87 @@ def _normalize_business_source(item: Dict[str, Any], result: ToolResult, default
         },
         "raw": item,
     }
-    return _with_source_context(source, item, object_type, idx)
-
-
-def _with_source_context(source: Dict[str, Any], raw: Dict[str, Any], default_object_type: str, idx: int) -> Dict[str, Any]:
-    title = source.get("sourceTitle") or source.get("title") or f"来源 {idx + 1}"
-    excerpt = source.get("contentExcerpt") or source.get("content") or ""
-    map_target = _build_map_target(raw, source, default_object_type, str(title))
-    if map_target:
-        source["mapTarget"] = map_target
-    source["followupContext"] = _compact({
-        "sourceId": source.get("sourceId") or source.get("chunkId") or source.get("documentId"),
-        "sourceType": source.get("sourceType"),
-        "sourceTitle": title,
-        "contentExcerpt": excerpt,
-        "excerpt": excerpt,
-        "mapTarget": map_target,
-    })
     return _compact(source)
 
 
-def _build_map_target(raw: Dict[str, Any], source: Dict[str, Any], default_object_type: str, title: str) -> Dict[str, Any]:
-    metadata = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
-    source_metadata = source.get("metadata") if isinstance(source.get("metadata"), dict) else {}
-    query_scope = _first_map(raw, "queryScope", "query_scope")
-    source_query_scope = _first_map(source, "queryScope", "query_scope")
-    explicit_target = _first_map(raw, "mapTarget", "map_target", "target", "geoTarget", "geo_target")
-    followup = _first_map(raw, "followupContext", "followup_context")
-    followup_target = _first_map(followup, "mapTarget", "map_target") if followup else {}
-    candidates = [explicit_target, followup_target, source, raw, query_scope, source_query_scope, metadata, source_metadata]
-    object_id_candidates = [explicit_target, followup_target, metadata, source_metadata, source, raw]
-    object_type = _normalize_object_type(_first_from(candidates, "objectType", "object_type", "targetType", "target_type", "sourceObjectType", "source_object_type", "layerType", "layer_type") or default_object_type)
-    object_id = _first_from(object_id_candidates, "objectId", "object_id", "targetId", "target_id", "sourceObjectId", "source_object_id", "featureId", "feature_id", "id")
-    route_code = _first_from(candidates, "routeCode", "route_code", "route", "routeNo", "route_no", "roadCode", "road_code")
-    start_stake = _first_from(candidates, "startStake", "start_stake", "stakeStart", "stake_start", "beginStake", "begin_stake", "startMileage", "start_mileage")
-    end_stake = _first_from(candidates, "endStake", "end_stake", "stakeEnd", "stake_end", "finishStake", "finish_stake", "endMileage", "end_mileage")
-    geometry = _first_from(candidates, "geometry", "geojson", "geoJson", "geom")
-    bbox = _first_from(candidates, "bbox", "bounds", "extent")
-    target = _compact({
-        "objectType": object_type,
-        "objectId": str(object_id) if object_id not in (None, "") else None,
-        "id": str(object_id) if object_id not in (None, "") else None,
-        "routeCode": route_code,
-        "startStake": start_stake,
-        "endStake": end_stake,
-        "geometry": geometry,
-        "bbox": bbox,
-        "title": title,
-    })
-    return target if _has_map_target(target) else {}
+def _region_summary_candidate(result: ToolResult) -> Dict[str, Any]:
+    data = result.data if isinstance(result.data, dict) else {}
+    geometry = data.get("geometry")
+    bbox = data.get("bbox")
+    has_spatial_scope = geometry not in (None, "", [], {}) or bbox not in (
+        None,
+        "",
+        [],
+        {},
+    )
+    return _compact(
+        {
+            "sourceType": "BUSINESS_DATA",
+            "sourceTitle": "区域统计",
+            "toolName": result.toolName,
+            "objectType": "MAP_REGION" if has_spatial_scope else None,
+            "geometry": geometry,
+            "bbox": bbox,
+            "sourceId": f"{result.toolName}:summary",
+            "content": str(result.summary or "")[:500],
+            "contentExcerpt": str(result.summary or "")[:500],
+            "metadata": {
+                "toolName": result.toolName,
+                "summary": result.summary,
+                "count": result.count,
+            },
+        }
+    )
 
 
-def _has_map_target(target: Dict[str, Any]) -> bool:
-    return any(target.get(key) not in (None, "", [], {}) for key in ("objectId", "routeCode", "startStake", "endStake", "geometry", "bbox"))
+def _business_scope_candidate(
+    query_scope: Dict[str, Any],
+    result: ToolResult,
+    default_object_type: str,
+) -> Dict[str, Any]:
+    scope = dict(query_scope)
+    scope.pop("id", None)
+    explicit_object_type = _normalize_object_type(
+        _first(scope, "objectType", "object_type")
+    )
+    explicit_object_id = _first(scope, "objectId", "object_id")
+    scope_object_type = (
+        explicit_object_type
+        if explicit_object_type
+        else "" if explicit_object_id not in (None, "") else default_object_type
+    )
+    source = _business_source_candidate(
+        scope,
+        {},
+        result,
+        scope_object_type,
+        0,
+    )
+    if not source.get("objectId"):
+        source["sourceId"] = f"{result.toolName}:scope"
+    source["raw"] = scope
+    return source
 
 
-def _first_map(data: Dict[str, Any], *keys: str) -> Dict[str, Any]:
-    value = _first(data, *keys) if isinstance(data, dict) else None
-    return value if isinstance(value, dict) else {}
+def _extract_query_scope(data: Any) -> Dict[str, Any]:
+    if not isinstance(data, dict):
+        return {}
+    query_scope = data.get("queryScope") or data.get("query_scope")
+    if isinstance(query_scope, dict):
+        return query_scope
+    nested = data.get("data")
+    return _extract_query_scope(nested)
 
 
-def _first_from(candidates: List[Dict[str, Any]], *keys: str) -> Any:
-    for candidate in candidates:
-        if isinstance(candidate, dict):
-            value = _first(candidate, *keys)
-            if value not in (None, ""):
-                return value
-    return None
+def _business_candidate_value(
+    item: Dict[str, Any],
+    query_scope: Dict[str, Any],
+    *keys: str,
+) -> Any:
+    value = _first(item, *keys)
+    if value not in (None, ""):
+        return value
+    return _first(query_scope, *keys)
 
 
 def _business_source_title(item: Dict[str, Any], tool_name: str, object_type: str, idx: int) -> str:

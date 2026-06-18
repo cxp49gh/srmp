@@ -19,7 +19,7 @@ class JavaToolGatewayHeaderTest(unittest.TestCase):
 
 
 class JavaToolSourceNormalizationTest(unittest.TestCase):
-    def test_business_sources_include_map_target_and_followup_context(self):
+    def test_business_disease_is_standardized_unverified_object_binding(self):
         sources = extract_business_sources([
             ToolResult(
                 toolName="gis.queryDiseases",
@@ -43,14 +43,26 @@ class JavaToolSourceNormalizationTest(unittest.TestCase):
 
         self.assertEqual(1, len(sources))
         source = sources[0]
+        self.assertEqual("OBJECT", source.get("bindingType"))
+        self.assertEqual("BUSINESS_QUERY", source.get("bindingOrigin"))
+        self.assertEqual("UNVERIFIED", source.get("bindingStatus"))
         self.assertEqual("DISEASE", source["mapTarget"]["objectType"])
         self.assertEqual("disease-1", source["mapTarget"]["objectId"])
         self.assertEqual("Y016140727", source["mapTarget"]["routeCode"])
         self.assertEqual(1.2, source["mapTarget"]["startStake"])
         self.assertEqual(1.25, source["mapTarget"]["endStake"])
-        self.assertEqual(source["mapTarget"], source["followupContext"]["mapTarget"])
-        self.assertEqual(source["sourceTitle"], source["followupContext"]["sourceTitle"])
-        self.assertIn("裂缝", source["followupContext"]["excerpt"])
+        self.assertEqual(
+            {
+                "sourceId": "disease-1",
+                "sourceType": "BUSINESS_DATA",
+                "sourceTitle": source["sourceTitle"],
+                "contentExcerpt": source["contentExcerpt"],
+                "bindingType": "OBJECT",
+                "bindingStatus": "UNVERIFIED",
+                "mapTarget": source["mapTarget"],
+            },
+            source["followupContext"],
+        )
 
     def test_region_summary_source_uses_geometry_as_map_target(self):
         geometry = {"type": "Polygon", "coordinates": [[[112.1, 37.1], [112.2, 37.1], [112.2, 37.2], [112.1, 37.1]]]}
@@ -65,24 +77,189 @@ class JavaToolSourceNormalizationTest(unittest.TestCase):
         ])
 
         self.assertEqual(1, len(sources))
+        self.assertEqual("RANGE", sources[0].get("bindingType"))
+        self.assertEqual("BUSINESS_QUERY", sources[0].get("bindingOrigin"))
         self.assertEqual("MAP_REGION", sources[0]["mapTarget"]["objectType"])
-        self.assertEqual("Y016140727", sources[0]["mapTarget"]["routeCode"])
+        self.assertNotIn("routeCode", sources[0]["mapTarget"])
         self.assertEqual(geometry, sources[0]["mapTarget"]["geometry"])
 
-    def test_region_summary_source_uses_query_scope_route_when_geometry_absent(self):
+    def test_region_summary_source_uses_bbox_as_map_target(self):
+        bbox = [112.1, 37.1, 112.2, 37.2]
+        sources = extract_business_sources([
+            ToolResult(
+                toolName="gis.queryRegionSummary",
+                success=True,
+                summary="查询到区域统计",
+                count=1,
+                data={"bbox": bbox, "routeCount": 1, "diseaseSummary": {"diseaseCount": 3}},
+            )
+        ])
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("RANGE", sources[0].get("bindingType"))
+        self.assertEqual("BUSINESS_QUERY", sources[0].get("bindingOrigin"))
+        self.assertEqual("MAP_REGION", sources[0]["mapTarget"]["objectType"])
+        self.assertEqual(bbox, sources[0]["mapTarget"]["bbox"])
+
+    def test_region_summary_root_location_fields_are_reference_only(self):
+        sources = extract_business_sources([
+            ToolResult(
+                toolName="gis.queryRegionSummary",
+                success=True,
+                summary="查询到区域统计",
+                count=1,
+                data={
+                    "objectType": "ROAD_SECTION",
+                    "objectId": "root-section",
+                    "routeCode": "Y016140727",
+                    "startStake": 1.2,
+                    "endStake": 1.4,
+                    "routeCount": 1,
+                    "diseaseSummary": {"diseaseCount": 3},
+                },
+            )
+        ])
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("NONE", sources[0].get("bindingType"))
+        self.assertEqual("NONE", sources[0].get("bindingOrigin"))
+        self.assertEqual("VALID", sources[0].get("bindingStatus"))
+        self.assertNotIn("mapTarget", sources[0])
+        self.assertNotIn("mapTarget", sources[0]["followupContext"])
+
+    def test_business_source_uses_complete_query_scope_stake_range(self):
+        sources = extract_business_sources([
+            ToolResult(
+                toolName="gis.queryDiseasesByStakeRange",
+                success=True,
+                summary="查询到路线范围病害统计",
+                count=0,
+                data={
+                    "items": [],
+                    "queryScope": {
+                        "routeCode": "Y016140727",
+                        "startStake": 1.2,
+                        "endStake": 1.4,
+                    },
+                },
+            )
+        ])
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("RANGE", sources[0].get("bindingType"))
+        self.assertEqual("BUSINESS_QUERY", sources[0].get("bindingOrigin"))
+        self.assertEqual("UNVERIFIED", sources[0].get("bindingStatus"))
+        self.assertEqual("gis.queryDiseasesByStakeRange:scope", sources[0]["sourceId"])
+        self.assertEqual(
+            {
+                "objectType": "DISEASE",
+                "routeCode": "Y016140727",
+                "startStake": 1.2,
+                "endStake": 1.4,
+            },
+            sources[0]["mapTarget"],
+        )
+
+    def test_empty_items_route_only_query_scope_is_not_locatable(self):
+        sources = extract_business_sources([
+            ToolResult(
+                toolName="gis.queryDiseasesByStakeRange",
+                success=True,
+                summary="查询到路线统计",
+                count=0,
+                data={
+                    "items": [],
+                    "queryScope": {"routeCode": "Y016140727"},
+                },
+            )
+        ])
+
+        self.assertEqual(1, len(sources))
+        self.assertNotIn(sources[0].get("bindingType"), {"OBJECT", "RANGE"})
+        self.assertEqual("NONE", sources[0].get("bindingType"))
+        self.assertEqual("NONE", sources[0].get("bindingOrigin"))
+        self.assertEqual("INVALID", sources[0].get("bindingStatus"))
+        self.assertNotIn("mapTarget", sources[0])
+        self.assertNotIn("mapTarget", sources[0]["followupContext"])
+
+    def test_region_route_only_query_scope_is_not_locatable(self):
         sources = extract_business_sources([
             ToolResult(
                 toolName="gis.queryRegionSummary",
                 success=True,
                 summary="查询到路线统计",
                 count=1,
-                data={"queryScope": {"routeCode": "Y016140727"}, "routeCount": 1, "diseaseSummary": {"diseaseCount": 3}},
+                data={
+                    "queryScope": {"routeCode": "Y016140727"},
+                    "routeCount": 1,
+                    "diseaseSummary": {"diseaseCount": 3},
+                },
+            )
+        ])
+
+        self.assertEqual(2, len(sources))
+        self.assertEqual(
+            {"gis.queryRegionSummary:summary", "gis.queryRegionSummary:scope"},
+            {source["sourceId"] for source in sources},
+        )
+        for source in sources:
+            self.assertNotIn(source.get("bindingType"), {"OBJECT", "RANGE"})
+            self.assertNotIn("mapTarget", source)
+            self.assertNotIn("mapTarget", source["followupContext"])
+
+    def test_empty_items_query_scope_object_is_an_object_binding(self):
+        sources = extract_business_sources([
+            ToolResult(
+                toolName="gis.queryNearbyObjects",
+                success=True,
+                summary="查询对象范围",
+                count=0,
+                data={
+                    "items": [],
+                    "objectType": "ROAD_SECTION",
+                    "objectId": "root-section",
+                    "queryScope": {
+                        "objectType": "DISEASE",
+                        "objectId": "scope-disease",
+                    },
+                },
             )
         ])
 
         self.assertEqual(1, len(sources))
-        self.assertEqual("MAP_REGION", sources[0]["mapTarget"]["objectType"])
-        self.assertEqual("Y016140727", sources[0]["mapTarget"]["routeCode"])
+        self.assertEqual("OBJECT", sources[0].get("bindingType"))
+        self.assertEqual("BUSINESS_QUERY", sources[0].get("bindingOrigin"))
+        self.assertEqual("UNVERIFIED", sources[0].get("bindingStatus"))
+        self.assertEqual("scope-disease", sources[0]["sourceId"])
+        self.assertEqual(
+            {
+                "objectType": "DISEASE",
+                "objectId": "scope-disease",
+            },
+            sources[0]["mapTarget"],
+        )
+
+    def test_query_scope_generic_id_is_not_promoted_to_object_binding(self):
+        sources = extract_business_sources([
+            ToolResult(
+                toolName="gis.queryDiseases",
+                success=True,
+                summary="查询范围无结果",
+                count=0,
+                data={
+                    "items": [],
+                    "queryScope": {
+                        "id": "request-correlation-id",
+                        "routeCode": "Y016140727",
+                    },
+                },
+            )
+        ])
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("NONE", sources[0].get("bindingType"))
+        self.assertNotIn("mapTarget", sources[0])
+        self.assertNotEqual("request-correlation-id", sources[0].get("sourceId"))
 
     def test_nearby_object_grouped_sources_are_extracted_and_locatable(self):
         sources = extract_business_sources([
@@ -108,7 +285,45 @@ class JavaToolSourceNormalizationTest(unittest.TestCase):
         self.assertEqual("ASSESSMENT_RESULT", sources[1]["mapTarget"]["objectType"])
         self.assertEqual("assessment-1", sources[1]["mapTarget"]["objectId"])
 
-    def test_knowledge_sources_promote_metadata_map_target(self):
+    def test_plain_knowledge_ignores_root_location_and_legacy_targets(self):
+        sources = extract_knowledge_sources([
+            ToolResult(
+                toolName="knowledge.retrieve",
+                success=True,
+                summary="知识库命中 1 条",
+                data={
+                    "hits": [
+                        {
+                            "id": "chunk-1",
+                            "title": "路面技术状况评定标准",
+                            "content": "PCI 用于描述路面损坏状况。",
+                            "routeCode": "Y016140727",
+                            "startStake": 0,
+                            "endStake": 0.1,
+                            "mapTarget": {
+                                "objectType": "DISEASE",
+                                "objectId": "request-object",
+                            },
+                            "followupContext": {
+                                "mapTarget": {
+                                    "objectType": "ROAD_SECTION",
+                                    "objectId": "legacy-section",
+                                }
+                            },
+                        }
+                    ]
+                },
+            )
+        ])
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("NONE", sources[0].get("bindingType"))
+        self.assertEqual("NONE", sources[0].get("bindingOrigin"))
+        self.assertEqual("VALID", sources[0].get("bindingStatus"))
+        self.assertNotIn("mapTarget", sources[0])
+        self.assertNotIn("mapTarget", sources[0]["followupContext"])
+
+    def test_knowledge_sources_use_explicit_metadata_object_binding(self):
         sources = extract_knowledge_sources([
             ToolResult(
                 toolName="knowledge.retrieve",
@@ -134,6 +349,9 @@ class JavaToolSourceNormalizationTest(unittest.TestCase):
         ])
 
         self.assertEqual(1, len(sources))
+        self.assertEqual("OBJECT", sources[0].get("bindingType"))
+        self.assertEqual("EXPLICIT_METADATA", sources[0].get("bindingOrigin"))
+        self.assertEqual("UNVERIFIED", sources[0].get("bindingStatus"))
         self.assertEqual("ASSESSMENT_RESULT", sources[0]["mapTarget"]["objectType"])
         self.assertEqual("assessment-1", sources[0]["mapTarget"]["objectId"])
         self.assertEqual("Y016140727", sources[0]["followupContext"]["mapTarget"]["routeCode"])

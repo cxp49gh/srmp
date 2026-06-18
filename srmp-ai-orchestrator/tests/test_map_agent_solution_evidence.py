@@ -57,9 +57,22 @@ class MapAgentSolutionEvidenceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("PASS", response.data["toolPolicy"]["policyStatus"])
         self.assertEqual("PASS", response.trace["toolPolicy"]["policyStatus"])
         business_summary = next(item for item in response.sources if item.get("sourceTitle") == "业务证据")
-        self.assertEqual("ROAD_SECTION", business_summary["mapTarget"]["objectType"])
-        self.assertEqual("section-1", business_summary["mapTarget"]["objectId"])
-        self.assertEqual("Y016140727", business_summary["mapTarget"]["routeCode"])
+        self.assertEqual("NONE", business_summary.get("bindingType"))
+        self.assertEqual("NONE", business_summary.get("bindingOrigin"))
+        self.assertEqual("VALID", business_summary.get("bindingStatus"))
+        self.assertNotIn("mapTarget", business_summary)
+        self.assertNotIn("mapTarget", business_summary["followupContext"])
+        business_source = next(
+            item
+            for item in response.sources
+            if item.get("toolName") == "gis.queryDiseases"
+            and item.get("objectId") == "a"
+        )
+        self.assertEqual("OBJECT", business_source.get("bindingType"))
+        self.assertEqual("BUSINESS_QUERY", business_source.get("bindingOrigin"))
+        self.assertEqual("UNVERIFIED", business_source.get("bindingStatus"))
+        self.assertEqual("DISEASE", business_source["mapTarget"]["objectType"])
+        self.assertEqual("a", business_source["mapTarget"]["objectId"])
 
     async def test_solution_generation_blocks_prohibited_evidence_tool(self):
         gateway = RecordingGateway()
