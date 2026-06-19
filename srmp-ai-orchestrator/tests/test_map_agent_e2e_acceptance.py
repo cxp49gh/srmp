@@ -148,6 +148,188 @@ class MapAgentE2EAcceptanceTest(unittest.TestCase):
 
         self.assertIn("business source is not locatable: 病害记录", issues)
 
+    def test_rejects_sources_without_standard_binding_contract(self):
+        case = AcceptanceCase(
+            case_id="map.route_analysis",
+            name="分析路线",
+            payload={},
+        )
+        response = {
+            "answer": "已分析。",
+            "answerMeta": {"capabilityId": "map.route_analysis", "answerSource": "LLM"},
+            "sources": [
+                {
+                    "sourceType": "KNOWLEDGE",
+                    "sourceTitle": "PCI 指标说明",
+                    "routeCode": "Y016140727",
+                },
+                {
+                    "sourceType": "BUSINESS_DATA",
+                    "sourceTitle": "病害记录",
+                    "bindingType": "OBJECT",
+                    "bindingStatus": "UNVERIFIED",
+                },
+            ],
+        }
+
+        issues = validate_case_response(case, response)
+
+        self.assertIn("source binding contract invalid: PCI 指标说明", issues)
+        self.assertIn("source binding contract invalid: 病害记录", issues)
+
+    def test_validates_knowledge_sources_when_primary_sources_list_is_empty(self):
+        case = AcceptanceCase(
+            case_id="knowledge.metric_explain",
+            name="解释 PCI 指标",
+            payload={},
+        )
+        response = {
+            "answer": "PCI 是路面损坏状况指数。",
+            "answerMeta": {"capabilityId": "knowledge.metric_explain", "answerSource": "LLM"},
+            "sources": [],
+            "knowledgeSources": [
+                {
+                    "sourceType": "KNOWLEDGE",
+                    "sourceTitle": "未标准化知识来源",
+                }
+            ],
+        }
+
+        issues = validate_case_response(case, response)
+
+        self.assertIn("source binding contract invalid: 未标准化知识来源", issues)
+
+    def test_plain_reference_followup_uses_only_knowledge_tool(self):
+        case = AcceptanceCase(
+            case_id="followup.source_replay",
+            name="Replay plain reference",
+            payload={},
+            followup_replay=True,
+        )
+        followup_source = {
+            "sourceType": "KNOWLEDGE",
+            "sourceTitle": "PCI 指标说明",
+            "bindingType": "NONE",
+            "bindingOrigin": "NONE",
+            "bindingStatus": "VALID",
+            "bindingReason": "来源未绑定地图，仅作为参考资料",
+        }
+        response = {
+            "answer": "PCI 用于评价路面损坏状况。",
+            "answerMeta": {"capabilityId": "knowledge.metric_explain", "answerSource": "LLM"},
+            "toolResults": [{"toolName": "knowledge.retrieve", "success": True}],
+            "planExecution": {
+                "plannedToolNames": ["knowledge.retrieve"],
+                "actualToolNames": ["knowledge.retrieve"],
+            },
+            "mapContext": {"followupSource": followup_source},
+        }
+
+        issues = validate_case_response(case, response)
+
+        self.assertEqual([], issues)
+        self.assertEqual(["knowledge.retrieve"], acceptance.extract_planned_tool_names(response))
+        self.assertEqual(["knowledge.retrieve"], acceptance.extract_actual_tool_names(response))
+
+    def test_plain_reference_followup_rejects_gis_tool(self):
+        case = AcceptanceCase(
+            case_id="followup.source_replay",
+            name="Replay plain reference",
+            payload={},
+            followup_replay=True,
+        )
+        followup_source = {
+            "sourceType": "KNOWLEDGE",
+            "sourceTitle": "PCI 指标说明",
+            "bindingType": "NONE",
+            "bindingOrigin": "NONE",
+            "bindingStatus": "VALID",
+        }
+        response = {
+            "answer": "继续分析。",
+            "answerMeta": {"capabilityId": "knowledge.metric_explain", "answerSource": "LLM"},
+            "toolResults": [
+                {"toolName": "knowledge.retrieve", "success": True},
+                {"toolName": "gis.queryNearbyObjects", "success": True},
+            ],
+            "planExecution": {
+                "plannedToolNames": ["knowledge.retrieve", "gis.queryNearbyObjects"],
+                "actualToolNames": ["knowledge.retrieve", "gis.queryNearbyObjects"],
+            },
+            "mapContext": {"followupSource": followup_source},
+        }
+
+        issues = validate_case_response(case, response)
+
+        self.assertIn("plain reference follow-up planned GIS tool: gis.queryNearbyObjects", issues)
+        self.assertIn("plain reference follow-up executed GIS tool: gis.queryNearbyObjects", issues)
+
+    def test_disease_object_followup_requires_nearby_objects_tool(self):
+        case = AcceptanceCase(
+            case_id="followup.source_replay",
+            name="Replay disease source",
+            payload={},
+            followup_replay=True,
+            expected_followup_map_target={
+                "objectType": "DISEASE",
+                "objectId": "disease-1",
+            },
+        )
+        followup_source = {
+            "sourceType": "BUSINESS_DATA",
+            "sourceTitle": "病害记录",
+            "bindingType": "OBJECT",
+            "bindingOrigin": "BUSINESS_QUERY",
+            "bindingStatus": "UNVERIFIED",
+            "mapTarget": {
+                "objectType": "DISEASE",
+                "objectId": "disease-1",
+                "routeCode": "Y016140727",
+            },
+        }
+        response = {
+            "answer": "继续分析。",
+            "answerMeta": {"capabilityId": "map.disease_analysis", "answerSource": "LLM"},
+            "toolResults": [
+                {"toolName": "gis.queryNearbyObjects", "success": True},
+                {"toolName": "knowledge.retrieve", "success": True},
+            ],
+            "planExecution": {
+                "plannedToolNames": ["gis.queryNearbyObjects", "knowledge.retrieve"],
+                "actualToolNames": ["gis.queryNearbyObjects", "knowledge.retrieve"],
+            },
+            "mapContext": {"followupSource": followup_source},
+        }
+
+        issues = validate_case_response(case, response)
+
+        self.assertEqual([], issues)
+        self.assertIn("gis.queryNearbyObjects", acceptance.extract_planned_tool_names(response))
+        self.assertIn("gis.queryNearbyObjects", acceptance.extract_actual_tool_names(response))
+
+    def test_source_followup_context_is_not_rebuilt_from_top_level_fields(self):
+        followup_context = {
+            "sourceId": "chunk-1",
+            "sourceType": "KNOWLEDGE",
+            "sourceTitle": "PCI 指标说明",
+            "bindingType": "NONE",
+            "bindingStatus": "VALID",
+        }
+        source = {
+            "sourceId": "chunk-1",
+            "sourceType": "KNOWLEDGE",
+            "sourceTitle": "PCI 指标说明",
+            "bindingType": "OBJECT",
+            "bindingStatus": "UNVERIFIED",
+            "mapTarget": {
+                "objectType": "DISEASE",
+                "objectId": "must-not-inherit",
+            },
+            "followupContext": followup_context,
+        }
+
+        self.assertEqual(followup_context, acceptance.source_followup_context(source))
+
     def test_generation_rejects_template_fallback_missing_variables_and_mustache(self):
         case = AcceptanceCase(
             case_id="solution.section_plan",
@@ -189,8 +371,12 @@ class MapAgentE2EAcceptanceTest(unittest.TestCase):
             "endStake": 1.2,
         }
         followup_context = {
+            "sourceId": "disease-1",
+            "sourceType": "BUSINESS_DATA",
             "sourceTitle": "病害记录",
             "contentExcerpt": "K1+200 裂缝",
+            "bindingType": "OBJECT",
+            "bindingStatus": "UNVERIFIED",
             "mapTarget": source_target,
         }
         parent = CaseRunResult(
@@ -215,6 +401,10 @@ class MapAgentE2EAcceptanceTest(unittest.TestCase):
                     {
                         "sourceType": "BUSINESS_DATA",
                         "sourceTitle": "病害记录",
+                        "bindingType": "OBJECT",
+                        "bindingOrigin": "BUSINESS_QUERY",
+                        "bindingStatus": "UNVERIFIED",
+                        "mapTarget": source_target,
                         "followupContext": followup_context,
                     }
                 ],
@@ -236,6 +426,7 @@ class MapAgentE2EAcceptanceTest(unittest.TestCase):
         self.assertEqual("BUSINESS_DATA", replay_followup["sourceType"])
         self.assertEqual(replay_followup, replay.payload["mapContext"]["extra"]["followupSource"])
         self.assertEqual(replay_followup, replay.payload["mapContext"]["extra"]["rawContext"]["followupSource"])
+        self.assertEqual(["gis.queryNearbyObjects", "knowledge.retrieve"], replay.required_tools)
         self.assertEqual(3, replay.payload["options"]["topK"])
         self.assertTrue(replay.payload["options"]["requireAi"])
 

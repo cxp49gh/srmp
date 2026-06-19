@@ -26,6 +26,9 @@ CONFUSING_MARKERS = (
     "变量缺失",
 )
 
+VALID_BINDING_TYPES = {"OBJECT", "RANGE", "NONE"}
+VALID_BINDING_STATUSES = {"VALID", "NOT_FOUND", "INVALID", "UNVERIFIED"}
+
 
 @dataclass
 class AcceptanceCase:
@@ -331,8 +334,17 @@ def validate_case_response(case: AcceptanceCase, response: Dict[str, Any]) -> Li
         if marker in answer:
             issues.append(f"confusing marker in answer: {marker}")
 
+    sources = extract_response_sources(data)
+    for source in sources:
+        if not binding_contract_ok(source):
+            issues.append(f"source binding contract invalid: {source_title(source)}")
+        source_type = str(source.get("sourceType") or "").upper()
+        metadata = source.get("metadata")
+        if source_type in {"KNOWLEDGE", "OUTLINE"} and not metadata and source.get("bindingType") != "NONE":
+            issues.append(f"reference source has implicit map binding: {source_title(source)}")
+
     if case.require_locatable_business_sources:
-        business_sources = [source for source in extract_response_sources(data) if is_business_source(source)]
+        business_sources = [source for source in sources if is_business_source(source)]
         if not business_sources:
             issues.append("missing business sources")
         for source in business_sources:
@@ -354,12 +366,42 @@ def validate_followup_replay_response(case: AcceptanceCase, data: Dict[str, Any]
     followup_source = extract_followup_source(map_context)
     if not followup_source:
         return ["missing echoed followupSource"]
-    if not is_locatable_source(followup_source):
+    if not binding_contract_ok(followup_source):
+        issues.append("echoed followupSource binding contract invalid")
+        return issues
+
+    binding_type = str(followup_source.get("bindingType") or "").upper()
+    if binding_type in {"OBJECT", "RANGE"} and not is_locatable_source(followup_source):
         issues.append("echoed followupSource is not locatable")
     expected_target = case.expected_followup_map_target or {}
     actual_target = source_map_target(followup_source)
     if expected_target and not map_targets_match(expected_target, actual_target):
         issues.append("echoed followupSource mapTarget mismatch")
+
+    planned_tool_names = extract_planned_tool_names(data)
+    actual_tool_names = extract_actual_tool_names(data)
+    if binding_type == "NONE":
+        for tool_name in planned_tool_names:
+            if tool_name in BUSINESS_TOOL_NAMES:
+                issues.append(f"plain reference follow-up planned GIS tool: {tool_name}")
+            elif tool_name != "knowledge.retrieve":
+                issues.append(f"plain reference follow-up planned unexpected tool: {tool_name}")
+        for tool_name in actual_tool_names:
+            if tool_name in BUSINESS_TOOL_NAMES:
+                issues.append(f"plain reference follow-up executed GIS tool: {tool_name}")
+            elif tool_name != "knowledge.retrieve":
+                issues.append(f"plain reference follow-up executed unexpected tool: {tool_name}")
+        if "knowledge.retrieve" not in planned_tool_names:
+            issues.append("plain reference follow-up missing planned knowledge.retrieve")
+        if "knowledge.retrieve" not in actual_tool_names:
+            issues.append("plain reference follow-up missing actual knowledge.retrieve")
+
+    target_type = str(actual_target.get("objectType") or actual_target.get("object_type") or "").upper()
+    if binding_type == "OBJECT" and target_type in {"DISEASE", "DISEASE_RECORD"}:
+        if "gis.queryNearbyObjects" not in planned_tool_names:
+            issues.append("disease source follow-up missing planned gis.queryNearbyObjects")
+        if "gis.queryNearbyObjects" not in actual_tool_names:
+            issues.append("disease source follow-up missing actual gis.queryNearbyObjects")
     return issues
 
 
@@ -422,13 +464,17 @@ def build_followup_replay_case(parent: CaseRunResult, require_ai: bool = True, t
     if not source:
         return None
     followup_context = source_followup_context(source)
-    target = source_map_target(followup_context)
-    if not target:
+    if not binding_contract_ok(followup_context):
         return None
+    target = source_map_target(followup_context)
+    binding_type = str(followup_context.get("bindingType") or "").upper()
 
     payload = json.loads(json.dumps(parent.case.payload))
     source_name = source_title(source)
-    message = f"围绕参考来源「{source_name}」继续分析，说明它与当前地图对象或区域的关系。"
+    if binding_type == "NONE":
+        message = f"围绕参考资料「{source_name}」继续解释，不要推断不存在的地图对象。"
+    else:
+        message = f"围绕参考来源「{source_name}」继续分析，说明它与当前地图对象或区域的关系。"
     payload["action"] = "CHAT"
     payload["message"] = message
     payload.setdefault("options", {})
@@ -452,12 +498,22 @@ def build_followup_replay_case(parent: CaseRunResult, require_ai: bool = True, t
         extra["rawContext"] = raw_context
     raw_context["followupSource"] = followup_context
 
+    required_tools = ["knowledge.retrieve"]
+    prohibited_tools: List[str] = []
+    target_type = str(target.get("objectType") or target.get("object_type") or "").upper()
+    if binding_type == "OBJECT" and target_type in {"DISEASE", "DISEASE_RECORD"}:
+        required_tools.insert(0, "gis.queryNearbyObjects")
+    if binding_type == "NONE":
+        prohibited_tools = sorted(BUSINESS_TOOL_NAMES)
+
     return AcceptanceCase(
         case_id=FOLLOWUP_REPLAY_CASE_ID,
         name="Replay source follow-up",
         payload=payload,
+        required_tools=required_tools,
+        prohibited_tools=prohibited_tools,
         followup_replay=True,
-        expected_followup_map_target=target,
+        expected_followup_map_target=target or None,
     )
 
 
@@ -802,15 +858,57 @@ def extract_tool_results(data: Dict[str, Any]) -> List[Dict[str, Any]]:
     return []
 
 
+def extract_plan_execution(data: Dict[str, Any]) -> Dict[str, Any]:
+    for container in (
+        data,
+        first_dict(data, "data"),
+        first_dict(data, "trace"),
+        first_dict(data, "answerMeta", "answer_meta"),
+    ):
+        value = container.get("planExecution") or container.get("plan_execution")
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def extract_planned_tool_names(data: Dict[str, Any]) -> List[str]:
+    plan_execution = extract_plan_execution(data)
+    names = plan_execution.get("plannedToolNames") or plan_execution.get("planned_tool_names")
+    if isinstance(names, list):
+        return dedupe_preserve_order(str(item) for item in names if str(item or "").strip())
+    for container in (data, first_dict(data, "data"), first_dict(data, "trace")):
+        plan = container.get("toolPlan") or container.get("tool_plan")
+        if isinstance(plan, list):
+            return dedupe_preserve_order(
+                str(item.get("toolName") or item.get("tool_name") or "")
+                for item in plan
+                if isinstance(item, dict) and str(item.get("toolName") or item.get("tool_name") or "").strip()
+            )
+    return []
+
+
+def extract_actual_tool_names(data: Dict[str, Any]) -> List[str]:
+    plan_execution = extract_plan_execution(data)
+    names = plan_execution.get("actualToolNames") or plan_execution.get("actual_tool_names")
+    if isinstance(names, list):
+        return dedupe_preserve_order(str(item) for item in names if str(item or "").strip())
+    return dedupe_preserve_order(tool_result_name(item) for item in extract_tool_results(data) if tool_result_name(item))
+
+
 def extract_response_sources(data: Dict[str, Any]) -> List[Dict[str, Any]]:
     for key in ("sources", "knowledgeSources", "knowledge_sources"):
         value = data.get(key)
         if isinstance(value, list):
-            return [item for item in value if isinstance(item, dict)]
+            sources = [item for item in value if isinstance(item, dict)]
+            if sources:
+                return sources
     nested = first_dict(data, "data")
-    value = nested.get("sources") or nested.get("knowledgeSources") or nested.get("knowledge_sources")
-    if isinstance(value, list):
-        return [item for item in value if isinstance(item, dict)]
+    for key in ("sources", "knowledgeSources", "knowledge_sources"):
+        value = nested.get(key)
+        if isinstance(value, list):
+            sources = [item for item in value if isinstance(item, dict)]
+            if sources:
+                return sources
     return []
 
 
@@ -822,9 +920,40 @@ def is_business_source(source: Dict[str, Any]) -> bool:
     return tool_name.startswith("gis.")
 
 
+def binding_contract_ok(source: Dict[str, Any]) -> bool:
+    if not isinstance(source, dict):
+        return False
+    binding_type = source.get("bindingType")
+    binding_status = source.get("bindingStatus")
+    if binding_type not in VALID_BINDING_TYPES:
+        return False
+    if binding_status not in VALID_BINDING_STATUSES:
+        return False
+    target = source.get("mapTarget")
+    if binding_type == "NONE":
+        return not target
+    return isinstance(target, dict) and bool(target)
+
+
 def is_locatable_source(source: Dict[str, Any]) -> bool:
-    target = source_map_target(source) or source
-    return any(target.get(key) not in (None, "", [], {}) for key in ("objectId", "object_id", "routeCode", "route_code", "geometry", "bbox", "startStake", "start_stake", "endStake", "end_stake"))
+    if not binding_contract_ok(source):
+        return False
+    binding_type = str(source.get("bindingType") or "").upper()
+    binding_status = str(source.get("bindingStatus") or "").upper()
+    if binding_type not in {"OBJECT", "RANGE"} or binding_status not in {"VALID", "UNVERIFIED"}:
+        return False
+    target = source_map_target(source)
+    if binding_type == "OBJECT":
+        return bool(target.get("objectType") and target.get("objectId"))
+    return bool(
+        target.get("geometry")
+        or target.get("bbox")
+        or (
+            target.get("routeCode")
+            and target.get("startStake") is not None
+            and target.get("endStake") is not None
+        )
+    )
 
 
 def source_title(source: Dict[str, Any]) -> str:
@@ -833,38 +962,12 @@ def source_title(source: Dict[str, Any]) -> str:
 
 def source_map_target(source: Dict[str, Any]) -> Dict[str, Any]:
     target = source.get("mapTarget") or source.get("map_target")
-    if not isinstance(target, dict):
-        followup = source.get("followupContext") or source.get("followup_context")
-        if isinstance(followup, dict):
-            target = followup.get("mapTarget") or followup.get("map_target")
     return target if isinstance(target, dict) else {}
 
 
 def source_followup_context(source: Dict[str, Any]) -> Dict[str, Any]:
     existing = source.get("followupContext") or source.get("followup_context")
-    followup = json.loads(json.dumps(existing)) if isinstance(existing, dict) else {}
-    target = source_map_target(source)
-    title = source_title(source)
-    excerpt = first_present(
-        source.get("contentExcerpt"),
-        source.get("content_excerpt"),
-        source.get("excerpt"),
-        source.get("content"),
-        source.get("summary"),
-    )
-    followup.update(
-        compact(
-            {
-                "sourceId": first_present(source.get("sourceId"), source.get("source_id"), followup.get("sourceId"), followup.get("source_id")),
-                "sourceType": first_present(source.get("sourceType"), source.get("source_type"), source.get("type"), followup.get("sourceType"), followup.get("source_type")),
-                "sourceTitle": first_present(followup.get("sourceTitle"), followup.get("source_title"), title),
-                "contentExcerpt": first_present(followup.get("contentExcerpt"), followup.get("content_excerpt"), followup.get("excerpt"), excerpt),
-                "excerpt": first_present(followup.get("excerpt"), followup.get("contentExcerpt"), followup.get("content_excerpt"), excerpt),
-                "mapTarget": target,
-            }
-        )
-    )
-    return compact(followup)
+    return json.loads(json.dumps(existing)) if isinstance(existing, dict) else {}
 
 
 def extract_followup_source(map_context: Dict[str, Any]) -> Dict[str, Any]:
@@ -883,8 +986,13 @@ def extract_followup_source(map_context: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def first_followup_replay_source(result: CaseRunResult) -> Dict[str, Any]:
-    for source in extract_response_sources(result.response):
+    sources = extract_response_sources(result.response)
+    for source in sources:
         if is_business_source(source) and is_locatable_source(source):
+            return source
+    for source in sources:
+        followup = source_followup_context(source)
+        if binding_contract_ok(followup):
             return source
     return {}
 
@@ -1020,6 +1128,7 @@ def summarize_result(result: CaseRunResult) -> Dict[str, Any]:
     answer_meta = first_dict(data, "answerMeta", "answer_meta")
     tool_results = extract_tool_results(data)
     draft = generation_data(data, tool_results)
+    sources = extract_response_sources(data)
     return {
         "caseId": result.case.case_id,
         "name": result.case.name,
@@ -1030,12 +1139,28 @@ def summarize_result(result: CaseRunResult) -> Dict[str, Any]:
         "answerSource": answer_meta.get("answerSource"),
         "llmStatus": answer_meta.get("llmStatus"),
         "toolNames": [tool_result_name(item) for item in tool_results],
+        "plannedToolNames": extract_planned_tool_names(data),
+        "actualToolNames": extract_actual_tool_names(data),
         "templateCode": draft.get("templateCode") or first_dict(draft, "templateMeta", "template_meta").get("templateCode"),
         "fallback": draft.get("fallback"),
         "missingVariables": draft.get("missingVariables") or [],
         "sourceCount": len(data.get("sources") or []),
         "knowledgeSourceCount": len(data.get("knowledgeSources") or []),
-        "locatableBusinessSourceCount": len([source for source in extract_response_sources(data) if is_business_source(source) and is_locatable_source(source)]),
+        "locatableBusinessSourceCount": len([source for source in sources if is_business_source(source) and is_locatable_source(source)]),
+        "sourceBindings": [
+            compact(
+                {
+                    "sourceType": source.get("sourceType"),
+                    "sourceTitle": source_title(source),
+                    "bindingType": source.get("bindingType"),
+                    "bindingOrigin": source.get("bindingOrigin"),
+                    "bindingStatus": source.get("bindingStatus"),
+                    "bindingReason": source.get("bindingReason"),
+                    "mapTarget": source.get("mapTarget"),
+                }
+            )
+            for source in sources
+        ],
     }
 
 
@@ -1057,6 +1182,14 @@ def print_case_result(result: CaseRunResult) -> None:
     if summary.get("templateCode"):
         print(f"  template={summary['templateCode']} fallback={summary.get('fallback')}", flush=True)
     print(f"  tools={tools}", flush=True)
+    if result.case.followup_replay:
+        print(
+            "  followup planned={} actual={}".format(
+                ", ".join(summary.get("plannedToolNames") or []) or "-",
+                ", ".join(summary.get("actualToolNames") or []) or "-",
+            ),
+            flush=True,
+        )
     if result.issues:
         for issue in result.issues:
             print(f"  - {issue}", flush=True)
