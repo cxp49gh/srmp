@@ -1,4 +1,9 @@
 export interface GisSourceMapTarget {
+  bindingType?: 'OBJECT' | 'RANGE' | 'NONE'
+  bindingOrigin?: 'BUSINESS_QUERY' | 'EXPLICIT_METADATA' | 'NONE'
+  bindingStatus?: 'VALID' | 'NOT_FOUND' | 'INVALID' | 'UNVERIFIED'
+  bindingReason?: string
+  sourceId?: string
   objectType?: string
   objectId?: string
   id?: string
@@ -158,45 +163,23 @@ export function buildUnifiedAnalysisTargets(args: {
 
 export function sourceToMapTarget(source: any): GisSourceMapTarget {
   const raw = unwrapApiData(source) || {}
-  if (raw.raw && (raw.objectId || raw.routeCode || raw.geometry || raw.bbox || raw.startStake || raw.endStake)) {
-    return raw as GisSourceMapTarget
+  const bindingType = String(raw.bindingType || raw.binding_type || 'NONE').toUpperCase()
+  const bindingStatus = String(raw.bindingStatus || raw.binding_status || 'UNVERIFIED').toUpperCase()
+  const target = raw.mapTarget || raw.map_target || {}
+  if (!['OBJECT', 'RANGE'].includes(bindingType)) {
+    return {
+      bindingType: bindingType as GisSourceMapTarget['bindingType'],
+      bindingStatus: bindingStatus as GisSourceMapTarget['bindingStatus'],
+      raw
+    }
   }
-
-  const explicitTarget = pickValue(raw, 'mapTarget', 'map_target', 'target', 'geoTarget')
-  if (explicitTarget && typeof explicitTarget === 'object') {
-    return normalizeSourceMapTarget(explicitTarget, raw)
-  }
-
-  const followupContext = pickValue(raw, 'followupContext', 'followup_context') || {}
-  const followupTarget = pickValue(followupContext, 'mapTarget', 'map_target')
-  if (followupTarget && typeof followupTarget === 'object') {
-    return normalizeSourceMapTarget(followupTarget, raw)
-  }
-
-  const metadata = pickValue(raw, 'metadata', 'meta') || {}
-  const mapContext = pickValue(raw, 'mapContext', 'map_context', 'context') || {}
-  const mapTarget = {}
-  const properties = pickValue(raw, 'properties', 'props') || {}
-  const candidates = [raw, metadata, mapTarget, mapContext, properties]
-  const pickAny = (...keys: string[]) => firstPresent(...candidates.map((it) => pickValue(it, ...keys)))
-
-  const objectType = normalizeGisContextType(pickAny(
-    'objectType', 'object_type', 'targetType', 'target_type', 'sourceObjectType', 'source_object_type', 'layerType', 'layer_type', 'bizType', 'biz_type'
-  ))
-  const objectId = pickAny(
-    'objectId', 'object_id', 'targetId', 'target_id', 'sourceObjectId', 'source_object_id', 'sourceId', 'source_id', 'featureId', 'feature_id', 'id'
-  )
   return {
-    objectType,
-    objectId: objectId !== undefined ? String(objectId) : undefined,
-    id: objectId !== undefined ? String(objectId) : undefined,
-    routeCode: pickAny('routeCode', 'route_code', 'routeNo', 'route_no', 'roadCode', 'road_code'),
-    startStake: pickAny('startStake', 'start_stake', 'stakeStart', 'stake_start', 'beginStake', 'begin_stake', 'startMileage', 'start_mileage'),
-    endStake: pickAny('endStake', 'end_stake', 'stakeEnd', 'stake_end', 'finishStake', 'finish_stake', 'endMileage', 'end_mileage'),
-    geometry: pickAny('geometry', 'geojson', 'geoJson', 'geom'),
-    bbox: pickAny('bbox', 'bounds', 'extent'),
-    title: pickValue(raw, 'title', 'docTitle', 'documentTitle', 'sourceTitle') || pickValue(metadata, 'title', 'docTitle', 'documentTitle', 'sourceTitle'),
-    sourceType: pickValue(raw, 'sourceType', 'source_type') || pickValue(metadata, 'sourceType', 'source_type'),
+    ...normalizeSourceMapTarget(target, raw),
+    bindingType: bindingType as GisSourceMapTarget['bindingType'],
+    bindingOrigin: (raw.bindingOrigin || raw.binding_origin) as GisSourceMapTarget['bindingOrigin'],
+    bindingStatus: bindingStatus as GisSourceMapTarget['bindingStatus'],
+    bindingReason: raw.bindingReason || raw.binding_reason,
+    sourceId: raw.sourceId || raw.source_id,
     raw
   }
 }
@@ -230,7 +213,16 @@ export function mapTargetLabel(target: GisSourceMapTarget | any) {
 
 export function hasLocatableTarget(target: GisSourceMapTarget | any) {
   const normalized = target?.raw ? target : sourceToMapTarget(target)
-  return Boolean(normalized.objectId || normalized.geometry || normalized.bbox || normalized.routeCode)
+  const bindingType = String(normalized.bindingType || '').toUpperCase()
+  const bindingStatus = String(normalized.bindingStatus || '').toUpperCase()
+  if (!['OBJECT', 'RANGE'].includes(bindingType)) return false
+  if (['NOT_FOUND', 'INVALID'].includes(bindingStatus)) return false
+  if (bindingType === 'OBJECT') return Boolean(normalized.objectType && normalized.objectId)
+  return Boolean(normalized.geometry || normalized.bbox || (
+    normalized.routeCode
+    && normalized.startStake !== undefined
+    && normalized.endStake !== undefined
+  ))
 }
 
 export function unwrapApiData(value: any) {

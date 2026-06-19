@@ -6,6 +6,9 @@ test('sourceToMapTarget prefers standard mapTarget contract', () => {
   const source = {
     sourceType: 'BUSINESS_DATA',
     sourceTitle: '病害｜裂缝｜Y016140727｜K1.2',
+    bindingType: 'OBJECT',
+    bindingOrigin: 'BUSINESS_QUERY',
+    bindingStatus: 'UNVERIFIED',
     mapTarget: {
       objectType: 'DISEASE',
       objectId: 'disease-1',
@@ -30,25 +33,48 @@ test('sourceToMapTarget prefers standard mapTarget contract', () => {
   assert.equal(hasLocatableTarget(target), true)
 })
 
-test('sourceToMapTarget falls back to followupContext mapTarget', () => {
+test('strict binding contract controls locatability', () => {
   const source = {
-    sourceType: 'KNOWLEDGE',
-    sourceTitle: '路面技术状况评定标准',
-    followupContext: {
-      mapTarget: {
-        objectType: 'ASSESSMENT_RESULT',
-        objectId: 'assessment-1',
-        routeCode: 'Y016140727',
-        startStake: 0,
-        endStake: 0.1
-      }
+    sourceType: 'BUSINESS_DATA',
+    bindingType: 'OBJECT',
+    bindingStatus: 'UNVERIFIED',
+    mapTarget: {
+      objectType: 'DISEASE',
+      objectId: 'disease-1',
+      routeCode: 'Y016140727'
     }
   }
 
-  const target = sourceToMapTarget(source)
+  assert.equal(hasLocatableTarget(sourceToMapTarget(source)), true)
+})
 
-  assert.equal(target.objectType, 'ASSESSMENT_RESULT')
-  assert.equal(target.objectId, 'assessment-1')
-  assert.equal(target.routeCode, 'Y016140727')
-  assert.equal(hasLocatableTarget(target), true)
+test('reference-only source ignores incidental route code', () => {
+  const source = {
+    sourceType: 'KNOWLEDGE',
+    bindingType: 'NONE',
+    bindingStatus: 'VALID',
+    routeCode: 'Y016140727'
+  }
+
+  assert.equal(hasLocatableTarget(sourceToMapTarget(source)), false)
+})
+
+test('historical source without binding contract is not locatable', () => {
+  const source = {
+    sourceType: 'BUSINESS_DATA',
+    mapTarget: { objectType: 'DISEASE', objectId: 'legacy-1' }
+  }
+
+  assert.equal(hasLocatableTarget(sourceToMapTarget(source)), false)
+})
+
+test('not found and invalid bindings are not locatable', () => {
+  for (const bindingStatus of ['NOT_FOUND', 'INVALID']) {
+    const source = {
+      bindingType: 'OBJECT',
+      bindingStatus,
+      mapTarget: { objectType: 'DISEASE', objectId: 'disease-1' }
+    }
+    assert.equal(hasLocatableTarget(sourceToMapTarget(source)), false)
+  }
 })
