@@ -92,6 +92,11 @@ test('AI trace drawer renders evidence source rows for admin troubleshooting', (
   assert.match(content, /sourceTitle\(source\)/)
   assert.match(content, /sourceExcerpt\(source\)/)
   assert.match(content, /sourceType\(source\)/)
+  assert.match(content, /来源绑定/)
+  assert.match(content, /bindingType\(source\)/)
+  assert.match(content, /bindingOrigin\(source\)/)
+  assert.match(content, /bindingStatus\(source\)/)
+  assert.match(content, /bindingReason\(source\)/)
 })
 
 test('AI traces page shows loading state before empty state', () => {

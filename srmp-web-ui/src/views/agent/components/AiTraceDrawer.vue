@@ -251,6 +251,12 @@
                 <strong>{{ sourceTitle(source) }}</strong>
               </div>
               <div v-if="sourceMeta(source)" class="source-meta">{{ sourceMeta(source) }}</div>
+              <div class="source-binding">
+                <span>来源绑定：{{ bindingType(source) }}</span>
+                <span>绑定来源：{{ bindingOrigin(source) }}</span>
+                <span>状态：{{ bindingStatus(source) }}</span>
+                <span v-if="bindingReason(source)">原因：{{ bindingReason(source) }}</span>
+              </div>
               <div v-if="sourceExcerpt(source)" class="source-excerpt">{{ sourceExcerpt(source) }}</div>
             </div>
           </div>
@@ -419,6 +425,32 @@ function sourceMeta(source: Record<string, any>) {
     stringValue(source.objectType, source.object_type, source.payload?.objectType, source.payload?.object_type),
     stringValue(source.objectId, source.object_id, source.sourceId, source.source_id, source.id, source.payload?.objectId, source.payload?.object_id, source.payload?.sourceId)
   ].filter(Boolean).join(' / ')
+}
+
+function bindingValue(source: Record<string, any>, camel: string, snake: string, fallback = '-') {
+  return stringValue(
+    source[camel],
+    source[snake],
+    source.payload?.[camel],
+    source.payload?.[snake],
+    fallback
+  )
+}
+
+function bindingType(source: Record<string, any>) {
+  return bindingValue(source, 'bindingType', 'binding_type', '历史记录未标准化')
+}
+
+function bindingOrigin(source: Record<string, any>) {
+  return bindingValue(source, 'bindingOrigin', 'binding_origin')
+}
+
+function bindingStatus(source: Record<string, any>) {
+  return bindingValue(source, 'bindingStatus', 'binding_status')
+}
+
+function bindingReason(source: Record<string, any>) {
+  return bindingValue(source, 'bindingReason', 'binding_reason', '')
 }
 
 function sourceKey(source: Record<string, any>) {
@@ -677,6 +709,20 @@ function stringValue(...values: any[]) {
   color: #64748b;
   font-size: 12px;
   word-break: break-word;
+}
+
+.source-binding {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 5px;
+  color: #475569;
+  font-size: 12px;
+}
+
+.source-binding span:first-child {
+  color: #1d4ed8;
+  font-weight: 600;
 }
 
 pre {
