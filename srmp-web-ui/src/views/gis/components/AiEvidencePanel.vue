@@ -39,6 +39,9 @@
           <div class="source-row">
             <span class="source-index">{{ index + 1 }}</span>
             <strong class="source-title">{{ sourceTitle(source) }}</strong>
+            <span class="binding-status" :class="bindingStatusClass(source)">
+              {{ bindingStatusLabel(source) }}
+            </span>
             <span v-if="source.score !== undefined && source.score !== null" class="source-score">{{ formatScore(source.score) }}</span>
           </div>
           <div class="map-target" :class="{ empty: !canLocateSource(source) }">
@@ -48,7 +51,7 @@
             <template v-if="canLocateSource(source)">
               <el-button size="small" link @click="locateSource(source)">地图定位</el-button>
             </template>
-            <span v-else class="source-unlocated">仅参考资料</span>
+            <span v-else class="source-unlocated">{{ bindingStatusLabel(source) }}</span>
             <el-button size="small" link @click="askWithSource(source)">{{ sourceAskLabel(source) }}</el-button>
             <el-button size="small" link @click="copySource(source)">复制来源</el-button>
           </div>
@@ -233,7 +236,28 @@ function canLocateSource(source: any) {
   return hasLocatableTarget(sourceToMapTarget(source))
 }
 
+function bindingStatusLabel(source: any) {
+  const type = String(source?.bindingType || source?.binding_type || 'NONE').toUpperCase()
+  const status = String(source?.bindingStatus || source?.binding_status || 'UNVERIFIED').toUpperCase()
+  if (status === 'NOT_FOUND') return '对象已变更或不存在'
+  if (status === 'INVALID') return '定位信息异常'
+  if (type === 'OBJECT') return status === 'VALID' ? '地图对象' : '地图对象（待验证）'
+  if (type === 'RANGE') return status === 'VALID' ? '地图范围' : '地图范围（待验证）'
+  return '仅参考资料'
+}
+
+function bindingStatusClass(source: any) {
+  const type = String(source?.bindingType || source?.binding_type || 'NONE').toUpperCase()
+  const status = String(source?.bindingStatus || source?.binding_status || 'UNVERIFIED').toUpperCase()
+  if (status === 'NOT_FOUND') return 'not-found'
+  if (status === 'INVALID') return 'invalid'
+  if (type === 'NONE') return 'reference'
+  return status === 'VALID' ? 'verified' : 'unverified'
+}
+
 function referenceTargetLabel(source: any) {
+  const reason = source?.bindingReason || source?.binding_reason
+  if (reason) return `${bindingStatusLabel(source)}｜${reason}`
   const kind = categoryLabel(classifySource(source))
   return `${kind}｜暂无地图位置`
 }
@@ -247,13 +271,13 @@ function locateSource(source: any) {
 }
 
 function askWithSource(source: any) {
-  const target = sourceToMapTarget(source)
-  emit('ask-with-source', {
-    ...source,
-    mapTarget: target,
+  emit('ask-with-source', source.followupContext || source.followup_context || {
+    sourceId: source.sourceId || source.source_id,
+    sourceType: source.sourceType || source.source_type,
     sourceTitle: sourceTitle(source),
-    sourceExcerpt: sourceExcerptText(source),
-    hasMapTarget: hasLocatableTarget(target)
+    contentExcerpt: sourceExcerptText(source),
+    bindingType: 'NONE',
+    bindingStatus: 'UNVERIFIED'
   })
 }
 
@@ -419,6 +443,32 @@ function formatScore(value: any) {
 
 .source-score {
   color: #64748b;
+}
+
+.binding-status {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.binding-status.verified {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.binding-status.unverified {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.binding-status.not-found,
+.binding-status.invalid {
+  background: #fee2e2;
+  color: #b91c1c;
 }
 
 .map-target {

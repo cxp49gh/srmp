@@ -241,7 +241,7 @@ import AiTraceDrawer from '../../agent/components/AiTraceDrawer.vue'
 import MapAiPlanPreviewDrawer from './MapAiPlanPreviewDrawer.vue'
 import MapAiWorkbench from './map-ai/MapAiWorkbench.vue'
 import { copyText } from '../../../utils/clipboard'
-import { gisContextTypeLabel, sourceToMapTarget, type GisSourceMapTarget } from '../../../utils/gisUnifiedContext'
+import { gisContextTypeLabel, type GisSourceMapTarget } from '../../../utils/gisUnifiedContext'
 import { formatMetricValue, getMetricGrade, getMetricMeta, getMetricValue, gradeLabel } from '../../../utils/roadConditionMetrics'
 import { assessmentAnalyzeLabel, assessmentOperationHint, assessmentSolutionAction } from '../../../utils/mapAssessmentSemantics'
 import { buildWaitFeedback, formatElapsedMs, normalizeLangGraphDiagnostics, summarizeRunTiming, type LangGraphDiagnostics } from '../../../utils/aiRunFeedback'
@@ -1506,43 +1506,9 @@ function locateEvidenceSource(target: GisSourceMapTarget) {
   emit('locate-source', target)
 }
 
-function askWithSource(source: any) {
-  pendingSourceFollowupContext.value = buildSourceFollowupContext(source)
-  emit('ask-with-source', source)
-}
-
-function buildSourceFollowupContext(source: any) {
-  const existing = (source?.followupContext || source?.followup_context || {}) as Record<string, any>
-  const target = sourceToMapTarget(source)
-  const sourceTitle = source?.sourceTitle || source?.source_title || source?.title || existing.sourceTitle || existing.source_title || target.title || '参考来源'
-  const contentExcerpt = sourceExcerptText(source) || existing.contentExcerpt || existing.content_excerpt || ''
-  return {
-    ...existing,
-    sourceId: source?.sourceId || source?.source_id || source?.chunkId || source?.chunk_id || source?.documentId || source?.document_id || existing.sourceId,
-    sourceType: source?.sourceType || source?.source_type || existing.sourceType,
-    sourceTitle,
-    contentExcerpt,
-    mapTarget: target,
-    hasMapTarget: Boolean(target.objectId || target.routeCode || target.geometry || target.bbox || target.startStake || target.endStake)
-  }
-}
-
-function sourceExcerptText(source: any) {
-  const metadata = source?.metadata || source?.meta || {}
-  const value = [
-    source?.sourceExcerpt,
-    source?.content,
-    source?.text,
-    source?.contentExcerpt,
-    source?.content_excerpt,
-    source?.excerpt,
-    source?.summary,
-    metadata.content,
-    metadata.text,
-    metadata.excerpt,
-    metadata.summary
-  ].find((item) => String(item ?? '').trim())
-  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 260)
+function askWithSource(followupContext: any) {
+  pendingSourceFollowupContext.value = { ...(followupContext || {}) }
+  emit('ask-with-source', followupContext)
 }
 
 function openTrace(execution: Record<string, any>) {

@@ -49,6 +49,20 @@ export interface MapRegionAnalysisRequest {
   options?: Record<string, any>
 }
 
+export interface SourceBindingVerifyRequest {
+  projectId: string
+  bindingType: 'OBJECT' | 'RANGE'
+  mapTarget: Record<string, any>
+}
+
+export interface SourceBindingVerifyResponse {
+  bindingStatus: 'VALID' | 'NOT_FOUND' | 'INVALID'
+  bindingReason?: string
+  resolvedTarget?: Record<string, any>
+  recommendedLayer?: 'roadRoute' | 'roadSection' | 'disease' | 'assessment' | null
+  matchedCount: number
+}
+
 export function getLayers(): Promise<string[]> {
   return request.get('/api/gis/layers')
 }
@@ -87,6 +101,10 @@ export function spatialQuery(data: MapRegionAnalysisRequest): Promise<Record<str
 
 export function analyzeMapRegion(data: MapRegionAnalysisRequest): Promise<Record<string, any>> {
   return request.post('/api/gis/map-region/analysis', data)
+}
+
+export function verifySourceBinding(data: SourceBindingVerifyRequest): Promise<SourceBindingVerifyResponse> {
+  return request.post('/api/gis/source-binding/verify', data)
 }
 
 export function saveMapRegionSolutionDraft(data: AiSolutionDraftSaveRequest): Promise<Record<string, any>> {

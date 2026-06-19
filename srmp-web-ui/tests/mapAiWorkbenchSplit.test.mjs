@@ -297,7 +297,7 @@ test('assistant evidence actions distinguish map targets from plain references',
   const oneMapContent = read('src/views/gis/OneMap.vue')
 
   assert.match(evidenceContent, /<template v-if="canLocateSource\(source\)">[\s\S]*地图定位[\s\S]*<\/template>/)
-  assert.match(evidenceContent, /<span v-else class="source-unlocated">仅参考资料<\/span>/)
+  assert.match(evidenceContent, /<span v-else class="source-unlocated">\{\{ bindingStatusLabel\(source\) \}\}<\/span>/)
   assert.match(evidenceContent, /sourceAskLabel\(source\)/)
   assert.match(evidenceContent, /function referenceTargetLabel\(source: any\)[\s\S]*暂无地图位置/)
   assert.match(evidenceContent, /function targetLabel\(source: any\)[\s\S]*if \(!hasLocatableTarget\(target\)\) return referenceTargetLabel\(source\)/)
@@ -308,15 +308,34 @@ test('assistant evidence actions distinguish map targets from plain references',
   assert.match(oneMapContent, /暂无地图定位信息/)
 })
 
-test('one map enables road sections by default and loads missing source layers before locating', () => {
+test('evidence source actions use binding diagnostics and verify before locating', () => {
+  const evidenceContent = read('src/views/gis/components/AiEvidencePanel.vue')
+  const agentContent = read('src/views/gis/components/AgentChatFloat.vue')
+  const oneMapContent = read('src/views/gis/OneMap.vue')
+
+  assert.match(evidenceContent, /bindingStatusLabel\(source\)/)
+  assert.match(evidenceContent, /bindingStatusClass\(source\)/)
+  assert.match(evidenceContent, /function canLocateSource\(source: any\)[\s\S]*hasLocatableTarget/)
+  assert.match(evidenceContent, /emit\('ask-with-source', source\.followupContext \|\| source\.followup_context/)
+  assert.doesNotMatch(agentContent, /sourceToMapTarget\(source\)[\s\S]*buildSourceFollowupContext/)
+  assert.match(oneMapContent, /verifySourceBinding/)
+  assert.match(oneMapContent, /await verifySourceBinding\(\{[\s\S]*projectId:/)
+  assert.match(oneMapContent, /verification\.bindingStatus === 'VALID'/)
+  assert.match(oneMapContent, /normalizeIncomingMapTarget\(verification\.resolvedTarget/)
+  assert.doesNotMatch(oneMapContent, /定位失败后.*当前对象/)
+})
+
+test('one map enables road sections by default and loads verified source layers before locating', () => {
   const oneMapContent = read('src/views/gis/OneMap.vue')
 
   assert.match(oneMapContent, /const layers = reactive<LayerState>\(\{[\s\S]*roadRoute: true,[\s\S]*roadSection: true,/)
   assert.match(oneMapContent, /async function handleLocateAiSource/)
-  assert.match(oneMapContent, /await ensureSourceTargetLayer\(target\)/)
+  assert.match(oneMapContent, /await verifySourceBinding\(/)
+  assert.match(oneMapContent, /await ensureSourceTargetLayer\(resolvedTarget, layerKey\)/)
   assert.match(oneMapContent, /function sourceLayerLoader\(layerKey: SourceLayerKey, params: GisLayerQuery\)/)
   assert.match(oneMapContent, /await loadLayerSafely\(layerKey, \(\) => sourceLayerLoader\(layerKey, params\), signature\)/)
-  assert.match(oneMapContent, /if \(locateMapTarget\(target\)\)[\s\S]*await ensureSourceTargetLayer\(target\)[\s\S]*locateMapTarget\(target\)/)
+  assert.match(oneMapContent, /verification\.bindingStatus === 'VALID'[\s\S]*ensureSourceTargetLayer\(resolvedTarget, layerKey\)[\s\S]*locateMapTarget\(resolvedTarget\)/)
+  assert.doesNotMatch(oneMapContent, /if \(locateMapTarget\(target\)\)[\s\S]*verifySourceBinding/)
 })
 
 test('assistant collapsed detail summary avoids technical runtime labels', () => {

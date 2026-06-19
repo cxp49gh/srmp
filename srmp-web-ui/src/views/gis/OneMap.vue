@@ -123,6 +123,7 @@ import {
   getRoadRoutes,
   getRoadSections,
   saveMapRegionSolutionDraft,
+  verifySourceBinding,
   type GisLayerQuery
 } from '../../api/gis'
 import { mapAgentRun } from '../../api/agent'
@@ -1500,14 +1501,12 @@ function sourceExcerptText(source: Record<string, any>) {
 
 async function handleLocateAiSource(source: Record<string, any> | GisSourceMapTarget) {
   const target = normalizeIncomingMapTarget(source)
-  if (locateMapTarget(target)) {
-    ElMessage.success('已定位到来源关联的地图对象/区域')
-    return
-  }
-
-  const layerKey = sourceLayerKey(target)
-  if (!layerKey) {
-    ElMessage.warning('该来源暂未携带可加载的对象类型、对象编号、路线桩号、bbox 或 geometry')
+  const bindingType = String(target.bindingType || '').toUpperCase()
+  const bindingStatus = String(target.bindingStatus || '').toUpperCase()
+  if (!['OBJECT', 'RANGE'].includes(bindingType)
+    || ['NOT_FOUND', 'INVALID'].includes(bindingStatus)
+    || !hasLocatableTarget(target)) {
+    ElMessage.warning(target.bindingReason || '该来源没有可验证的地图绑定')
     return
   }
   if (!hasProjectSelected()) {
@@ -1516,19 +1515,71 @@ async function handleLocateAiSource(source: Record<string, any> | GisSourceMapTa
   }
 
   try {
-    await ensureSourceTargetLayer(target)
-    if (locateMapTarget(target)) {
-      ElMessage.success(`已加载${layerKeyText(layerKey)}图层并定位到来源对象`)
+    const verification = await verifySourceBinding({
+      projectId: String(query.projectId || '').trim(),
+      bindingType: bindingType as 'OBJECT' | 'RANGE',
+      mapTarget: sourceVerificationMapTarget(target)
+    })
+    if (verification.bindingStatus === 'VALID') {
+      const resolvedTarget = applyRecommendedLayerTarget(
+        normalizeIncomingMapTarget(verification.resolvedTarget || {},
+          bindingType,
+          verification.bindingStatus,
+          verification.bindingReason
+        ),
+        verification.recommendedLayer
+      )
+      const layerKey = verifiedSourceLayerKey(verification.recommendedLayer, resolvedTarget)
+      if (layerKey) await ensureSourceTargetLayer(resolvedTarget, layerKey)
+      if (locateMapTarget(resolvedTarget)) {
+        ElMessage.success(layerKey
+          ? `已验证来源并定位到${layerKeyText(layerKey)}图层`
+          : '已验证并定位到来源关联区域')
+        return
+      }
+      ElMessage.warning(verification.bindingReason || '来源已验证，但地图图层中暂未找到对应对象')
       return
     }
-    ElMessage.warning(`已加载${layerKeyText(layerKey)}图层，但当前项目中未找到该来源对象`)
+    ElMessage.warning(verification.bindingReason || '当前项目中未找到该来源对象或范围')
   } catch (error: any) {
     ElMessage.error(errorMessage(error))
   }
 }
 
-async function ensureSourceTargetLayer(target: GisSourceMapTarget) {
-  const layerKey = sourceLayerKey(target)
+function sourceVerificationMapTarget(target: GisSourceMapTarget) {
+  return {
+    objectType: target.objectType,
+    objectId: target.objectId,
+    routeCode: target.routeCode,
+    startStake: target.startStake,
+    endStake: target.endStake,
+    geometry: target.geometry,
+    bbox: target.bbox
+  }
+}
+
+function verifiedSourceLayerKey(
+  recommendedLayer: string | null | undefined,
+  target: GisSourceMapTarget
+): SourceLayerKey | '' {
+  if (['roadRoute', 'roadSection', 'disease', 'assessment'].includes(String(recommendedLayer || ''))) {
+    return recommendedLayer as SourceLayerKey
+  }
+  return sourceLayerKey(target)
+}
+
+function applyRecommendedLayerTarget(
+  target: GisSourceMapTarget,
+  recommendedLayer: string | null | undefined
+) {
+  if (recommendedLayer === 'roadSection' && target.objectType === 'EVALUATION_UNIT') {
+    return { ...target, objectType: 'ROAD_SECTION' }
+  }
+  return target
+}
+
+async function ensureSourceTargetLayer(target: GisSourceMapTarget, preferredLayer?: SourceLayerKey) {
+  const layerKey = preferredLayer || sourceLayerKey(target)
   if (!layerKey) return false
   layers[layerKey] = true
   const params = sourceTargetQuery(layerQuery(), target) as GisLayerQuery
@@ -1545,7 +1596,20 @@ function sourceLayerLoader(layerKey: SourceLayerKey, params: GisLayerQuery) {
   return getAssessmentResults(params)
 }
 
-function normalizeIncomingMapTarget(source: Record<string, any> | GisSourceMapTarget): GisSourceMapTarget {
+function normalizeIncomingMapTarget(
+  source: Record<string, any> | GisSourceMapTarget,
+  bindingType?: string,
+  bindingStatus?: string,
+  bindingReason?: string
+): GisSourceMapTarget {
+  if (bindingType) {
+    return sourceToMapTarget({
+      bindingType,
+      bindingStatus,
+      bindingReason,
+      mapTarget: source
+    })
+  }
   if (source && (source as GisSourceMapTarget).raw && ((source as GisSourceMapTarget).objectId || (source as GisSourceMapTarget).routeCode || (source as GisSourceMapTarget).geometry || (source as GisSourceMapTarget).bbox)) {
     return source as GisSourceMapTarget
   }
