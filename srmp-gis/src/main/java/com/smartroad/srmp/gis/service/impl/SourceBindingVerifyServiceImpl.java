@@ -3,6 +3,7 @@ package com.smartroad.srmp.gis.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartroad.srmp.gis.dto.SourceBindingVerifyRequest;
 import com.smartroad.srmp.gis.service.SourceBindingVerifyService;
+import com.smartroad.srmp.gis.util.GeoJsonParseUtils;
 import com.smartroad.srmp.tenant.context.TenantContextHolder;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -137,6 +138,12 @@ public class SourceBindingVerifyServiceImpl implements SourceBindingVerifyServic
         putIfPresent(resolved, "routeCode", actualRoute);
         putIfPresent(resolved, "startStake", actualStart);
         putIfPresent(resolved, "endStake", actualEnd);
+        Object geometry = GeoJsonParseUtils.parse(
+                text(rowValue(row, "geometry_geojson", "geometryGeojson"))
+        );
+        if (geometry instanceof Map && !((Map<?, ?>) geometry).isEmpty()) {
+            resolved.put("geometry", geometry);
+        }
         return result(
                 "VALID", "来源对象已在当前项目验证",
                 resolved, recommendedLayer(objectType), 1
@@ -301,7 +308,9 @@ public class SourceBindingVerifyServiceImpl implements SourceBindingVerifyServic
                     + "and r.deleted=false))";
         }
         if ("DISEASE".equals(objectType)) {
-            return "select id,route_code,start_stake,end_stake from disease_record "
+            return "select id,route_code,start_stake,end_stake,"
+                    + "ST_AsGeoJSON(geom) as geometry_geojson "
+                    + "from disease_record "
                     + "where tenant_id=:tenantId and project_id=:projectId "
                     + "and id=:objectId and deleted=false";
         }
