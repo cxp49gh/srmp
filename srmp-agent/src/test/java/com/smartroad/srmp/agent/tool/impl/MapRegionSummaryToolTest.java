@@ -88,9 +88,74 @@ public class MapRegionSummaryToolTest {
         AiToolResult result = tool.execute(context, mapOf("limit", 50));
 
         assertTrue(result.isSuccess());
-        String totalLengthSql = jdbcTemplate.sqlAt(2);
+        String totalLengthSql =
+                jdbcTemplate.firstSqlContaining("sum(coalesce(s.length_km");
         assertTrue(totalLengthSql.contains("from road_section_line s"));
         assertTrue(totalLengthSql.contains("sum(coalesce(s.length_km"));
+    }
+
+    @Test
+    public void queryRouteSummaryAddsVerifiedRoadRouteTargetToQueryScope() throws Exception {
+        MapRegionSummaryTool tool = new MapRegionSummaryTool();
+        CapturingJdbcTemplate jdbcTemplate = new CapturingJdbcTemplate();
+        jdbcTemplate.enqueueList(java.util.Collections.singletonList(mapOf(
+                "id", "route-1",
+                "route_code", "C001140727",
+                "start_stake", 0,
+                "end_stake", 10.972
+        )));
+        setField(tool, "namedParameterJdbcTemplate", jdbcTemplate);
+
+        MapAiContext mapContext = new MapAiContext();
+        mapContext.setTenantId("tenant-a");
+        mapContext.setMode("ROUTE");
+        mapContext.setRouteCode("C001140727");
+        mapContext.setExtra(mapOf(
+                "rawContext", mapOf(
+                        "query", mapOf("projectId", "project-a", "sectionTier", "LINE")
+                )
+        ));
+        AiToolContext context = new AiToolContext();
+        context.setTenantId("tenant-a");
+        context.setMapContext(mapContext);
+
+        AiToolResult result = tool.execute(context, mapOf("limit", 50));
+
+        assertTrue(result.isSuccess());
+        Map<?, ?> scope = (Map<?, ?>) ((Map<?, ?>) result.getData()).get("queryScope");
+        assertEquals("ROAD_ROUTE", scope.get("objectType"));
+        assertEquals("route-1", scope.get("objectId"));
+        assertEquals("C001140727", scope.get("routeCode"));
+        assertEquals(0, ((Number) scope.get("startStake")).intValue());
+        assertEquals(10.972, ((Number) scope.get("endStake")).doubleValue(), 0.0001);
+        assertTrue(jdbcTemplate.firstSqlContaining("limit 2")
+                .contains("from road_route r"));
+    }
+
+    @Test
+    public void queryRouteSummaryDoesNotInventTargetWhenRouteIsUnresolved() throws Exception {
+        MapRegionSummaryTool tool = new MapRegionSummaryTool();
+        CapturingJdbcTemplate jdbcTemplate = new CapturingJdbcTemplate();
+        jdbcTemplate.enqueueList(new ArrayList<Map<String, Object>>());
+        setField(tool, "namedParameterJdbcTemplate", jdbcTemplate);
+
+        MapAiContext mapContext = new MapAiContext();
+        mapContext.setTenantId("tenant-a");
+        mapContext.setMode("ROUTE");
+        mapContext.setRouteCode("MISSING");
+        mapContext.setExtra(mapOf(
+                "rawContext", mapOf("query", mapOf("projectId", "project-a"))
+        ));
+        AiToolContext context = new AiToolContext();
+        context.setTenantId("tenant-a");
+        context.setMapContext(mapContext);
+
+        AiToolResult result = tool.execute(context, mapOf("limit", 50));
+
+        assertTrue(result.isSuccess());
+        Map<?, ?> scope = (Map<?, ?>) ((Map<?, ?>) result.getData()).get("queryScope");
+        assertEquals(null, scope.get("objectId"));
+        assertEquals(null, scope.get("objectType"));
     }
 
     private void setField(Object target, String fieldName, Object value) throws Exception {
@@ -109,10 +174,16 @@ public class MapRegionSummaryToolTest {
 
     private static class CapturingJdbcTemplate extends NamedParameterJdbcTemplate {
         private final List<String> sqlList = new ArrayList<>();
+        private final java.util.Deque<List<Map<String, Object>>> listResponses =
+                new java.util.ArrayDeque<>();
         private SqlParameterSource lastParams;
 
         CapturingJdbcTemplate() {
             super(new DriverManagerDataSource());
+        }
+
+        void enqueueList(List<Map<String, Object>> rows) {
+            listResponses.addLast(rows);
         }
 
         @Override
@@ -127,7 +198,9 @@ public class MapRegionSummaryToolTest {
         public List<Map<String, Object>> queryForList(String sql, SqlParameterSource paramSource) {
             sqlList.add(sql);
             lastParams = paramSource;
-            return new ArrayList<Map<String, Object>>();
+            return listResponses.isEmpty()
+                    ? new ArrayList<Map<String, Object>>()
+                    : listResponses.removeFirst();
         }
 
         String joinedSql() {
@@ -140,6 +213,15 @@ public class MapRegionSummaryToolTest {
 
         String sqlAt(int index) {
             return sqlList.get(index);
+        }
+
+        String firstSqlContaining(String fragment) {
+            for (String sql : sqlList) {
+                if (sql.contains(fragment)) {
+                    return sql;
+                }
+            }
+            return "";
         }
     }
 }

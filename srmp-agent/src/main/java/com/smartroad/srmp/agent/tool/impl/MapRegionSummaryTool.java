@@ -31,16 +31,17 @@ public class MapRegionSummaryTool extends AbstractJdbcAiTool {
             if (!geometry.isEmpty()) {
                 return executeGeometrySummary(context, args, scope, geometry, start);
             }
+            MapSqlParameterSource p = baseParams(context, args);
+            Map<String, Object> queryScope = resolvedQueryScope(scope, p);
             if (map != null && map.getRegionSummary() != null && !map.getRegionSummary().isEmpty()) {
                 Map<String, Object> data = new LinkedHashMap<>(map.getRegionSummary());
-                data.put("queryScope", scope.toQueryScope());
+                data.put("queryScope", queryScope);
                 data.put("scopeWarnings", scope.getScopeWarnings());
                 data.put("returnedCount", 1);
                 data.put("totalCount", 1);
                 data.put("truncated", false);
                 return AiToolResult.success(name(), "使用前端已传入的区域统计摘要", data, 1, System.currentTimeMillis() - start);
             }
-            MapSqlParameterSource p = baseParams(context, args);
             String routeFilters = routeFilter("r") + directProjectFilter("r");
             String sectionFilters = routeFilter("s") + directProjectFilter("s") + directionFilter("s") + stakeOverlapFilter("s");
             String diseaseFilters = routeFilter("d") + directProjectFilter("d") + directionFilter("d") + stakeOverlapFilter("d");
@@ -61,7 +62,7 @@ public class MapRegionSummaryTool extends AbstractJdbcAiTool {
                     "select d.disease_name, d.severity, count(*) count from disease_record d where d.tenant_id=:tenantId and d.deleted=false " + diseaseFilters +
                             " group by d.disease_name, d.severity order by count desc limit 10", p);
             data.put("diseaseByType", diseaseByType);
-            data.put("queryScope", scope.toQueryScope());
+            data.put("queryScope", queryScope);
             data.put("scopeWarnings", scope.getScopeWarnings());
             data.put("returnedCount", diseaseByType.size());
             data.put("totalCount", data.get("diseaseCount"));
@@ -116,6 +117,44 @@ public class MapRegionSummaryTool extends AbstractJdbcAiTool {
         data.put("totalCount", data.get("diseaseCount"));
         data.put("truncated", false);
         return AiToolResult.success(name(), "已按框选区域重新生成统计摘要", data, diseaseByType.size(), System.currentTimeMillis() - start);
+    }
+
+    private Map<String, Object> resolvedQueryScope(
+            AiBusinessScope scope,
+            MapSqlParameterSource params
+    ) {
+        Map<String, Object> queryScope =
+                new LinkedHashMap<>(scope.toQueryScope());
+        if (safe(scope.getProjectId()).isEmpty()
+                || safe(scope.getRouteCode()).isEmpty()) {
+            return queryScope;
+        }
+
+        List<Map<String, Object>> routes =
+                namedParameterJdbcTemplate.queryForList(
+                        "select r.id, r.route_code, r.start_stake, r.end_stake "
+                                + "from road_route r "
+                                + "where r.tenant_id=:tenantId "
+                                + "and r.project_id=:projectId "
+                                + "and r.route_code=:routeCode "
+                                + "and r.deleted=false order by r.id limit 2",
+                        params
+                );
+        if (routes.size() != 1) {
+            return queryScope;
+        }
+
+        Map<String, Object> route = routes.get(0);
+        queryScope.put("objectType", "ROAD_ROUTE");
+        queryScope.put("objectId", route.get("id"));
+        queryScope.put("routeCode", route.get("route_code"));
+        if (route.get("start_stake") != null) {
+            queryScope.put("startStake", route.get("start_stake"));
+        }
+        if (route.get("end_stake") != null) {
+            queryScope.put("endStake", route.get("end_stake"));
+        }
+        return queryScope;
     }
 
     private Object first(String sql, MapSqlParameterSource p) {

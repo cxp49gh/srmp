@@ -216,7 +216,7 @@ class JavaToolSourceNormalizationTest(unittest.TestCase):
         self.assertNotIn("mapTarget", sources[0])
         self.assertNotIn("mapTarget", sources[0]["followupContext"])
 
-    def test_region_route_only_query_scope_is_not_locatable(self):
+    def test_region_route_scope_becomes_one_road_route_source(self):
         sources = extract_business_sources([
             ToolResult(
                 toolName="gis.queryRegionSummary",
@@ -224,22 +224,44 @@ class JavaToolSourceNormalizationTest(unittest.TestCase):
                 summary="查询到路线统计",
                 count=1,
                 data={
-                    "queryScope": {"routeCode": "Y016140727"},
+                    "queryScope": {
+                        "projectId": "project-a",
+                        "objectType": "ROAD_ROUTE",
+                        "objectId": "route-1",
+                        "routeCode": "C001140727",
+                        "startStake": 0,
+                        "endStake": 10.972,
+                    },
                     "routeCount": 1,
                     "diseaseSummary": {"diseaseCount": 3},
                 },
             )
         ])
 
-        self.assertEqual(2, len(sources))
-        self.assertEqual(
-            {"gis.queryRegionSummary:summary", "gis.queryRegionSummary:scope"},
-            {source["sourceId"] for source in sources},
-        )
-        for source in sources:
-            self.assertNotIn(source.get("bindingType"), {"OBJECT", "RANGE"})
-            self.assertNotIn("mapTarget", source)
-            self.assertNotIn("mapTarget", source["followupContext"])
+        self.assertEqual(1, len(sources))
+        source = sources[0]
+        self.assertEqual("区域统计｜C001140727", source["sourceTitle"])
+        self.assertEqual("OBJECT", source["bindingType"])
+        self.assertEqual("ROAD_ROUTE", source["mapTarget"]["objectType"])
+        self.assertEqual("route-1", source["mapTarget"]["objectId"])
+
+    def test_unresolved_region_route_scope_stays_non_locatable(self):
+        sources = extract_business_sources([
+            ToolResult(
+                toolName="gis.queryRegionSummary",
+                success=True,
+                summary="查询到路线统计",
+                count=1,
+                data={
+                    "queryScope": {"routeCode": "MISSING"},
+                    "routeCount": 0,
+                },
+            )
+        ])
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("NONE", sources[0]["bindingType"])
+        self.assertNotIn("mapTarget", sources[0])
 
     def test_empty_items_query_scope_object_is_an_object_binding(self):
         sources = extract_business_sources([
