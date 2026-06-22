@@ -64,6 +64,40 @@ class JavaToolSourceNormalizationTest(unittest.TestCase):
             source["followupContext"],
         )
 
+    def test_assessment_source_uses_result_row_id_not_assessed_object_id(self):
+        sources = extract_business_sources([
+            ToolResult(
+                toolName="gis.queryAssessmentResults",
+                success=True,
+                summary="查询到 1 条评定结果",
+                count=1,
+                data={
+                    "items": [
+                        {
+                            "id": "assessment-result-1",
+                            "object_type": "ROAD_SECTION_LINE",
+                            "object_id": "road-section-1",
+                            "route_code": "C001140727",
+                            "start_stake": 0.324,
+                            "end_stake": 10.972,
+                            "mqi": 97.254,
+                        }
+                    ]
+                },
+            )
+        ])
+
+        self.assertEqual(1, len(sources))
+        source = sources[0]
+        self.assertEqual("assessment-result-1", source["sourceId"])
+        self.assertEqual("ASSESSMENT_RESULT", source["mapTarget"]["objectType"])
+        self.assertEqual("assessment-result-1", source["mapTarget"]["objectId"])
+        self.assertEqual(
+            "assessment-result-1",
+            source["followupContext"]["mapTarget"]["objectId"],
+        )
+        self.assertEqual("road-section-1", source["raw"]["object_id"])
+
     def test_region_summary_source_uses_geometry_as_map_target(self):
         geometry = {"type": "Polygon", "coordinates": [[[112.1, 37.1], [112.2, 37.1], [112.2, 37.2], [112.1, 37.1]]]}
         sources = extract_business_sources([

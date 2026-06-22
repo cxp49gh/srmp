@@ -365,6 +365,13 @@ def _knowledge_source(hit: Dict[str, Any], idx: int) -> Dict[str, Any]:
     return _compact(source)
 
 
+def _business_object_id(item: Dict[str, Any], object_type: str) -> Any:
+    normalized_type = _normalize_object_type(object_type)
+    if normalized_type == "ASSESSMENT_RESULT":
+        return _first(item, "id", "objectId", "sourceId", "source_id")
+    return _first(item, "objectId", "object_id", "id", "sourceId", "source_id")
+
+
 def _business_source_candidate(
     item: Dict[str, Any],
     query_scope: Dict[str, Any],
@@ -377,7 +384,7 @@ def _business_source_candidate(
         object_type = _normalize_object_type(
             _first(query_scope, "objectType", "object_type", "type", "layerType")
         )
-    object_id = _first(item, "objectId", "object_id", "id", "sourceId", "source_id")
+    object_id = _business_object_id(item, object_type)
     if object_id in (None, ""):
         object_id = _first(query_scope, "objectId", "object_id", "id")
     route_code = _business_candidate_value(
