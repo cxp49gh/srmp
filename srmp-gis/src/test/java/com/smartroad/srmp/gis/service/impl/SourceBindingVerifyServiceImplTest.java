@@ -23,6 +23,7 @@ import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 public class SourceBindingVerifyServiceImplTest {
@@ -139,6 +140,34 @@ public class SourceBindingVerifyServiceImplTest {
 
         assertEquals("INVALID", result.get("bindingStatus"));
         assertTrue(String.valueOf(result.get("bindingReason")).contains("桩号"));
+    }
+
+    @Test
+    public void diseaseObjectReturnsVerifiedGeometry() {
+        jdbc.enqueue(Collections.singletonList(mapOf(
+                "id", "disease-1",
+                "route_code", "C001140727",
+                "start_stake", BigDecimal.ZERO,
+                "end_stake", BigDecimal.ZERO,
+                "geometry_geojson",
+                "{\"type\":\"Point\",\"coordinates\":[112.123,37.456]}"
+        )));
+
+        Map<String, Object> result = service.verify(request(
+                "project-a",
+                "OBJECT",
+                mapOf(
+                        "objectType", "DISEASE",
+                        "objectId", "disease-1"
+                )
+        ));
+
+        assertEquals("VALID", result.get("bindingStatus"));
+        Map<?, ?> target = (Map<?, ?>) result.get("resolvedTarget");
+        Map<?, ?> geometry = (Map<?, ?>) target.get("geometry");
+        assertNotNull(geometry);
+        assertEquals("Point", geometry.get("type"));
+        assertTrue(jdbc.sqlAt(0).contains("ST_AsGeoJSON(geom)"));
     }
 
     @Test

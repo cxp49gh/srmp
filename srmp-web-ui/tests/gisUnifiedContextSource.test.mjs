@@ -78,3 +78,21 @@ test('not found and invalid bindings are not locatable', () => {
     assert.equal(hasLocatableTarget(sourceToMapTarget(source)), false)
   }
 })
+
+test('route summary keeps presentation title with strict route object target', () => {
+  const routeSummary = sourceToMapTarget({
+    sourceTitle: '区域统计｜C001140727',
+    sourceType: 'BUSINESS_DATA',
+    bindingType: 'OBJECT',
+    bindingStatus: 'UNVERIFIED',
+    mapTarget: {
+      objectType: 'ROAD_ROUTE',
+      objectId: 'route-1',
+      routeCode: 'C001140727'
+    }
+  })
+
+  assert.equal(routeSummary.title, '区域统计｜C001140727')
+  assert.equal(routeSummary.objectType, 'ROAD_ROUTE')
+  assert.equal(routeSummary.objectId, 'route-1')
+})

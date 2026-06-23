@@ -269,6 +269,14 @@ def extract_business_sources(tool_results: List[ToolResult], limit_per_tool: int
         default_object_type = BUSINESS_SOURCE_TOOL_TYPES.get(result.toolName, "")
         candidates = _extract_source_candidates(result.data)
         query_scope = _extract_query_scope(result.data)
+        if result.toolName == "gis.queryRegionSummary":
+            sources.append(
+                normalize_source(
+                    _region_summary_candidate(result, query_scope),
+                    origin="BUSINESS_QUERY",
+                )
+            )
+            continue
         for idx, item in enumerate(candidates[: max(1, limit_per_tool)]):
             if not isinstance(item, dict):
                 continue
@@ -286,13 +294,6 @@ def extract_business_sources(tool_results: List[ToolResult], limit_per_tool: int
             )
         if candidates:
             continue
-        if result.toolName == "gis.queryRegionSummary":
-            sources.append(
-                normalize_source(
-                    _region_summary_candidate(result),
-                    origin="BUSINESS_QUERY",
-                )
-            )
         if query_scope:
             sources.append(
                 normalize_source(
@@ -365,6 +366,13 @@ def _knowledge_source(hit: Dict[str, Any], idx: int) -> Dict[str, Any]:
     return _compact(source)
 
 
+def _business_object_id(item: Dict[str, Any], object_type: str) -> Any:
+    normalized_type = _normalize_object_type(object_type)
+    if normalized_type == "ASSESSMENT_RESULT":
+        return _first(item, "id", "objectId", "sourceId", "source_id")
+    return _first(item, "objectId", "object_id", "id", "sourceId", "source_id")
+
+
 def _business_source_candidate(
     item: Dict[str, Any],
     query_scope: Dict[str, Any],
@@ -377,7 +385,7 @@ def _business_source_candidate(
         object_type = _normalize_object_type(
             _first(query_scope, "objectType", "object_type", "type", "layerType")
         )
-    object_id = _first(item, "objectId", "object_id", "id", "sourceId", "source_id")
+    object_id = _business_object_id(item, object_type)
     if object_id in (None, ""):
         object_id = _first(query_scope, "objectId", "object_id", "id")
     route_code = _business_candidate_value(
@@ -439,25 +447,45 @@ def _business_source_candidate(
     return _compact(source)
 
 
-def _region_summary_candidate(result: ToolResult) -> Dict[str, Any]:
+def _region_summary_candidate(
+    result: ToolResult,
+    query_scope: Dict[str, Any],
+) -> Dict[str, Any]:
     data = result.data if isinstance(result.data, dict) else {}
+    scope = query_scope if isinstance(query_scope, dict) else {}
     geometry = data.get("geometry")
     bbox = data.get("bbox")
-    has_spatial_scope = geometry not in (None, "", [], {}) or bbox not in (
-        None,
-        "",
-        [],
-        {},
+    route_code = _first(scope, "routeCode", "route_code")
+    object_type = _normalize_object_type(
+        _first(scope, "objectType", "object_type")
     )
+    object_id = _first(scope, "objectId", "object_id")
     return _compact(
         {
             "sourceType": "BUSINESS_DATA",
-            "sourceTitle": "区域统计",
+            "sourceTitle": "｜".join(
+                part for part in ["区域统计", str(route_code or "")] if part
+            ),
             "toolName": result.toolName,
-            "objectType": "MAP_REGION" if has_spatial_scope else None,
+            "objectType": (
+                object_type
+                if object_type and object_id
+                else "MAP_REGION"
+                if geometry not in (None, "", [], {})
+                or bbox not in (None, "", [], {})
+                else None
+            ),
+            "objectId": str(object_id) if object_id not in (None, "") else None,
+            "routeCode": route_code,
+            "startStake": _first(scope, "startStake", "start_stake"),
+            "endStake": _first(scope, "endStake", "end_stake"),
             "geometry": geometry,
             "bbox": bbox,
-            "sourceId": f"{result.toolName}:summary",
+            "sourceId": (
+                str(object_id)
+                if object_id not in (None, "")
+                else f"{result.toolName}:summary"
+            ),
             "content": str(result.summary or "")[:500],
             "contentExcerpt": str(result.summary or "")[:500],
             "metadata": {

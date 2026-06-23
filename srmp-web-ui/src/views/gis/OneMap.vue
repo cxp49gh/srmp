@@ -1126,6 +1126,7 @@ async function loadLayer(layerKey: string, loader: () => Promise<GeoJsonFeatureC
 
 async function handleFeatureClick(layerKey: string, feature: any, layer: L.Layer) {
   if (regionMode.value !== 'NONE') return
+  clearAiSourceHighlight()
   const properties = normalizeFeatureProperties(layerKey, feature)
 
   if (properties.cluster || properties.objectType === 'DISEASE_CLUSTER') {
@@ -1432,6 +1433,7 @@ async function loadObjectDetail(properties: Record<string, any>) {
 }
 
 function clearSelection() {
+  clearAiSourceHighlight()
   objectDetailRequestGuard.invalidate()
   selectedObjectStatisticsRequestGuard.invalidate()
   selectedObjectStatistics.value = null
@@ -1522,7 +1524,12 @@ async function handleLocateAiSource(source: Record<string, any> | GisSourceMapTa
     })
     if (verification.bindingStatus === 'VALID') {
       const resolvedTarget = applyRecommendedLayerTarget(
-        normalizeIncomingMapTarget(verification.resolvedTarget || {},
+        normalizeIncomingMapTarget({
+          ...(verification.resolvedTarget || {}),
+          title: target.title,
+          sourceType: target.sourceType,
+          raw: target.raw
+        },
           bindingType,
           verification.bindingStatus,
           verification.bindingReason
@@ -1532,9 +1539,14 @@ async function handleLocateAiSource(source: Record<string, any> | GisSourceMapTa
       const layerKey = verifiedSourceLayerKey(verification.recommendedLayer, resolvedTarget)
       if (layerKey) await ensureSourceTargetLayer(resolvedTarget, layerKey)
       if (locateMapTarget(resolvedTarget)) {
-        ElMessage.success(layerKey
-          ? `已验证来源并定位到${layerKeyText(layerKey)}图层`
-          : '已验证并定位到来源关联区域')
+        const routeSummary = isRouteSummaryTarget(resolvedTarget)
+        ElMessage.success(
+          routeSummary
+            ? `已验证并高亮统计范围：${resolvedTarget.routeCode || '当前路线'}`
+            : layerKey
+              ? `已验证来源并定位到${layerKeyText(layerKey)}图层`
+              : '已验证并定位到来源关联区域'
+        )
         return
       }
       ElMessage.warning(verification.bindingReason || '来源已验证，但地图图层中暂未找到对应对象')
@@ -1583,10 +1595,27 @@ async function ensureSourceTargetLayer(target: GisSourceMapTarget, preferredLaye
   if (!layerKey) return false
   layers[layerKey] = true
   const params = sourceTargetQuery(layerQuery(), target) as GisLayerQuery
-  if (layerKey === 'disease') params.zoom = ZOOM_DISEASE_DETAIL_MIN
+  if (layerKey === 'disease') {
+    params.zoom = ZOOM_DISEASE_DETAIL_MIN
+    if (!hasValidSourceBbox(params)) {
+      throw new Error('病害来源已验证，但缺少可用空间位置')
+    }
+  }
   const signature = stableLayerSignature({ layerKey, sourceTarget: params })
   await loadLayerSafely(layerKey, () => sourceLayerLoader(layerKey, params), signature)
   return true
+}
+
+function hasValidSourceBbox(params: GisLayerQuery) {
+  const values = [
+    params.minLng,
+    params.minLat,
+    params.maxLng,
+    params.maxLat
+  ].map(Number)
+  return values.every(Number.isFinite)
+    && values[0] < values[2]
+    && values[1] < values[3]
 }
 
 function sourceLayerLoader(layerKey: SourceLayerKey, params: GisLayerQuery) {
@@ -2095,9 +2124,49 @@ function clearAiSourceHighlight() {
   }
 }
 
+function isRouteSummaryTarget(target: GisSourceMapTarget) {
+  return normalizeObjectType(target.objectType) === 'ROAD_ROUTE'
+    && String(target.title || '').startsWith('区域统计')
+}
+
+function highlightRouteSummaryTarget(matched: {
+  layer: L.Layer
+  layerKey: string
+  feature: any
+}) {
+  if (!map) return false
+  aiSourceHighlightLayer = L.geoJSON(matched.feature as any, {
+    style: {
+      color: '#f97316',
+      weight: 6,
+      opacity: 0.95
+    }
+  }).addTo(map)
+  const bounds = (aiSourceHighlightLayer as any).getBounds?.()
+  if (bounds?.isValid?.()) {
+    map.fitBounds(bounds, { padding: [80, 80], maxZoom: 16 })
+  } else {
+    zoomToLayer(matched.layer)
+  }
+  return true
+}
+
 function locateMapTarget(target: GisSourceMapTarget) {
   if (!target) return false
   clearAiSourceHighlight()
+  const matched = target.objectId ? findLayerByTarget(target) : null
+  if (matched) {
+    if (isRouteSummaryTarget(target)) {
+      return highlightRouteSummaryTarget(matched)
+    }
+    const props = normalizeFeatureProperties(matched.layerKey, matched.feature)
+    selectedFeatureProperties.value = props
+    selectedDetail.value = props
+    highlightLayer(matched.layer)
+    zoomToLayer(matched.layer)
+    loadObjectDetail(props)
+    return true
+  }
   if (target.geometry) {
     const layer = L.geoJSON(target.geometry as any, {
       style: { color: '#f97316', weight: 4, fillOpacity: 0.15 },
@@ -2114,15 +2183,7 @@ function locateMapTarget(target: GisSourceMapTarget) {
     map.fitBounds(bboxBounds, { padding: [80, 80], maxZoom: 16 })
     return true
   }
-  const matched = findLayerByTarget(target)
-  if (!matched) return false
-  const props = { ...(matched.feature?.properties || {}), layerKey: matched.layerKey, objectType: matched.feature?.properties?.objectType || matched.feature?.properties?.object_type || layerKeyToObjectType(matched.layerKey) }
-  selectedFeatureProperties.value = props
-  selectedDetail.value = props
-  highlightLayer(matched.layer)
-  zoomToLayer(matched.layer)
-  loadObjectDetail(props)
-  return true
+  return false
 }
 
 function bboxToBounds(bbox: any) {
@@ -2158,8 +2219,17 @@ function featureMatchesTarget(layerKey: string, feature: any, target: GisSourceM
   const featureType = normalizeObjectType(firstValue(props.objectType, props.object_type, props.type, props.layerType, layerKeyToObjectType(layerKey)))
   const targetType = normalizeObjectType(target.objectType)
   const targetId = firstValue(target.objectId, target.id)
-  const featureId = firstValue(props.objectId, props.object_id, props.id, props.featureId, props.sourceId)
-  if (targetId && featureId && String(targetId) === String(featureId)) return true
+  const featureId = firstValue(
+    props.objectId,
+    props.object_id,
+    props.id,
+    props.featureId,
+    props.sourceId,
+    feature?.id
+  )
+  if (targetId) {
+    return Boolean(featureId && String(targetId) === String(featureId))
+  }
 
   if (isConcreteMapObjectType(targetType) && featureType && targetType !== featureType) return false
 
