@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
+
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 TENANT_ID="${TENANT_ID:-default}"
 OUTLINE_SYNC_LIMIT="${OUTLINE_SYNC_LIMIT:-50}"
