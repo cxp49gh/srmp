@@ -90,12 +90,12 @@ class OutlineSeedKnowledgeTest(unittest.TestCase):
             self.assertIsNone(self.by_title[title]["parent"])
 
         expected_children = {
-            "10_指标与评定标准": ["MQI 指标解释", "PCI 指标解释", "RDI 指标解释"],
-            "20_病害识别与分级": ["裂缝类病害", "坑槽类病害", "车辙类病害"],
-            "30_养护处置工艺": ["裂缝处置工艺", "坑槽修补工艺", "铣刨重铺"],
-            "50_项目资料": ["项目背景资料", "区域养护策略", "历史检测资料", "数据口径说明"],
-            "60_案例库": ["优秀方案案例", "典型病害处置案例", "问题复盘"],
-            "70_术语与问答": ["指标 FAQ", "养护工艺 FAQ", "平台使用 FAQ"],
+            "10_指标与评定标准": ["MQI 指标解释", "PCI 指标解释", "RDI 指标解释", "指标异常组合判读卡"],
+            "20_病害识别与分级": ["裂缝类病害", "坑槽类病害", "车辙类病害", "裂缝-坑槽-沉陷关联判读卡"],
+            "30_养护处置工艺": ["裂缝处置工艺", "坑槽修补工艺", "铣刨重铺", "预防性养护措施选择卡"],
+            "50_项目资料": ["项目背景资料", "区域养护策略", "历史检测资料", "数据口径说明", "山区农村公路风险因子库"],
+            "60_案例库": ["优秀方案案例", "典型病害处置案例", "问题复盘", "连续低分路段处置案例"],
+            "70_术语与问答": ["指标 FAQ", "养护工艺 FAQ", "平台使用 FAQ", "AI 追问来源上下文 FAQ"],
         }
         for parent, children in expected_children.items():
             actual = [item["title"] for item in self.catalog if item.get("parent") == parent]
@@ -206,6 +206,59 @@ class OutlineSeedKnowledgeTest(unittest.TestCase):
             ],
         }
         for title, fragments in expectations.items():
+            text = self.by_title[title]["text"]
+            for fragment in fragments:
+                self.assertIn(fragment, text, "%s missing %s" % (title, fragment))
+
+    def test_seed_adds_new_non_placeholder_operational_cards(self):
+        self.assertGreaterEqual(len(self.catalog), 51)
+        expectations = {
+            "指标异常组合判读卡": [
+                "MQI≥80 但 PCI<70",
+                "PCI<70 且 RQI≥85",
+                "RQI<70 但 PCI≥80",
+                "RDI<70 且车辙连续长度超过 200m",
+                "AI 可直接给出的结论模板",
+            ],
+            "裂缝-坑槽-沉陷关联判读卡": [
+                "裂缝 + 坑槽",
+                "裂缝 + 沉陷",
+                "坑槽 + 松散",
+                "唧浆",
+                "不允许只按单一病害给出处置",
+            ],
+            "预防性养护措施选择卡": [
+                "雾封层",
+                "碎石封层",
+                "稀浆封层",
+                "微表处",
+                "薄层罩面",
+                "结构性破坏禁用",
+            ],
+            "山区农村公路风险因子库": [
+                "临水临崖",
+                "急弯陡坡",
+                "学校、医院、赶集点",
+                "雨季排水",
+                "优先级加权",
+            ],
+            "连续低分路段处置案例": [
+                "K2+000—K2+800",
+                "PCI 从 78 降至 62",
+                "裂缝灌缝",
+                "局部铣刨重铺",
+                "排水边沟清淤",
+            ],
+            "AI 追问来源上下文 FAQ": [
+                "点击来源后应先定位到地图对象",
+                "GIS 校验",
+                "追问来源上下文",
+                "不要把知识来源当成空间事实",
+                "来源上下文只解释知识依据",
+            ],
+        }
+        for title, fragments in expectations.items():
+            self.assertIn(title, self.by_title)
             text = self.by_title[title]["text"]
             for fragment in fragments:
                 self.assertIn(fragment, text, "%s missing %s" % (title, fragment))
