@@ -138,6 +138,78 @@ class OutlineSeedKnowledgeTest(unittest.TestCase):
         for keyword in ["PCI", "裂缝宽度", "坑槽", "车辙连续", "灌缝", "铣刨重铺", "现场复核", "来源上下文"]:
             self.assertIn(keyword, corpus)
 
+    def test_seed_contains_directly_usable_road_maintenance_knowledge(self):
+        expectations = {
+            "评定等级与判定规则": [
+                "JTG 5210—2018",
+                "优：MQI 或分项指标 ≥90",
+                "良：80≤指标<90",
+                "中：70≤指标<80",
+                "次：60≤指标<70",
+                "差：指标<60",
+            ],
+            "MQI 指标解释": [
+                "综合技术状况入口",
+                "先看分项最低项",
+                "不得只凭 MQI 直接给出铣刨重铺",
+            ],
+            "PCI 指标解释": [
+                "路面损坏状况指数",
+                "裂缝、坑槽、松散、沉陷",
+                "PCI 处于中/次/差时",
+            ],
+            "裂缝类病害": [
+                "纵向裂缝",
+                "横向裂缝",
+                "网裂",
+                "块状裂缝",
+                "是否渗水",
+            ],
+            "坑槽类病害": [
+                "安全风险优先",
+                "坑槽深度",
+                "边缘破碎",
+                "临时修补",
+                "永久修补",
+            ],
+            "车辙类病害": [
+                "车辙深度",
+                "渠化交通",
+                "雨天积水",
+                "结构性车辙",
+            ],
+            "裂缝处置工艺": [
+                "清缝",
+                "干燥",
+                "灌缝材料",
+                "开放交通",
+                "雨天不得施工",
+            ],
+            "坑槽修补工艺": [
+                "切边",
+                "清底",
+                "粘层油",
+                "分层填补",
+                "压实",
+            ],
+            "灌缝/封层/罩面": [
+                "预防性养护",
+                "结构强度基本满足",
+                "微表处",
+                "薄层罩面",
+                "不得用于结构性破坏",
+            ],
+            "养护工艺 FAQ": [
+                "裂缝不一定需要铣刨重铺",
+                "坑槽不能只做表面填料",
+                "封层不是大修替代品",
+            ],
+        }
+        for title, fragments in expectations.items():
+            text = self.by_title[title]["text"]
+            for fragment in fragments:
+                self.assertIn(fragment, text, "%s missing %s" % (title, fragment))
+
     def test_template_blueprints_are_not_indexed_by_rag(self):
         for title in ["路线养护报告", "路段养护计划", "病害处置建议", "病害复核意见", "评定养护建议", "区域养护建议"]:
             meta = self.metadata[title]
